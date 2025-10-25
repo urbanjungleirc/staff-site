@@ -1,0 +1,257 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta
+      name="viewport"
+      content="width=device-width, initial-scale=1, viewport-fit=cover"
+    />
+    <title>Urban Jungle Staff Tools</title>
+    <meta
+      name="description"
+      content="Launch Urban Jungle internal tools secured behind Cloudflare Zero Trust."
+    />
+    <style>
+      :root {
+        color-scheme: light dark;
+        --bg: #f3f4f6;
+        --bg-alt: #ffffff;
+        --accent: #8b1c23;
+        --accent-soft: rgba(139, 28, 35, 0.12);
+        --text: #1f2937;
+        --text-muted: #4b5563;
+        --border: rgba(31, 41, 55, 0.08);
+        font-synthesis: none;
+        text-rendering: optimizeLegibility;
+      }
+
+      * {
+        box-sizing: border-box;
+      }
+
+      body {
+        margin: 0;
+        font-family: "Inter", "Segoe UI", system-ui, -apple-system, sans-serif;
+        background: var(--bg);
+        color: var(--text);
+        line-height: 1.5;
+        min-height: 100vh;
+        display: flex;
+        flex-direction: column;
+      }
+
+      header {
+        padding: 56px 24px 64px;
+        background: radial-gradient(circle at 20% -20%, rgba(171, 49, 57, 0.32), transparent 55%),
+          linear-gradient(145deg, rgba(107, 24, 30, 0.95), rgba(139, 28, 35, 0.92));
+        color: #fff;
+        text-align: center;
+      }
+
+      header h1 {
+        margin: 0;
+        font-size: clamp(2rem, 5vw, 3rem);
+        font-weight: 700;
+        letter-spacing: -0.02em;
+      }
+
+      header p {
+        margin: 16px auto 0;
+        max-width: 600px;
+        font-size: 1.05rem;
+        color: rgba(255, 255, 255, 0.85);
+      }
+
+      main {
+        flex: 1;
+        width: min(1100px, calc(100% - 32px));
+        margin: -48px auto 32px;
+      }
+
+      section {
+        background: var(--bg-alt);
+        border-radius: 18px;
+        padding: 32px;
+        box-shadow: 0 12px 30px -24px rgba(15, 23, 42, 1);
+        border: 1px solid var(--border);
+      }
+
+      .tools-grid {
+        display: grid;
+        grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+        gap: 20px;
+      }
+
+      .tool-card {
+        background: linear-gradient(135deg, rgba(139, 28, 35, 0.08), rgba(139, 28, 35, 0));
+        border-radius: 16px;
+        padding: 24px;
+        border: 1px solid rgba(139, 28, 35, 0.12);
+        display: flex;
+        flex-direction: column;
+        gap: 12px;
+        transition: transform 160ms ease, box-shadow 160ms ease;
+      }
+
+      .tool-card:hover,
+      .tool-card:focus-within {
+        transform: translateY(-4px);
+        box-shadow: 0 12px 30px -20px rgba(139, 28, 35, 0.55);
+      }
+
+      .tool-card a {
+        text-decoration: none;
+        color: inherit;
+        display: flex;
+        flex-direction: column;
+        gap: 12px;
+        flex: 1;
+      }
+
+      .tool-name {
+        font-weight: 600;
+        font-size: 1.12rem;
+        letter-spacing: -0.01em;
+      }
+
+      .tool-description {
+        color: var(--text-muted);
+        margin: 0;
+        font-size: 0.95rem;
+      }
+
+      .tool-meta {
+        display: flex;
+        gap: 8px;
+        flex-wrap: wrap;
+      }
+
+      .meta-pill {
+        padding: 6px 10px;
+        border-radius: 999px;
+        background: var(--accent-soft);
+        color: var(--accent);
+        font-size: 0.75rem;
+        font-weight: 600;
+        letter-spacing: 0.02em;
+        text-transform: uppercase;
+      }
+
+      .loading-state,
+      .empty-state,
+      .error-state {
+        margin: 0;
+        color: var(--text-muted);
+        text-align: center;
+        padding: 24px 0;
+      }
+
+      footer {
+        text-align: center;
+        padding: 24px;
+        font-size: 0.85rem;
+        color: var(--text-muted);
+      }
+
+      @media (max-width: 640px) {
+        header {
+          padding: 48px 18px 28px;
+        }
+
+        section {
+          padding: 24px;
+        }
+      }
+    </style>
+  </head>
+  <body>
+    <header>
+      <h1>Urban Jungle Staff Hub</h1>
+      <p>Launch the internal tools you need every day. Access is restricted to Urban Jungle staff via Cloudflare Zero Trust.</p>
+    </header>
+
+    <main>
+      <section aria-labelledby="tools-heading">
+        <h2 id="tools-heading" style="margin-top: 0; margin-bottom: 24px; font-size: 1.25rem">
+          Available Tools
+        </h2>
+        <div id="tool-content">
+          <p class="loading-state" role="status">Loading tools…</p>
+        </div>
+      </section>
+    </main>
+
+    <footer>Questions or missing something? Reach out to the digital team.</footer>
+
+    <script>
+      async function loadTools() {
+        const container = document.getElementById("tool-content");
+        try {
+          const response = await fetch("tools.json", { cache: "no-store" });
+          if (!response.ok) throw new Error("Unable to fetch tools");
+
+          const payload = await response.json();
+          const tools = Array.isArray(payload?.tools) ? payload.tools : [];
+
+          if (!tools.length) {
+            container.innerHTML =
+              '<p class="empty-state" role="status">No tools are published here yet.</p>';
+            return;
+          }
+
+          const grid = document.createElement("div");
+          grid.className = "tools-grid";
+
+          for (const tool of tools) {
+            if (!tool?.path || !tool?.name) continue;
+            const card = document.createElement("article");
+            card.className = "tool-card";
+
+            const link = document.createElement("a");
+            link.href = tool.path;
+            link.setAttribute("data-tool-id", tool.id ?? tool.name.toLowerCase());
+
+            const name = document.createElement("h3");
+            name.className = "tool-name";
+            name.textContent = tool.name;
+
+            const description = document.createElement("p");
+            description.className = "tool-description";
+            description.textContent = tool.description ?? "Launch the tool.";
+
+            link.append(name, description);
+
+            if (tool.category || tool.status) {
+              const meta = document.createElement("div");
+              meta.className = "tool-meta";
+              if (tool.category) {
+                const pill = document.createElement("span");
+                pill.className = "meta-pill";
+                pill.textContent = tool.category;
+                meta.appendChild(pill);
+              }
+              if (tool.status) {
+                const pill = document.createElement("span");
+                pill.className = "meta-pill";
+                pill.textContent = tool.status;
+                meta.appendChild(pill);
+              }
+              link.appendChild(meta);
+            }
+
+            card.appendChild(link);
+            grid.appendChild(card);
+          }
+
+          container.replaceChildren(grid);
+        } catch (error) {
+          console.error(error);
+          container.innerHTML =
+            '<p class="error-state" role="alert">We ran into a problem loading the tools. Please refresh or try again later.</p>';
+        }
+      }
+
+      loadTools();
+    </script>
+  </body>
+</html>

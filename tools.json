@@ -1,0 +1,11 @@
+{
+  "tools": [
+    {
+      "id": "hvt",
+      "name": "High-volume Training",
+      "description": "Track and analyse climbing performance.",
+      "path": "hvt/",
+      "category": "Classes"
+    }
+  ]
+}
