@@ -1,0 +1,2689 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <!-- font-family: 'fatFrank', sans-serif; -->
+    <link rel="stylesheet" href="https://use.typekit.net/tco5lzp.css">
+    <script src="https://apis.google.com/js/api.js"></script>
+    <script src="https://accounts.google.com/gsi/client" async defer></script>
+    <title>Drive Slideshow</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            background: #000;
+            color: white;
+            font-family: 'Arial', sans-serif;
+            overflow: hidden;
+            height: 100vh;
+        }
+
+        h1,
+        h2 {
+            font-family: 'FatFrank', sans-serif;
+            text-transform: uppercase; 
+            word-spacing: 0.15vw;
+        }
+
+        #slideshow-container {
+            position: relative;
+            width: 100vw;
+            height: 100vh;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+        }
+
+        #media-display {
+            width: 100%;
+            height: 100%;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            position: relative;
+        }
+
+        .slide-content {
+            position: absolute;
+            width: 100%;
+            height: 100%;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            opacity: 0;
+            transition: opacity 0.8s ease-in-out;
+        }
+
+        .slide-content.active {
+            opacity: 1;
+        }
+
+        .slide-content img {
+            width: 100%;
+            height: 100%;
+            object-fit: cover;
+        }
+
+        .slide-content video {
+            width: 100%;
+            height: 100%;
+            object-fit: contain;
+        }
+
+        #title-overlay {
+            position: absolute;
+            bottom: 100px;
+            left: 50px;
+            right: 50px;
+            background: rgba(0, 0, 0, 0.7);
+            padding: 20px 30px;
+            border-radius: 10px;
+            font-size: 2.5rem;
+            font-weight: bold;
+            text-align: center;
+            opacity: 0;
+            transform: translateY(20px);
+            transition: opacity 0.5s ease-in-out, transform 0.5s ease-in-out;
+        }
+
+        #title-overlay.show {
+            opacity: 1;
+            transform: translateY(0);
+        }
+
+        #description-overlay {
+            position: absolute;
+            bottom: 20px;
+            left: 50px;
+            right: 50px;
+            background: rgba(0, 0, 0, 0.6);
+            padding: 15px 30px;
+            border-radius: 8px;
+            font-size: 2.5rem;
+            text-align: center;
+            opacity: 0;
+            transform: translateY(20px);
+            transition: opacity 0.5s ease-in-out, transform 0.5s ease-in-out;
+        }
+
+        #description-overlay.show {
+            opacity: 1;
+            transform: translateY(0);
+        }
+
+        #error-message {
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            background: rgba(200, 0, 0, 0.9);
+            padding: 40px;
+            border-radius: 15px;
+            font-size: 2rem;
+            text-align: center;
+            max-width: 80%;
+        }
+
+        #loading {
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            font-size: 2rem;
+            text-align: center;
+            background: rgba(0, 0, 0, 0.8);
+            padding: 40px;
+            border-radius: 15px;
+            backdrop-filter: blur(5px);
+            z-index: 100;
+        }
+
+        .spinner {
+            border: 4px solid #333;
+            border-top: 4px solid #fff;
+            border-radius: 50%;
+            width: 50px;
+            height: 50px;
+            animation: spin 1s linear infinite;
+            margin: 20px auto;
+        }
+
+        @keyframes spin {
+            0% { transform: rotate(0deg); }
+            100% { transform: rotate(360deg); }
+        }
+
+        /* Leaderboard Styles */
+        .leaderboard-container {
+            width: 100%;
+            height: 100%;
+            background: linear-gradient(135deg, #1a1a1a, #2a2a2a);
+            display: grid;
+            grid-template-columns: 1fr 2fr; /* 33% | 66% */
+            position: relative;
+        }
+
+        .leaderboard-background-area {
+            position: relative;
+            overflow: hidden;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+        }
+
+        .leaderboard-background-image {
+            width: 100%;
+            height: 100%;
+            object-fit: cover;
+            position: absolute;
+            top: 0;
+            left: 0;
+        }
+
+        .leaderboard-background-area.blur-left .leaderboard-background-image {
+            mask-image: linear-gradient(to right, rgba(0,0,0,1) 0%, rgba(0,0,0,0) 100%);
+            -webkit-mask-image: linear-gradient(to right, rgba(0,0,0,1) 0%, rgba(0,0,0,0) 100%);
+        }
+
+        .leaderboard-background-area.blur-right .leaderboard-background-image {
+            mask-image: linear-gradient(to left, rgba(0,0,0,1) 0%, rgba(0,0,0,0) 100%);
+            -webkit-mask-image: linear-gradient(to left, rgba(0,0,0,1) 0%, rgba(0,0,0,0) 100%);
+        }
+
+        .leaderboard-content-area {
+            padding: 40px 40px;
+            display: flex;
+            flex-direction: column;
+            justify-content: center;
+            position: relative;
+            z-index: 10;
+        }
+
+        .leaderboard-title {
+            font-size: 5rem;
+            font-weight: bold;
+            text-align: center;
+            margin-bottom: 20px;
+            text-shadow: 3px 3px 6px rgba(0,0,0,0.8);
+            color: white;
+        }
+
+        .leaderboard-content {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 30px;
+            justify-content: center;
+            align-items: start;
+        }
+
+        .leaderboard-column {
+            display: flex;
+            flex-direction: column;
+            gap: 30px;
+        }
+
+        .leaderboard-category {
+            width: 100%;
+            min-width: 450px;
+        }
+
+        .category-header {
+            color: white;
+            font-family: 'FatFrank', sans-serif;
+            text-transform: uppercase; 
+            word-spacing: 0.15vw;
+            font-size: 2.5rem; 
+            font-weight: 700;
+            padding: 12px 30px;
+            text-align: left;
+            margin-bottom: 8px;
+            text-shadow: 2px 2px 4px rgba(0,0,0,0.8);
+            border-radius: 12px 12px 0 0;
+            background: linear-gradient(135deg, var(--header-color), rgba(255, 255, 255, 0.9));
+            position: relative;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+
+        .category-header .main-title {
+            flex-grow: 1;
+        }
+
+        .category-header .bracket-info {
+            color: var(--header-color);
+            text-shadow: 2px 2px 4px rgba(255,255,255,1);
+            margin-left: 20px;
+            text-align: right;
+            flex-shrink: 0;
+        }
+
+        .leaderboard-table {
+            width: 100%;
+            border-collapse: collapse;
+            background: rgba(255, 255, 255, 0.98);
+            border-radius: 0 0 12px 12px;
+            overflow: hidden;
+            box-shadow: 0 15px 35px rgba(0,0,0,0.3);
+            backdrop-filter: blur(10px);
+        }
+
+        .leaderboard-table td {
+            padding: 8px 20px;
+            font-size: 2.1rem;
+            color: #2c3e50;
+            border-bottom: 1px solid rgba(52, 73, 94, 0.1);
+            transition: background-color 0.2s ease;
+        }
+
+        .leaderboard-table tr:nth-child(even) {
+            background-color: rgba(236, 240, 241, 0.6);
+        }
+
+        .leaderboard-table tr:nth-child(odd) {
+            background-color: rgba(255, 255, 255, 0.8);
+        }
+
+        .leaderboard-table tr:hover {
+            background-color: rgba(52, 152, 219, 0.1);
+        }
+
+        .rank-cell {
+            font-weight: 800;
+            text-align: center;
+            width: 80px;
+            background: linear-gradient(135deg, #34495e, #2c3e50) !important;
+            color: white !important;
+            font-size: 1.6rem;
+            position: relative;
+        }
+
+        .name-cell {
+            font-weight: 600;
+            font-size: 1.5rem;
+        }
+
+        .time-cell {
+            text-align: right;
+            font-family: 'SF Mono', 'Monaco', 'Courier New', monospace;
+            font-weight: 700;
+            font-size: 1.4rem;
+            color: #e74c3c;
+            min-width: 100px;
+        }
+
+        /* Resume Session Popup */
+        .resume-popup {
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100vw;
+            height: 100vh;
+            background: rgba(0, 0, 0, 0.8);
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            z-index: 10000;
+        }
+
+        .resume-popup-content {
+            background: #374151;
+            border: 1px solid #4b5563;
+            border-radius: 20px;
+            padding: 60px;
+            max-width: 480px;
+            width: 90%;
+            text-align: center;
+            box-shadow: 0 20px 60px rgba(0,0,0,0.3);
+        }
+
+        .resume-popup-content h2 {
+            font-family: 'FatFrank', sans-serif;
+            color: #f3f4f6;
+            margin-bottom: 15px;
+            font-size: 2rem;
+            text-transform: uppercase;
+        }
+
+        .resume-popup-content p {
+            color: #d1d5db;
+            margin-bottom: 25px;
+            font-size: 1.1rem;
+            line-height: 1.5;
+        }
+
+        .resume-popup .folder-icon {
+            font-size: 24px;
+            color: #3b82f6;
+        }
+
+        #resume-folder-name {
+            font-weight: 600;
+            color: #f3f4f6;
+            font-size: 18px;
+        }
+
+        .auto-resume-text {
+            background: #1f2937;
+            border: 1px solid #374151;
+            border-radius: 10px;
+            padding: 15px;
+            margin-bottom: 30px;
+            color: #60a5fa;
+            font-weight: 500;
+            font-size: 16px;
+        }
+
+        #countdown {
+            font-weight: 700;
+            color: #3b82f6;
+        }
+
+        .resume-buttons {
+            display: flex;
+            gap: 15px;
+            justify-content: center;
+        }
+
+        .resume-btn {
+            padding: 14px 28px;
+            border: none;
+            border-radius: 25px;
+            font-size: 16px;
+            font-weight: 600;
+            cursor: pointer;
+            transition: all 0.3s ease;
+            min-width: 160px;
+            text-transform: none;
+        }
+
+        .resume-primary {
+            background: linear-gradient(135deg, #10b981 0%, #059669 100%);
+            color: white;
+            box-shadow: 0 4px 15px rgba(16, 185, 129, 0.3);
+        }
+
+        .resume-primary:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 6px 20px rgba(16, 185, 129, 0.4);
+            background: linear-gradient(135deg, #059669 0%, #047857 100%);
+        }
+
+        .resume-secondary {
+            background: #6b7280;
+            color: #f3f4f6;
+            border: 1px solid #9ca3af;
+            box-shadow: 0 4px 15px rgba(0, 0, 0, 0.2);
+        }
+
+        .resume-secondary:hover {
+            transform: translateY(-2px);
+            background: #9ca3af;
+            box-shadow: 0 6px 20px rgba(0, 0, 0, 0.3);
+        }
+
+
+        /* Authentication Interface */
+        #auth-container {
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100vw;
+            height: 100vh;
+            background: linear-gradient(135deg, #1f2937, #111827);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            z-index: 1000;
+        }
+
+        .auth-card {
+            background: #374151;
+            border: 1px solid #4b5563;
+            border-radius: 20px;
+            padding: 60px;
+            text-align: center;
+            box-shadow: 0 20px 60px rgba(0,0,0,0.5);
+            max-width: 500px;
+            width: 90%;
+        }
+
+        .slideshow-logo {
+            font-family: 'FatFrank', sans-serif;
+            font-size: 3rem;
+            word-spacing: 0.15vw;
+            color: #10b981;
+            text-transform: uppercase;
+            margin-bottom: 10px;
+        }
+
+        .auth-title {
+            font-family: 'FatFrank', sans-serif;
+            font-size: 2rem;
+            word-spacing: 0.15vw;
+            color: #f3f4f6;
+            text-transform: uppercase;
+            margin-bottom: 30px;
+        }
+
+        .auth-description {
+            color: #d1d5db;
+            font-size: 1.1rem;
+            margin-bottom: 40px;
+            line-height: 1.5;
+        }
+
+        .google-login-btn {
+            background: #2563eb; /* Blue fallback */
+            color: white !important;
+            border: none;
+            padding: 15px 40px;
+            font-size: 1.2rem;
+            font-weight: bold;
+            border-radius: 50px;
+            cursor: pointer;
+            transition: all 0.3s ease;
+            text-transform: uppercase;
+            letter-spacing: 1px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            gap: 10px;
+        }
+
+        .google-login-btn:hover {
+            background: #ea580c; /* Orange fallback */
+            transform: translateY(-2px);
+            box-shadow: 0 10px 25px rgba(0,0,0,0.2);
+        }
+
+        .google-login-btn span {
+            color: white !important;
+        }
+
+        /* Folder Browser Interface */
+        #folder-browser {
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100vw;
+            height: 100vh;
+            background: linear-gradient(135deg, #1f2937, #111827);
+            display: none;
+            flex-direction: column;
+            z-index: 1000;
+            padding: 40px;
+        }
+
+        .browser-header {
+            background: white;
+            border-radius: 15px;
+            padding: 30px;
+            margin-bottom: 30px;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            box-shadow: 0 10px 30px rgba(0,0,0,0.1);
+        }
+
+        .browser-title {
+            font-family: 'FatFrank', sans-serif;
+            font-size: 2rem;
+            word-spacing: 0.15vw;
+            color: #1a212e;
+            text-transform: uppercase;
+        }
+
+        .user-info {
+            display: flex;
+            align-items: center;
+            gap: 20px;
+            color: #374151;
+        }
+
+        .logout-btn {
+            background: #dc2626;
+            color: white;
+            border: none;
+            padding: 10px 20px;
+            border-radius: 25px;
+            cursor: pointer;
+            font-weight: bold;
+            text-transform: uppercase;
+            transition: all 0.3s ease;
+        }
+
+        .logout-btn:hover {
+            background: #b91c1c;
+            transform: translateY(-1px);
+        }
+
+        .folders-container {
+            background: #374151;
+            border-radius: 15px;
+            padding: 30px;
+            flex-grow: 1;
+            overflow-y: auto;
+            box-shadow: 0 10px 30px rgba(0,0,0,0.3);
+        }
+
+        .folders-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
+            gap: 6px;
+            max-height: 65vh;
+            overflow-y: auto;
+            padding: 5px;
+        }
+
+        .folder-item {
+            background: #4b5563;
+            border: 2px solid transparent;
+            border-radius: 10px;
+            padding: 16px;
+            cursor: pointer;
+            transition: all 0.3s ease;
+            display: flex;
+            align-items: center;
+            gap: 12px;
+        }
+
+        .folder-item:hover {
+            border-color: #3b82f6;
+            transform: translateY(-2px);
+            box-shadow: 0 8px 25px rgba(0,0,0,0.3);
+            background: #6b7280;
+        }
+
+        .folder-item.selected {
+            border-color: #10b981;
+            background: rgba(16, 185, 129, 0.2);
+        }
+
+        .folder-item.selected .folder-info h3 {
+            color: white;
+        }
+
+        .folder-item.selected .folder-info p {
+            color: rgba(255, 255, 255, 0.8);
+        }
+
+        .folder-icon {
+            font-size: 1.1rem;
+            color: #f6d55c;
+            flex-shrink: 0;
+        }
+
+        .folder-info {
+            flex: 1;
+            min-width: 0;
+        }
+
+        .folder-info h3 {
+            color: #f7fafc;
+            margin: 0 0 1px 0;
+            font-size: 0.85rem;
+            font-weight: 600;
+            line-height: 1.1;
+            overflow: hidden;
+            text-overflow: ellipsis;
+            white-space: nowrap;
+        }
+
+        .folder-info p {
+            color: #9ca6b5;
+            font-size: 0.7rem;
+            margin: 0;
+            overflow: hidden;
+            text-overflow: ellipsis;
+            white-space: nowrap;
+        }
+
+        .start-slideshow-btn {
+            position: fixed;
+            bottom: 30px;
+            left: 50%;
+            transform: translateX(-50%);
+            background: #1f2937; 
+            color: white;
+            border: none;
+            padding: 16px 24px;
+            font-size: 1rem;
+            border-radius: 12px;
+            cursor: pointer;
+            text-transform: uppercase;
+            display: none;
+            transition: all 0.3s ease;
+            box-shadow: 0 8px 25px rgba(0,0,0,0.15);
+            max-width: 320px;
+            text-align: center;
+            line-height: 1.3;
+            min-height: auto;
+        }
+
+        .start-slideshow-btn .btn-title {
+            border: 2px solid rgba(255, 255, 255, 0.3);
+            border-radius: 10px;
+            background:  #10b981;
+            padding: 6px 10px;
+            font-size: 1.1rem;
+            margin-bottom: 10px;
+            display: block;
+            cursor: pointer;
+            transition: all 0.3s ease;
+        }
+        .start-slideshow-btn .btn-title:hover {
+            background: #059669;
+            border-color: rgba(255, 255, 255, 0.5);
+            transform: translateY(-1px);
+        }
+
+        .start-slideshow-btn .btn-info {
+            font-size: 0.8rem;
+            opacity: 0.9;
+            font-weight: 500;
+            text-transform: none;
+            margin: 4px 0;
+            display: block;
+        }
+
+        .start-slideshow-btn .btn-link {
+            font-size: 0.75rem;
+            opacity: 0.8;
+            font-weight: 400;
+            text-transform: none;
+            margin-top: 6px;
+            display: block;
+        }
+
+        .start-slideshow-btn .btn-link a {
+            color: #ffffff;
+            text-decoration: none;
+            border-bottom: 1px solid rgba(191, 219, 254, 0.3);
+            transition: all 0.2s ease;
+        }
+
+        .start-slideshow-btn .btn-link a:hover {
+            color: #ffffff;
+            border-bottom-color: rgba(255, 255, 255, 0.5);
+        }
+
+        .start-slideshow-btn:hover {
+            box-shadow: 0 15px 40px rgba(0,0,0,0.3);
+        }
+
+        .loading-spinner {
+            display: inline-block;
+            width: 20px;
+            height: 20px;
+            border: 3px solid #ffffff40;
+            border-radius: 50%;
+            border-top-color: #fff;
+            animation: spin 1s ease-in-out infinite;
+            margin-right: 10px;
+        }
+
+        .folder-controls {
+            display: flex;
+            gap: 15px;
+            margin-bottom: 20px;
+            align-items: center;
+            flex-wrap: wrap;
+        }
+
+        .search-box {
+            flex: 1;
+            min-width: 250px;
+            padding: 12px 16px;
+            border: 2px solid #4b5563;
+            border-radius: 8px;
+            background: #1f2937;
+            color: #f3f4f6;
+            font-size: 0.95rem;
+            outline: none;
+            transition: border-color 0.3s ease;
+        }
+
+        .search-box:focus {
+            border-color: #3b82f6;
+        }
+
+        .search-box::placeholder {
+            color: #9ca3af;
+        }
+
+        .sort-select {
+            padding: 12px 16px;
+            border: 2px solid #4b5563;
+            border-radius: 8px;
+            background: #1f2937;
+            color: #f3f4f6;
+            font-size: 0.95rem;
+            outline: none;
+            cursor: pointer;
+            transition: border-color 0.3s ease;
+        }
+
+        .sort-select:focus {
+            border-color: #3b82f6;
+        }
+
+        .folders-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 20px;
+        }
+
+        .folders-count {
+            color: #9ca3af;
+            font-size: 0.9rem;
+        }
+
+        .drive-nav {
+            display: flex;
+            gap: 10px;
+            margin-bottom: 20px;
+            border-bottom: 2px solid #4b5563;
+            padding-bottom: 10px;
+        }
+
+        .nav-tab {
+            padding: 12px 20px;
+            background: transparent;
+            border: none;
+            color: #9ca3af;
+            cursor: pointer;
+            border-radius: 8px 8px 0 0;
+            font-size: 0.95rem;
+            font-weight: 500;
+            transition: all 0.3s ease;
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+
+        .nav-tab:hover {
+            background: #4b5563;
+            color: #f3f4f6;
+        }
+
+        .nav-tab.active {
+            background: #3b82f6;
+            color: white;
+            border-bottom: 2px solid #3b82f6;
+        }
+
+        .loading-state {
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            padding: 40px;
+            color: #9ca3af;
+        }
+    </style>
+</head>
+<body>
+    <!-- Authentication Interface -->
+    <div id="auth-container">
+        <div class="auth-card">
+            <div class="slideshow-logo">🎬 Slideshow</div>
+            <h1 class="auth-title">From your Google Drive folders</h1>
+            <p class="auth-description">
+                Connect your Google Drive to create professional slideshows with live speed leaderboard.
+                Access your folders and start displaying content instantly.
+            </p>
+            <button class="google-login-btn" onclick="driveAuth.login()">
+                🔐 <span>Connect Google Drive</span>
+            </button>
+        </div>
+    </div>
+
+    <!-- Resume Session Popup -->
+    <div id="resume-popup" class="resume-popup" style="display: none;">
+        <div class="resume-popup-content">
+            <h2>Resume Session?</h2>
+            <p>Previous slideshow session found:</p>
+            <div class="folder-info">
+                <span class="folder-icon">📁</span>
+                <span id="resume-folder-name"></span>
+            </div>
+            <div id="auto-resume-text" class="auto-resume-text">
+                Auto-resuming in <span id="countdown">30</span> seconds...
+            </div>
+            <div class="resume-buttons">
+                <button id="resume-slideshow-btn" class="resume-btn resume-primary">
+                    Resume Slideshow
+                </button>
+                <button id="start-fresh-btn" class="resume-btn resume-secondary">
+                    Start Fresh Session
+                </button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Folder Browser Interface -->
+    <div id="folder-browser">
+        <div class="browser-header">
+            <h1 class="browser-title">Select Slideshow Folder</h1>
+            <div class="user-info">
+                <span id="user-email">Loading...</span>
+                <button class="logout-btn" onclick="driveAuth.logout()">Logout</button>
+            </div>
+        </div>
+        <div class="folders-container">
+            <div class="drive-nav">
+                <button class="nav-tab active" onclick="driveAuth.switchView('mydrive')" data-view="mydrive">
+                    🏠 My Drive
+                </button>
+                <button class="nav-tab" onclick="driveAuth.switchView('shared')" data-view="shared">
+                    👥 Shared with me
+                </button>
+                <button class="nav-tab" onclick="driveAuth.switchView('recent')" data-view="recent">
+                    🕒 Recent
+                </button>
+            </div>
+            <div class="folder-controls">
+                <input type="text" class="search-box" id="folder-search" placeholder="🔍 Search folders..." onkeyup="driveAuth.searchFolders()">
+                <select class="sort-select" id="folder-sort" onchange="driveAuth.sortFolders()">
+                    <option value="name">📝 Sort by Name</option>
+                    <option value="modified">📅 Sort by Date</option>
+                </select>
+            </div>
+            <div class="folders-header">
+                <span class="folders-count" id="folders-count">Loading folders...</span>
+            </div>
+            <div id="folders-grid" class="folders-grid">
+                <div class="folder-item" style="justify-content: center;">
+                    <div class="loading-spinner"></div>
+                    Loading your folders...
+                </div>
+            </div>
+        </div>
+        <div class="start-slideshow-btn" id="start-slideshow-btn">
+            🎬 Start Slideshow
+        </div>
+    </div>
+
+    <!-- Slideshow Interface (Hidden Initially) -->
+    <div id="slideshow-container" style="display: none;">
+        <div id="media-display"></div>
+        <div id="title-overlay"></div>
+        <div id="description-overlay"></div>
+    </div>
+
+    <div id="loading" style="display: none;">
+        <div class="spinner"></div>
+        <div>Loading slideshow...</div>
+    </div>
+
+    <div id="error-message" style="display:none;"></div>
+
+    <script>
+        // Global variables for resume session
+        let resumeTimeoutId = null;
+
+        // Resume Session Popup Functions
+        function showResumeSessionPopup(folderData, authData, timeoutSeconds) {
+            // Hide other interfaces
+            document.getElementById('auth-container').style.display = 'none';
+            document.getElementById('folder-browser').style.display = 'none';
+            document.getElementById('slideshow-container').style.display = 'none';
+
+            // Show popup
+            document.getElementById('resume-popup').style.display = 'flex';
+            document.getElementById('resume-folder-name').textContent = folderData.name;
+
+            // Handle timeout (0 = disabled)
+            if (timeoutSeconds > 0) {
+                let remainingTime = timeoutSeconds;
+                document.getElementById('countdown').textContent = remainingTime;
+
+                const countdownInterval = setInterval(() => {
+                    remainingTime--;
+                    document.getElementById('countdown').textContent = remainingTime;
+
+                    if (remainingTime <= 0) {
+                        clearInterval(countdownInterval);
+                        resumeSlideshow(folderData, authData);
+                    }
+                }, 1000);
+
+                // Store interval for cleanup
+                resumeTimeoutId = countdownInterval;
+            } else {
+                // Hide countdown if timeout is disabled
+                document.getElementById('auto-resume-text').style.display = 'none';
+            }
+
+            // Button event listeners
+            document.getElementById('resume-slideshow-btn').onclick = () => {
+                clearResumeTimeout();
+                resumeSlideshow(folderData, authData);
+            };
+
+            document.getElementById('start-fresh-btn').onclick = () => {
+                clearResumeTimeout();
+                startFreshSession();
+            };
+        }
+
+        function clearResumeTimeout() {
+            if (resumeTimeoutId) {
+                clearInterval(resumeTimeoutId);
+                resumeTimeoutId = null;
+            }
+        }
+
+        async function resumeSlideshow(folderData, authData) {
+            // Hide popup
+            document.getElementById('resume-popup').style.display = 'none';
+
+            try {
+                // Initialize DriveAuth object for Escape key functionality
+                window.driveAuth = new DriveAuth();
+                window.driveAuth.accessToken = authData.token;
+                window.driveAuth.selectedFolder = folderData;
+
+                // Hide all interfaces and start slideshow directly
+                document.getElementById('auth-container').style.display = 'none';
+                document.getElementById('folder-browser').style.display = 'none';
+                document.getElementById('slideshow-container').style.display = 'flex';
+                document.getElementById('loading').style.display = 'block';
+
+                // Initialize slideshow directly (like the original working code)
+                window.slideshow = new DriveSlideshow();
+                window.slideshow.folderId = folderData.id;
+                window.slideshow.accessToken = authData.token;
+                await window.slideshow.init();
+            } catch (error) {
+                console.error('Failed to resume slideshow:', error);
+                // Fallback to fresh session
+                startFreshSession();
+            }
+        }
+
+        function startFreshSession() {
+            // Hide popup
+            document.getElementById('resume-popup').style.display = 'none';
+
+            // Clear saved session data
+            localStorage.removeItem('ujSlideshow_folder');
+            localStorage.removeItem('ujSlideshow_active');
+
+            // Start fresh OAuth flow (don't interfere with existing DriveAuth)
+            document.getElementById('auth-container').style.display = 'flex';
+            document.getElementById('folder-browser').style.display = 'none';
+            document.getElementById('slideshow-container').style.display = 'none';
+
+            // Initialize fresh OAuth
+            window.driveAuth = new DriveAuth();
+            window.driveAuth.init();
+        }
+
+        // OAuth Authentication Class
+        class DriveAuth {
+            constructor() {
+                this.clientId = '743038481656-p4r90h8112ta5tqhdt1h7ct8rd036t5k.apps.googleusercontent.com'; // Replace with your actual client ID
+                this.apiKey = 'AIzaSyAL0c1mpOJImMGiDA6XtMV2aPA2mWgdrJE';
+                this.scope = 'https://www.googleapis.com/auth/drive.readonly https://www.googleapis.com/auth/userinfo.email';
+                // PRODUCTION DOMAIN RESTRICTION - Only these domains are allowed to use the slideshow
+                this.allowedDomains = ['urbanjungleirc.com', 'happyk.au', 'climberswa.asn.au'];
+                this.selectedFolder = null;
+                this.accessToken = null;
+                this.currentView = 'mydrive';
+                this.allFolders = [];
+            }
+
+            async init() {
+                // Initialize Google APIs without discovery docs to avoid 502 errors
+                try {
+                    await new Promise((resolve) => {
+                        gapi.load('client', resolve);
+                    });
+
+                    await gapi.client.init({
+                        apiKey: this.apiKey
+                        // Removed discoveryDocs to prevent 502 Bad Gateway errors
+                    });
+                } catch (error) {
+                    // Continue anyway - we can work without gapi client
+                }
+
+                // Check for existing authentication
+                const savedAuth = localStorage.getItem('ujSlideshow_auth');
+                if (savedAuth) {
+                    const authData = JSON.parse(savedAuth);
+                    if (authData.expiry > Date.now()) {
+                        this.accessToken = authData.token;
+                        await this.showFolderBrowser(authData.userEmail);
+                        return;
+                    } else {
+                        localStorage.removeItem('ujSlideshow_auth');
+                    }
+                }
+
+                // Show login interface
+                this.showAuthInterface();
+            }
+
+
+            showAuthInterface() {
+                document.getElementById('auth-container').style.display = 'flex';
+                document.getElementById('folder-browser').style.display = 'none';
+                document.getElementById('slideshow-container').style.display = 'none';
+            }
+
+            async login() {
+                try {
+                    const loginBtn = document.querySelector('.google-login-btn');
+                    loginBtn.innerHTML = '<div class="loading-spinner"></div><span>Connecting...</span>';
+                    loginBtn.disabled = true;
+
+                    // Use simple OAuth 2.0 flow like the working version
+                    const tokenClient = google.accounts.oauth2.initTokenClient({
+                        client_id: this.clientId,
+                        scope: this.scope,
+                        callback: async (tokenResponse) => {
+                            if (tokenResponse.access_token) {
+                                this.accessToken = tokenResponse.access_token;
+                                
+                                // Get user info to validate domain
+                                try {
+                                    const userInfo = await fetch(`https://www.googleapis.com/oauth2/v2/userinfo?access_token=${this.accessToken}`);
+                                    
+                                    if (!userInfo.ok) {
+                                        throw new Error(`HTTP ${userInfo.status}: ${userInfo.statusText}`);
+                                    }
+                                    
+                                    const userData = await userInfo.json();
+                                    
+                                    if (!userData.email) {
+                                        throw new Error('No email found in user data');
+                                    }
+                                    
+                                    const email = userData.email;
+                                    const domain = email.split('@')[1];
+
+                                    // PRODUCTION SECURITY: Domain restriction enforced (except localhost for development)
+                                    const isLocalhost = window.location.hostname === '127.0.0.1' || window.location.hostname === 'localhost';
+                                    if (!isLocalhost && !this.allowedDomains.includes(domain)) {
+                                        alert(`🚫 Access denied. Only users from ${this.allowedDomains.join(', ')} domains are allowed.`);
+                                        loginBtn.innerHTML = '🔐 <span>Connect Google Drive</span>';
+                                        loginBtn.disabled = false;
+                                        return;
+                                    }
+
+
+                                    // Save authentication
+                                    const authData = {
+                                        token: this.accessToken,
+                                        expiry: Date.now() + (tokenResponse.expires_in * 1000),
+                                        userEmail: email
+                                    };
+                                    localStorage.setItem('ujSlideshow_auth', JSON.stringify(authData));
+
+                                    await this.showFolderBrowser(email);
+
+                                } catch (error) {
+                                    // Failed to get user info
+                                    loginBtn.innerHTML = '🔐 <span>Connect Google Drive</span>';
+                                    loginBtn.disabled = false;
+                                    alert(`Failed to verify user information: ${error.message}`);
+                                }
+                            } else {
+                                // No access token received
+                                loginBtn.innerHTML = '🔐 <span>Connect Google Drive</span>';
+                                loginBtn.disabled = false;
+                                alert('Authentication failed. Please try again.');
+                            }
+                        }
+                    });
+
+                    tokenClient.requestAccessToken();
+
+                } catch (error) {
+                    // Login failed
+                    const loginBtn = document.querySelector('.google-login-btn');
+                    loginBtn.innerHTML = '🔐 <span>Connect Google Drive</span>';
+                    loginBtn.disabled = false;
+                    alert('Login failed. Please try again.');
+                }
+            }
+
+            async showFolderBrowser(userEmail) {
+                document.getElementById('auth-container').style.display = 'none';
+                document.getElementById('folder-browser').style.display = 'flex';
+                document.getElementById('user-email').textContent = userEmail;
+
+                await this.loadFoldersForCurrentView();
+            }
+
+            async loadFolders() {
+                try {
+                    const response = await fetch(
+                        `https://www.googleapis.com/drive/v3/files?q=mimeType='application/vnd.google-apps.folder'&fields=files(id,name,modifiedTime,parents,trashed)&orderBy=name&access_token=${this.accessToken}`
+                    );
+                    
+                    const data = await response.json();
+                    
+                    if (!response.ok) {
+                        throw new Error(data.error?.message || 'Failed to load folders');
+                    }
+
+                    // Debug: Log all folders before filtering
+                    
+                    // Filter out system folders, hidden folders, and non-user folders
+                    const userFolders = (data.files || []).filter(folder => {
+                        const name = folder.name || '';
+                        
+                        // Skip if trashed
+                        if (folder.trashed) {
+                            return false;
+                        }
+                        
+                        // Skip hidden/system folders (starting with dot)
+                        if (name.startsWith('.')) {
+                            return false;
+                        }
+                        
+                        // Skip common system/IDE folders (only exact matches)
+                        const systemFolders = ['.github', '.vscode', '.venv', '__pycache__', 'node_modules', '.git', '.svn'];
+                        const isSystemFolder = systemFolders.some(sys => name.toLowerCase() === sys.toLowerCase());
+                        if (isSystemFolder) {
+                            return false;
+                        }
+                        
+                        // Only skip VERY specific cryptic patterns
+                        if (name.length <= 2 && /^[0-9]+$/.test(name)) {
+                            return false;
+                        }
+                        
+                        return true;
+                    });
+
+                    
+                    this.allFolders = userFolders;
+                    
+                    // If no folders pass the filter, show all folders with a warning
+                    if (userFolders.length === 0 && data.files.length > 0) {
+                        this.allFolders = data.files;
+                        this.applySortAndDisplay(data.files);
+                    } else {
+                        this.applySortAndDisplay(userFolders);
+                    }
+
+                } catch (error) {
+                    // Error loading folders
+                    document.getElementById('folders-grid').innerHTML = `
+                        <div class="folder-item" style="justify-content: center; border-color: #dc3545; color: #dc3545;">
+                            ❌ Error loading folders: ${error.message}
+                        </div>
+                    `;
+                }
+            }
+
+            async switchView(view) {
+                this.currentView = view;
+                
+                // Update active tab
+                document.querySelectorAll('.nav-tab').forEach(tab => {
+                    tab.classList.remove('active');
+                });
+                document.querySelector(`[data-view="${view}"]`).classList.add('active');
+                
+                // Load folders for the new view
+                await this.loadFoldersForCurrentView();
+            }
+
+            async loadFoldersForCurrentView() {
+                const grid = document.getElementById('folders-grid');
+                grid.innerHTML = '<div class="loading-state"><div class="loading-spinner"></div>Loading folders...</div>';
+                
+                try {
+                    let folders = [];
+                    
+                    if (this.currentView === 'mydrive') {
+                        folders = await this.loadMyDriveFolders();
+                    } else if (this.currentView === 'shared') {
+                        folders = await this.loadSharedFolders();
+                    } else if (this.currentView === 'recent') {
+                        folders = await this.loadRecentFolders();
+                    }
+                    
+                    this.allFolders = folders;
+                    this.applySortAndDisplay(folders);
+                    
+                } catch (error) {
+                    // Error loading folders
+                    grid.innerHTML = `
+                        <div class="folder-item" style="justify-content: center; grid-column: 1/-1;">
+                            ❌ Error loading folders: ${error.message}
+                        </div>
+                    `;
+                }
+            }
+
+            async loadMyDriveFolders() {
+                const response = await fetch(
+                    `https://www.googleapis.com/drive/v3/files?q=mimeType='application/vnd.google-apps.folder'+and+trashed=false+and+'me'+in+owners&fields=files(id,name,modifiedTime,parents,owners)&orderBy=name&access_token=${this.accessToken}`
+                );
+                
+                const data = await response.json();
+                
+                if (!response.ok) {
+                    throw new Error(data.error?.message || 'Failed to load My Drive folders');
+                }
+
+                return this.filterUserFolders(data.files || [], 'My Drive');
+            }
+
+            async loadSharedFolders() {
+                const response = await fetch(
+                    `https://www.googleapis.com/drive/v3/files?q=mimeType='application/vnd.google-apps.folder'+and+trashed=false+and+not+'me'+in+owners&fields=files(id,name,modifiedTime,sharingUser,owners)&orderBy=modifiedTime+desc&access_token=${this.accessToken}`
+                );
+                
+                const data = await response.json();
+                
+                if (!response.ok) {
+                    throw new Error(data.error?.message || 'Failed to load shared folders');
+                }
+
+                return this.filterUserFolders(data.files || [], 'Shared');
+            }
+
+            async loadRecentFolders() {
+                const response = await fetch(
+                    `https://www.googleapis.com/drive/v3/files?q=mimeType='application/vnd.google-apps.folder'+and+trashed=false&fields=files(id,name,modifiedTime,viewedByMeTime)&orderBy=viewedByMeTime+desc&pageSize=50&access_token=${this.accessToken}`
+                );
+                
+                const data = await response.json();
+                
+                if (!response.ok) {
+                    throw new Error(data.error?.message || 'Failed to load recent folders');
+                }
+
+                return this.filterUserFolders(data.files || [], 'Recent');
+            }
+
+            filterUserFolders(folders, source) {
+                // Remove duplicates based on ID
+                const uniqueFolders = folders.reduce((acc, folder) => {
+                    if (!acc.find(f => f.id === folder.id)) {
+                        acc.push(folder);
+                    }
+                    return acc;
+                }, []);
+
+                const userFolders = uniqueFolders.filter(folder => {
+                    const name = folder.name || '';
+                    
+                    // Skip hidden/system folders (starting with dot)
+                    if (name.startsWith('.')) return false;
+                    
+                    // Skip common system/IDE folders (only exact matches)
+                    const systemFolders = ['.github', '.vscode', '.venv', '__pycache__', 'node_modules', '.git', '.svn'];
+                    const isSystemFolder = systemFolders.some(sys => name.toLowerCase() === sys.toLowerCase());
+                    if (isSystemFolder) return false;
+                    
+                    // Skip cryptic short names (likely system generated)
+                    if (name.length <= 2) {
+                        // Skip purely numeric (00, 01, 10, etc.)
+                        if (/^[0-9]+$/.test(name)) return false;
+                        
+                        // Skip hex-like patterns (0a, 0b, 1e, 2f, etc.)
+                        if (/^[0-9][a-f]$/.test(name.toLowerCase())) return false;
+                        if (/^[a-f][0-9]$/.test(name.toLowerCase())) return false;
+                        if (/^[a-f]{2}$/.test(name.toLowerCase())) return false;
+                    }
+                    
+                    // Skip folders that are only special characters or very cryptic
+                    if (/^[^a-zA-Z0-9\s\-_()]+$/.test(name)) return false;
+                    
+                    // Skip folders that look like UUIDs or hashes (long random strings)
+                    if (name.length > 10 && /^[a-f0-9\-_]+$/i.test(name) && !name.includes(' ')) return false;
+                    
+                    return true;
+                });
+
+                return userFolders;
+            }
+
+            displayFolders(folders) {
+                const grid = document.getElementById('folders-grid');
+                const countElement = document.getElementById('folders-count');
+                
+                // Update count
+                const totalCount = this.allFolders ? this.allFolders.length : folders.length;
+                const displayingCount = folders.length;
+                countElement.textContent = displayingCount === totalCount 
+                    ? `${totalCount} folders` 
+                    : `${displayingCount} of ${totalCount} folders`;
+                
+                if (folders.length === 0) {
+                    grid.innerHTML = `
+                        <div class="folder-item" style="justify-content: center; grid-column: 1/-1;">
+                            📁 No folders found
+                        </div>
+                    `;
+                    return;
+                }
+
+                grid.innerHTML = folders.map(folder => {
+                    const folderName = folder.name || 'Untitled Folder';
+                    const safeId = folder.id.replace(/'/g, "\\'");
+                    const safeName = folderName.replace(/'/g, "\\'");
+                    const displayName = folderName.length > 40 ? folderName.substring(0, 40) + '...' : folderName;
+                    const htmlSafeDisplayName = displayName
+                        .replace(/&/g, '&amp;')
+                        .replace(/</g, '&lt;')
+                        .replace(/>/g, '&gt;')
+                        .replace(/"/g, '&quot;');
+                    
+                    const modifiedDate = new Date(folder.modifiedTime);
+                    const now = new Date();
+                    const diffDays = Math.floor((now - modifiedDate) / (1000 * 60 * 60 * 24));
+                    
+                    let dateText;
+                    if (diffDays === 0) {
+                        dateText = 'Today';
+                    } else if (diffDays === 1) {
+                        dateText = 'Yesterday';
+                    } else if (diffDays < 7) {
+                        dateText = `${diffDays} days ago`;
+                    } else {
+                        // AU date format: dd/mm/yyyy
+                        dateText = modifiedDate.toLocaleDateString('en-AU');
+                    }
+                    
+                    return `
+                    <div class="folder-item" onclick="driveAuth.selectFolder('${safeId}', '${safeName}')" title="${htmlSafeDisplayName}">
+                        <div class="folder-icon">📁</div>
+                        <div class="folder-info">
+                            <h3>${htmlSafeDisplayName}</h3>
+                            <p>Modified: ${dateText}</p>
+                        </div>
+                    </div>
+                    `;
+                }).join('');
+            }
+
+            searchFolders() {
+                const searchTerm = document.getElementById('folder-search').value.toLowerCase();
+                const filtered = this.allFolders.filter(folder => 
+                    folder.name.toLowerCase().includes(searchTerm)
+                );
+                
+                this.applySortAndDisplay(filtered);
+            }
+
+            sortFolders() {
+                const searchTerm = document.getElementById('folder-search').value.toLowerCase();
+                const filtered = this.allFolders.filter(folder => 
+                    folder.name.toLowerCase().includes(searchTerm)
+                );
+                
+                this.applySortAndDisplay(filtered);
+            }
+
+            applySortAndDisplay(folders) {
+                try {
+                    const sortElement = document.getElementById('folder-sort');
+                    const sortBy = sortElement ? sortElement.value : 'name';
+                    
+                    const sorted = [...folders].sort((a, b) => {
+                        if (sortBy === 'name') {
+                            return a.name.localeCompare(b.name);
+                        } else if (sortBy === 'modified') {
+                            return new Date(b.modifiedTime) - new Date(a.modifiedTime);
+                        }
+                        return 0;
+                    });
+                    
+                    this.displayFolders(sorted);
+                } catch (error) {
+                    // Error in applySortAndDisplay
+                    // Fallback: display unsorted
+                    this.displayFolders(folders);
+                }
+            }
+
+            async selectFolder(folderId, folderName) {
+                // Remove previous selection
+                document.querySelectorAll('.folder-item').forEach(item => {
+                    item.classList.remove('selected');
+                });
+
+                // Add selection to clicked folder
+                event.currentTarget.classList.add('selected');
+
+                this.selectedFolder = { id: folderId, name: folderName };
+                
+                // Show start button with loading state
+                const startBtn = document.getElementById('start-slideshow-btn');
+                startBtn.style.display = 'block';
+                startBtn.innerHTML = `<div class="loading-spinner"></div> Checking folder contents...`;
+                startBtn.disabled = true;
+
+                // Check folder contents
+                try {
+                    const folderInfo = await this.checkFolderContents(folderId);
+                    
+                    // Update start button with folder info
+                    const driveLink = `https://drive.google.com/drive/folders/${folderId}`;
+                    startBtn.innerHTML = `
+                        <span class="btn-title" onclick="driveAuth.startSlideshow()">🎬 Start "${folderName}" Slideshow</span>
+                        <span class="btn-info">
+                            📁 ${folderInfo.totalFiles} files 
+                            ${folderInfo.hasSettings ? '✅ Settings' : '⚠️ No settings.txt'}
+                            ${folderInfo.hasMedia ? '✅ Media' : '⚠️ No media files'}
+                            <span class="btn-link">
+                                <a href="${driveLink}" target="_blank" onclick="event.stopPropagation()">
+                                    🔗 Open in Google Drive
+                                </a>
+                            </span>
+                        </span>
+                        
+                    `;
+                    startBtn.disabled = false;
+                    
+                } catch (error) {
+                    // Error checking folder contents
+                    startBtn.innerHTML = `🎬 Start "${folderName}" Slideshow`;
+                    startBtn.disabled = false;
+                }
+            }
+
+            async checkFolderContents(folderId) {
+                const response = await fetch(
+                    `https://www.googleapis.com/drive/v3/files?q='${folderId}'+in+parents+and+trashed=false&fields=files(id,name,mimeType)&access_token=${this.accessToken}`
+                );
+                
+                const data = await response.json();
+                
+                if (!response.ok) {
+                    throw new Error(data.error?.message || 'Failed to check folder contents');
+                }
+
+                const files = data.files || [];
+                const hasSettings = files.some(file => 
+                    file.name.toLowerCase().includes('settings') && file.name.endsWith('.txt')
+                );
+                
+                const mediaFiles = files.filter(file => 
+                    file.mimeType.startsWith('image/') || 
+                    file.mimeType.startsWith('video/') ||
+                    (file.name.includes('leaderboard') && file.name.endsWith('.md'))
+                );
+                
+                return {
+                    totalFiles: files.length,
+                    hasSettings: hasSettings,
+                    hasMedia: mediaFiles.length > 0,
+                    mediaCount: mediaFiles.length
+                };
+            }
+
+            async startSlideshow() {
+                if (!this.selectedFolder) {
+                    alert('Please select a folder first');
+                    return;
+                }
+
+                // Request fullscreen before starting slideshow
+                try {
+                    await document.documentElement.requestFullscreen();
+                } catch (error) {
+                    // Continue anyway if fullscreen fails (older browsers, permissions, etc.)
+                    console.log('Fullscreen request failed:', error.message);
+                }
+
+                // Save folder selection and mark slideshow as active
+                localStorage.setItem('ujSlideshow_folder', JSON.stringify(this.selectedFolder));
+                localStorage.setItem('ujSlideshow_active', 'true');
+
+                // Hide browser and show slideshow
+                document.getElementById('folder-browser').style.display = 'none';
+                document.getElementById('slideshow-container').style.display = 'flex';
+                document.getElementById('loading').style.display = 'block';
+
+                // Initialize slideshow with selected folder
+                window.slideshow = new DriveSlideshow();
+                window.slideshow.folderId = this.selectedFolder.id;
+                window.slideshow.accessToken = this.accessToken; // Store access token for slideshow
+                await window.slideshow.init();
+            }
+
+            async logout() {
+                try {
+                    // Revoke the access token
+                    if (this.accessToken) {
+                        await fetch(`https://oauth2.googleapis.com/revoke?token=${this.accessToken}`, {
+                            method: 'POST'
+                        });
+                    }
+                    
+                    localStorage.removeItem('ujSlideshow_auth');
+                    localStorage.removeItem('ujSlideshow_folder');
+                    localStorage.removeItem('ujSlideshow_active');
+                    
+                    this.accessToken = null;
+                    this.selectedFolder = null;
+                    
+                    this.showAuthInterface();
+                } catch (error) {
+                    // Logout error
+                    // Clear local data anyway
+                    localStorage.removeItem('ujSlideshow_auth');
+                    localStorage.removeItem('ujSlideshow_folder');
+                    localStorage.removeItem('ujSlideshow_active');
+                    this.accessToken = null;
+                    this.selectedFolder = null;
+                    this.showAuthInterface();
+                }
+            }
+        }
+
+        class DriveSlideshow {
+            constructor() {
+                this.accessToken = null;
+                this.folderId = null;
+                this.config = {
+                    default_slide_duration_seconds: 10,
+                    slideshow_title: "Slideshow",
+                    slideshow_auto_reload_minutes: 5,
+                    default_leaderboard_data_url: 'https://script.google.com/macros/s/AKfycbwBLixPo5OGRVEraXVgdbe_Crndrt9KdypZVb13RZFM-ul6XLO4lR3npHk2FLf2tM0WQw/exec?json',
+                    default_leaderboard_row_limit: 12,
+                    resume_session_timeout_seconds: 30
+                };
+                this.slides = [];
+                this.backgroundImages = [];
+                this.currentIndex = 0;
+                this.isPlaying = false;
+                this.currentTimeout = null;
+                this.leaderboardCache = new Map();
+                this.lastLeaderboardFetch = 0;
+                this.liveLeaderboardData = null;
+                this.liveDataLoadTime = 0;
+            }
+
+            async init() {
+                // OAuth-based initialization - folder and auth token already set
+                if (!this.folderId || !this.accessToken) {
+                    this.showError('Authentication error. Please log in again.');
+                    return;
+                }
+
+                try {
+                    await this.loadFolder();
+                    await this.loadLeaderboardData(); // Load leaderboard data once at startup
+                    await this.startSlideshow();
+                } catch (error) {
+                    // Initialization error
+                    this.showError(error.message);
+                }
+            }
+
+            async loadFolder() {
+                try {
+                    // First, try to load config
+                    await this.loadConfig();
+                    
+                    // Then load all files using access token (exclude trashed files)
+                    const response = await fetch(
+                        `https://www.googleapis.com/drive/v3/files?q='${this.folderId}'+in+parents+and+trashed=false&fields=files(id,name,mimeType,description,createdTime,modifiedTime,webContentLink,webViewLink,thumbnailLink)&access_token=${this.accessToken}`
+                    );
+                    
+                    if (!response.ok) {
+                        if (response.status === 403) {
+                            throw new Error('Access denied. Check if the folder is publicly accessible.');
+                        }
+                        throw new Error(`Failed to access folder: ${response.status}`);
+                    }
+                    
+                    const data = await response.json();
+                    
+                    if (!data.files || data.files.length === 0) {
+                        throw new Error('Folder is empty or contains no accessible files.');
+                    }
+
+                    // Process files and create slides
+                    this.slides = await this.processFiles(data.files);
+                    
+                    if (this.slides.length === 0) {
+                        throw new Error('No supported media files found in folder.');
+                    }
+
+                    // Sort alphabetically by filename
+                    this.slides.sort((a, b) => a.filename.localeCompare(b.filename));
+
+                } catch (error) {
+                    throw new Error(`Error loading folder: ${error.message}`);
+                }
+            }
+
+            async loadConfig() {
+                // Look for settings.txt file in the Drive folder and use its description for config
+                try {
+                    const response = await fetch(
+                        `https://www.googleapis.com/drive/v3/files?q='${this.folderId}'+in+parents+and+(name='settings.txt'+or+name='config.txt')&fields=files(id,name,description)&access_token=${this.accessToken}`
+                    );
+                    
+                    const data = await response.json();
+                    
+                    if (data.files && data.files.length > 0) {
+                        const configFile = data.files[0];
+                        
+                        if (configFile.description && configFile.description.trim()) {
+                            this.parseDescriptionConfig(configFile.description);
+                            return;
+                        }
+                    }
+                } catch (error) {
+                    // Use default configuration if loading fails
+                }
+            }
+
+            async loadLeaderboardData() {
+                // Load leaderboard data once at startup (shared across all leaderboard slides)
+                try {
+                    const dataUrl = this.config.default_leaderboard_data_url;
+                    
+                    const response = await fetch(dataUrl);
+                    const jsonData = await response.json();
+                    
+                    if (jsonData && jsonData.data) {
+                        this.liveLeaderboardData = jsonData.data;
+                        this.liveDataLoadTime = Date.now();
+                    }
+                } catch (error) {
+                    // Leaderboard slides will use sample data if loading fails
+                }
+            }
+
+            parseDescriptionConfig(description) {
+                // Parse simple key: value format from file descriptions
+                const lines = description.split('\n');
+                
+                for (const line of lines) {
+                    const trimmedLine = line.trim();
+                    if (!trimmedLine || trimmedLine.startsWith('#')) continue;
+                    
+                    if (trimmedLine.includes(':')) {
+                        const [key, value] = trimmedLine.split(':').map(s => s.trim());
+                        
+                        switch (key.toLowerCase()) {
+                            case 'default_slide_duration_seconds':
+                                this.config.default_slide_duration_seconds = parseInt(value) || 10;
+                                break;
+                            case 'slideshow_title':
+                                this.config.slideshow_title = value;
+                                break;
+                            case 'slideshow_auto_reload_minutes':
+                                this.config.slideshow_auto_reload_minutes = parseInt(value) || 5;
+                                break;
+                            case 'default_leaderboard_data_url':
+                                this.config.default_leaderboard_data_url = value;
+                                break;
+                            case 'default_leaderboard_row_limit':
+                                this.config.default_leaderboard_row_limit = parseInt(value) || 12;
+                                break;
+                            case 'resume_session_timeout_seconds':
+                                this.config.resume_session_timeout_seconds = parseInt(value) || 30;
+                                break;
+                        }
+                    }
+                }
+            }
+
+            parseSheetConfig(values) {
+                // Parse Google Sheet config: Column A = Setting Name, Column B = Value
+                for (const row of values) {
+                    if (row.length >= 2) {
+                        const [key, value] = row;
+                        
+                        switch (key.toLowerCase().trim()) {
+                            case 'default_slide_duration_seconds':
+                                this.config.default_slide_duration_seconds = parseInt(value) || 10;
+                                break;
+                            case 'slideshow_title':
+                                this.config.slideshow_title = value.toString().trim();
+                                break;
+                            case 'leaderboard_sheet_id':
+                                this.config.leaderboard_sheet_id = value.toString().trim();
+                                break;
+                            case 'leaderboard_refresh':
+                                this.config.leaderboard_refresh = parseInt(value) || 300;
+                                break;
+                        }
+                    }
+                }
+            }
+
+            parseConfig(configText) {
+                const lines = configText.split('\n');
+                let currentSection = null;
+                let currentSlide = null;
+                let currentCategory = null;
+
+                for (let line of lines) {
+                    line = line.trim();
+                    if (line.startsWith('#')) continue;
+                    if (!line) continue;
+
+                    if (line.includes(':')) {
+                        const [key, value] = line.split(':').map(s => s.trim());
+                        
+                        switch (key) {
+                            case 'default_slide_duration_seconds':
+                                this.config.default_slide_duration_seconds = parseInt(value);
+                                break;
+                            case 'slideshow_title':
+                                this.config.slideshow_title = value.replace(/['"]/g, '');
+                                break;
+                            case 'leaderboard_sheet_id':
+                                this.config.leaderboard_sheet_id = value.replace(/['"]/g, '');
+                                break;
+                            case 'leaderboard_refresh':
+                                this.config.leaderboard_refresh = parseInt(value);
+                                break;
+                        }
+                    }
+                }
+            }
+
+            async processFiles(files) {
+                const slides = [];
+                this.backgroundImages = []; // Reset background images
+                
+                for (const file of files) {
+                    if (file.name === 'config.md' || file.name === 'settings.txt' || file.name === 'config.txt') continue;
+                    
+                    // Check if this is a leaderboard background image
+                    if (this.isLeaderboardBackground(file)) {
+                        this.backgroundImages.push({
+                            id: file.id,
+                            filename: file.name,
+                            url: this.getFileUrl(file)
+                        });
+                        continue; // Skip adding to slides
+                    }
+                    
+                    const fileType = this.getFileType(file);
+                    
+                    // For leaderboard files, store the raw description for later parsing
+                    let title = null;
+                    let description = null;
+                    let duration = null;
+                    
+                    if (fileType === 'leaderboard') {
+                        // For leaderboards, keep the full description for config parsing
+                        description = file.description || '';
+                        // Parse duration from description first, then filename
+                        const parsed = this.parseDescriptionField(file.description || '');
+                        duration = parsed.duration || this.parseFileDuration(file.name);
+                    } else {
+                        // For images/videos, parse title/description from description field
+                        const parsed = this.parseDescriptionField(file.description || '');
+                        title = parsed.title;
+                        description = parsed.description;
+                        duration = parsed.duration || this.parseFileDuration(file.name);
+                    }
+                    
+                    const slide = {
+                        id: file.id,
+                        filename: file.name,
+                        type: fileType,
+                        mimeType: file.mimeType,
+                        title: title,
+                        description: description,
+                        duration: duration,
+                        url: this.getFileUrl(file),
+                        thumbnailUrl: file.thumbnailLink
+                    };
+                    
+                    
+                    if (slide.type !== 'unsupported') {
+                        slides.push(slide);
+                    } else {
+                    }
+                }
+                
+                return slides;
+            }
+
+            isLeaderboardBackground(file) {
+                const name = file.name.toLowerCase();
+                const mimeType = file.mimeType;
+                
+                // Check if it's an image file with leaderboard_bg in filename
+                return mimeType.startsWith('image/') && name.includes('leaderboard_bg');
+            }
+
+            getFileType(file) {
+                const name = file.name.toLowerCase();
+                const mimeType = file.mimeType;
+                
+                // Detect leaderboard files by checking if filename contains "leaderboard"
+                // This supports: "leaderboard_speed.md", "11 leaderboard kids.md", etc.
+                if (name.includes('leaderboard') && name.endsWith('.md')) {
+                    return 'leaderboard';
+                }
+                
+                if (mimeType.startsWith('image/')) {
+                    return 'image';
+                }
+                
+                if (mimeType.startsWith('video/')) {
+                    return 'video';
+                }
+                
+                return 'unsupported';
+            }
+
+            parseFileDuration(filename) {
+                const match = filename.match(/^\[(\d+)\]/);
+                return match ? parseInt(match[1]) : this.config.default_slide_duration_seconds;
+            }
+
+            formatTime(time) {
+                // Format time to always show 3 decimal places (0.000 format)
+                if (!time || isNaN(parseFloat(time))) {
+                    return "0.000";
+                }
+                return parseFloat(time).toFixed(3);
+            }
+
+            parseDescriptionField(description) {
+                if (!description || !description.trim()) {
+                    return { title: null, description: null, duration: null };
+                }
+
+                let duration = null;
+                let lines = description.split('\n').map(line => line.trim()).filter(line => line);
+                let contentLines = [];
+
+                // Look for settings in description and filter them out
+                for (const line of lines) {
+                    if (line.toLowerCase().startsWith('duration:')) {
+                        const durationValue = line.split(':')[1];
+                        if (durationValue) {
+                            duration = parseInt(durationValue.trim()) || null;
+                        }
+                    } else if (line.includes(':') && !line.startsWith('#')) {
+                        // Skip configuration lines (contain colon but not comments)
+                        continue;
+                    } else if (!line.startsWith('#')) {
+                        // Include non-comment, non-setting lines as content
+                        contentLines.push(line);
+                    }
+                }
+
+                // Apply new logic: first line = title, rest = description
+                if (contentLines.length === 0) {
+                    return { title: null, description: null, duration };
+                } else if (contentLines.length === 1) {
+                    // Single line becomes title only
+                    return { title: contentLines[0], description: null, duration };
+                } else {
+                    // First line as title, rest as description
+                    return { 
+                        title: contentLines[0], 
+                        description: contentLines.slice(1).join('\n'),
+                        duration
+                    };
+                }
+            }
+
+            extractTitle(filename) {
+                // Remove duration prefix [30] if present
+                let title = filename.replace(/^\[\d+\]/, '');
+                // Remove file extension
+                title = title.replace(/\.[^.]+$/, '');
+                // Replace underscores and dashes with spaces
+                title = title.replace(/[_-]/g, ' ');
+                // Capitalize first letter of each word
+                title = title.replace(/\b\w/g, l => l.toUpperCase());
+                return title.trim();
+            }
+
+            getFileUrl(file) {
+                if (file.mimeType.startsWith('image/')) {
+                    // Use thumbnail link for better CORS compatibility, fallback to direct link
+                    return `https://drive.google.com/thumbnail?id=${file.id}&sz=w1920-h1080`;
+                } else if (file.mimeType.startsWith('video/')) {
+                    return `https://drive.google.com/file/d/${file.id}/preview`;
+                }
+                return file.webViewLink;
+            }
+
+            async startSlideshow() {
+                document.getElementById('loading').style.display = 'none';
+                this.isPlaying = true;
+                
+                // Set up auto-reload timer if configured (soft reload - no page refresh)
+                if (this.config.slideshow_auto_reload_minutes > 0) {
+                    const reloadMs = this.config.slideshow_auto_reload_minutes * 60 * 1000;
+                    setInterval(async () => {
+                        try {
+                            
+                            // Clear current slide timeout
+                            if (this.currentTimeout) {
+                                clearTimeout(this.currentTimeout);
+                            }
+                            
+                            // Remember current state
+                            const wasPlaying = this.isPlaying;
+                            const currentSlideIndex = this.currentIndex;
+                            
+                            // Reload folder contents and leaderboard data
+                            await this.loadFolder();
+                            await this.loadLeaderboardData();
+                            
+                            
+                            // Continue slideshow from next slide if it was playing
+                            if (wasPlaying && this.slides.length > 0) {
+                                const nextIndex = (currentSlideIndex + 1) % this.slides.length;
+                                this.showSlide(nextIndex);
+                            } else {
+                            }
+                        } catch (error) {
+                            // Continue slideshow without interruption if it was playing
+                            if (this.isPlaying) {
+                                setTimeout(() => this.nextSlide(), 1000);
+                            }
+                        }
+                    }, reloadMs);
+                }
+                
+                await this.showSlide(0);
+            }
+
+            async showSlide(index) {
+                if (index >= this.slides.length) {
+                    index = 0; // Loop back to start
+                }
+                
+                this.currentIndex = index;
+                const slide = this.slides[index];
+                
+                
+                // Clear previous overlays
+                this.clearOverlays();
+                
+                // Fade out current slide
+                const currentSlide = document.querySelector('.slide-content.active');
+                if (currentSlide) {
+                    currentSlide.classList.remove('active');
+                }
+                
+                // Wait for fade out
+                await new Promise(resolve => setTimeout(resolve, currentSlide ? 400 : 0));
+                
+                // Clear all slide content
+                const mediaDisplay = document.getElementById('media-display');
+                mediaDisplay.innerHTML = '';
+                
+                try {
+                    switch (slide.type) {
+                        case 'image':
+                            await this.showImage(slide);
+                            break;
+                        case 'video':
+                            await this.showVideo(slide);
+                            break;
+                        case 'leaderboard':
+                            await this.showLeaderboard(slide);
+                            break;
+                    }
+                    
+                    // Show metadata with delay for smooth appearance
+                    setTimeout(() => this.showMetadata(slide), 600);
+                    
+                } catch (error) {
+                    // Error showing slide
+                    this.showError(`Error loading ${slide.filename}: ${error.message}`);
+                    // Skip to next slide after 3 seconds
+                    setTimeout(() => this.nextSlide(), 3000);
+                }
+            }
+
+            async showImage(slide) {
+                const slideWrapper = document.createElement('div');
+                slideWrapper.className = 'slide-content';
+                
+                // Helper function to try loading an image with token refresh on failure
+                const tryLoadImage = (src, isRetry = false) => {
+                    return new Promise((resolve, reject) => {
+                        const img = document.createElement('img');
+                        
+                        img.onload = () => {
+                            slideWrapper.appendChild(img);
+                            document.getElementById('media-display').appendChild(slideWrapper);
+                            setTimeout(() => slideWrapper.classList.add('active'), 50);
+                            this.currentTimeout = setTimeout(() => this.nextSlide(), slide.duration * 1000);
+                            resolve();
+                        };
+                        
+                        img.onerror = async () => {
+                            if (!isRetry && window.driveAuth) {
+                                try {
+                                    const refreshSuccess = await window.driveAuth.refreshAccessToken(true);
+                                    if (refreshSuccess) {
+                                        // Update access token in URL and retry
+                                        const updatedUrl = src.includes('access_token=') 
+                                            ? src.replace(/access_token=[^&]*/, `access_token=${window.driveAuth.accessToken}`)
+                                            : `${src}${src.includes('?') ? '&' : '?'}access_token=${window.driveAuth.accessToken}`;
+                                        
+                                        tryLoadImage(updatedUrl, true).then(resolve).catch(reject);
+                                        return;
+                                    }
+                                } catch (error) {
+                                }
+                            }
+                            
+                            // Fallback to alternative URL format
+                            const fallbackUrl = `https://drive.google.com/uc?id=${slide.id}&export=download&access_token=${window.driveAuth.accessToken}`;
+                            tryLoadImage(fallbackUrl, true).then(resolve).catch(() => {
+                                reject(new Error('Failed to load image after token refresh and fallback'));
+                            });
+                        };
+                        
+                        img.src = src;
+                    });
+                };
+                
+                return tryLoadImage(slide.url);
+            }
+
+            async showVideo(slide) {
+                const slideWrapper = document.createElement('div');
+                slideWrapper.className = 'slide-content';
+                
+                // Helper function to try loading a video with token refresh on failure
+                const tryLoadVideo = (src, isRetry = false) => {
+                    return new Promise((resolve, reject) => {
+                        const video = document.createElement('video');
+                        video.controls = false;
+                        video.autoplay = true;
+                        video.muted = false;
+                        
+                        video.onloadeddata = () => {
+                            slideWrapper.appendChild(video);
+                            document.getElementById('media-display').appendChild(slideWrapper);
+                            setTimeout(() => slideWrapper.classList.add('active'), 50);
+                            resolve();
+                        };
+                        
+                        video.onended = () => {
+                            this.nextSlide();
+                        };
+                        
+                        video.onerror = async () => {
+                            if (!isRetry && window.driveAuth) {
+                                try {
+                                    const refreshSuccess = await window.driveAuth.refreshAccessToken(true);
+                                    if (refreshSuccess) {
+                                        // Update access token in URL and retry
+                                        const updatedUrl = src.includes('access_token=') 
+                                            ? src.replace(/access_token=[^&]*/, `access_token=${window.driveAuth.accessToken}`)
+                                            : `${src}${src.includes('?') ? '&' : '?'}access_token=${window.driveAuth.accessToken}`;
+                                        
+                                        tryLoadVideo(updatedUrl, true).then(resolve).catch(reject);
+                                        return;
+                                    }
+                                } catch (error) {
+                                }
+                            }
+                            
+                            reject(new Error('Failed to load video after token refresh attempts'));
+                        };
+                        
+                        video.src = src;
+                    });
+                };
+                
+                return tryLoadVideo(slide.url);
+            }
+
+            async showLeaderboard(slide) {
+                // Extract leaderboard type from filename - handle various formats
+                // Examples: "leaderboard_speed.md", "11 [15] leaderboard kids.md", "05 leaderboard_rainbow.md"
+                let leaderboardType = this.extractLeaderboardType(slide.filename);
+                
+                
+                const slideWrapper = document.createElement('div');
+                slideWrapper.className = 'slide-content';
+                
+                // Parse leaderboard config from file description
+                const leaderboardConfig = this.parseLeaderboardConfig(slide.description);
+                
+                // Count leaderboard slides shown so far for alternating backgrounds
+                const leaderboardSlideIndex = this.getLeaderboardSlideIndex();
+                
+                const leaderboardHtml = await this.generateLeaderboard(leaderboardType, leaderboardConfig, leaderboardSlideIndex);
+                slideWrapper.innerHTML = leaderboardHtml;
+                
+                document.getElementById('media-display').appendChild(slideWrapper);
+                
+                // Fade in the slide
+                setTimeout(() => slideWrapper.classList.add('active'), 50);
+                
+                // Schedule next slide
+                this.currentTimeout = setTimeout(() => this.nextSlide(), slide.duration * 1000);
+            }
+
+            getLeaderboardSlideIndex() {
+                // Count how many leaderboard slides we've shown up to current index
+                let leaderboardCount = 0;
+                for (let i = 0; i <= this.currentIndex; i++) {
+                    if (this.slides[i] && this.slides[i].type === 'leaderboard') {
+                        leaderboardCount++;
+                    }
+                }
+                return leaderboardCount - 1; // -1 because we want 0-based index
+            }
+
+            extractLeaderboardType(filename) {
+                // Handle various leaderboard filename formats:
+                // "leaderboard_speed.md" -> "speed"
+                // "11 [15] leaderboard kids.md" -> "kids"  
+                // "05 leaderboard_rainbow.md" -> "rainbow"
+                
+                let name = filename;
+                
+                // Remove file extension
+                name = name.replace(/\.[^.]+$/, '');
+                
+                // Remove duration prefix like [15]
+                name = name.replace(/^\d*\s*\[\d+\]\s*/, '');
+                
+                // Remove number prefix like "11 "
+                name = name.replace(/^\d+\s+/, '');
+                
+                // Handle "leaderboard_type" format
+                if (name.includes('leaderboard_')) {
+                    return name.replace(/.*leaderboard_/, '');
+                }
+                
+                // Handle "leaderboard type" format (space separated)
+                if (name.toLowerCase().startsWith('leaderboard ')) {
+                    return name.replace(/^leaderboard\s+/i, '');
+                }
+                
+                // Fallback - return the cleaned name
+                return name.replace(/leaderboard/gi, '').trim() || 'default';
+            }
+
+            parseLeaderboardConfig(description) {
+                // Parse leaderboard configuration from file description
+                if (!description || !description.trim()) {
+                    return null; // Use default/sample data
+                }
+
+                const config = {
+                    title: '',
+                    route_type: 'Official Speed',
+                    limit: this.config.default_leaderboard_row_limit,
+                    data_url: this.config.default_leaderboard_data_url,
+                    tables: []
+                };
+
+                const lines = description.split('\n');
+                let currentTable = null;
+
+                for (const line of lines) {
+                    const trimmedLine = line.trim();
+                    if (!trimmedLine || trimmedLine.startsWith('#')) continue;
+
+                    if (trimmedLine.includes(':')) {
+                        const [key, value] = trimmedLine.split(':').map(s => s.trim());
+
+                        switch (key.toLowerCase()) {
+                            case 'title':
+                                config.title = value;
+                                break;
+                            case 'route_type':
+                                config.route_type = value;
+                                break;
+                            case 'data_url':
+                                config.data_url = value;
+                                break;
+                            case 'table':
+                                // New table definition
+                                currentTable = {
+                                    name: value,
+                                    gender: '',  // Empty means all genders
+                                    category: 'open',
+                                    color: '#cc0000',
+                                    limit: null  // Per-table limit (will use global if not set)
+                                };
+                                config.tables.push(currentTable);
+                                break;
+                            case 'gender':
+                                if (currentTable) currentTable.gender = value;
+                                break;
+                            case 'category':
+                                if (currentTable) currentTable.category = value.toLowerCase();
+                                break;
+                            case 'color':
+                                if (currentTable) currentTable.color = value;
+                                break;
+                            case 'limit':
+                                if (currentTable) {
+                                    // Per-table limit
+                                    currentTable.limit = parseInt(value) || this.config.default_leaderboard_row_limit;
+                                } else {
+                                    // Global limit
+                                    config.limit = parseInt(value) || this.config.default_leaderboard_row_limit;
+                                }
+                                break;
+                        }
+                    }
+                }
+
+                return config.tables.length > 0 ? config : null;
+            }
+
+            async processLiveData(rawData, config) {
+                // Process and filter live data according to config
+                const categories = [];
+                
+                for (const table of config.tables) {
+                    // Filter data for this table
+                    let filteredData = rawData.filter(record => {
+                        // Filter by route type (from config)
+                        if (config.route_type && record.Route !== config.route_type) {
+                            return false;
+                        }
+                        
+                        // Filter by gender (from table config)
+                        if (table.gender && record.Gender !== table.gender) {
+                            return false;
+                        }
+                        
+                        // Filter by category (from table config)
+                        if (table.category !== 'open' && record.category !== table.category) {
+                            return false;
+                        }
+                        
+                        return true;
+                    });
+                    
+                    // Sort by time (ascending - fastest first)
+                    filteredData.sort((a, b) => {
+                        const timeA = parseFloat(a.Time) || 999999;
+                        const timeB = parseFloat(b.Time) || 999999;
+                        return timeA - timeB;
+                    });
+                    
+                    // Limit to top N results - use per-table limit if set, otherwise global limit
+                    const tableLimit = table.limit || config.limit || this.config.default_leaderboard_row_limit;
+                    filteredData = filteredData.slice(0, tableLimit);
+                    
+                    // Format for display
+                    const formattedData = filteredData.map((record, index) => ({
+                        rank: index + 1,
+                        name: record.Name,
+                        time: this.formatTime(record.Time)
+                    }));
+                    
+                    categories.push({
+                        name: table.name,
+                        color: table.color,
+                        data: formattedData
+                    });
+                }
+                
+                return categories;
+            }
+
+            async generateLeaderboard(type, config = null, slideIndex = 0) {
+                // Use config from file description if available, otherwise use sample data
+                let leaderboardData;
+                
+                if (config) {
+                    // Use cached live data if available
+                    if (this.liveLeaderboardData) {
+                        
+                        leaderboardData = {
+                            title: config.title || `${type.charAt(0).toUpperCase() + type.slice(1)} Leaderboard`,
+                            categories: await this.processLiveData(this.liveLeaderboardData, config)
+                        };
+                    } else {
+                        
+                        // Fallback to sample data structure with config
+                        leaderboardData = {
+                            title: config.title || `${type.charAt(0).toUpperCase() + type.slice(1)} Leaderboard`,
+                            categories: config.tables.map(table => ({
+                                name: table.name,
+                                color: table.color,
+                                data: [
+                                    { rank: 1, name: "Competitor 1", time: "5.123" },
+                                    { rank: 2, name: "Competitor 2", time: "5.456" },
+                                    { rank: 3, name: "Competitor 3", time: "5.789" }
+                                ]
+                            }))
+                        };
+                    }
+                } else {
+                    // Sample leaderboard data (fallback when no config is provided)
+                    const sampleData = {
+                        speed: {
+                            title: "Speed Leaderboard",
+                            categories: [
+                                {
+                                    name: "Male Youth 13-18 yo",
+                                    color: "#cc0000",
+                                    data: [
+                                        { rank: 1, name: "Max Botica", time: "4.690" },
+                                        { rank: 2, name: "James Mouton", time: "5.113" },
+                                        { rank: 3, name: "Alfie Wall", time: "6.384" },
+                                        { rank: 4, name: "Ronan Finlay", time: "6.646" },
+                                        { rank: 5, name: "Kristopher Moretti", time: "6.768" }
+                                    ]
+                                },
+                                {
+                                    name: "Female Youth 13-18 yo",
+                                    color: "#cc0000", 
+                                    data: [
+                                        { rank: 1, name: "Christel Kotze", time: "9.930" },
+                                        { rank: 2, name: "Olivia Hawryluk", time: "10.070" },
+                                        { rank: 3, name: "Jaiya Marns-morris", time: "10.092" },
+                                        { rank: 4, name: "Catherine Mirasol", time: "10.971" },
+                                        { rank: 5, name: "Audrey Minaee", time: "11.978" }
+                                    ]
+                                }
+                            ]
+                        }
+                    };
+
+                    leaderboardData = sampleData[type] || sampleData.speed;
+                }
+                
+                // Smart two-column layout logic
+                const categories = leaderboardData.categories;
+                const { column1, column2 } = this.organizeTablesIntoColumns(categories);
+                
+                // Determine background placement (alternating left/right)
+                const isBackgroundOnLeft = slideIndex % 2 === 0;
+                
+                // Get background image (cycle through available images)
+                let backgroundImageHtml = '';
+                if (this.backgroundImages.length > 0) {
+                    const bgIndex = slideIndex % this.backgroundImages.length;
+                    const backgroundImage = this.backgroundImages[bgIndex];
+                    const blurClass = isBackgroundOnLeft ? 'blur-left' : 'blur-right';
+                    
+                    backgroundImageHtml = `
+                        <img src="${backgroundImage.url}" alt="Background" class="leaderboard-background-image">
+                    `;
+                }
+                
+                let html = `
+                    <div class="leaderboard-container" style="grid-template-columns: ${isBackgroundOnLeft ? '1fr 2fr' : '2fr 1fr'}">
+                        ${isBackgroundOnLeft ? `
+                            <div class="leaderboard-background-area blur-left">
+                                ${backgroundImageHtml}
+                            </div>
+                            <div class="leaderboard-content-area">
+                                <h1 class="leaderboard-title">${leaderboardData.title}</h1>
+                                <div class="leaderboard-content">
+                                    <div class="leaderboard-column">
+                                        ${this.renderTablesColumn(column1)}
+                                    </div>
+                                    <div class="leaderboard-column">
+                                        ${this.renderTablesColumn(column2)}
+                                    </div>
+                                </div>
+                            </div>
+                        ` : `
+                            <div class="leaderboard-content-area">
+                                <h1 class="leaderboard-title">${leaderboardData.title}</h1>
+                                <div class="leaderboard-content">
+                                    <div class="leaderboard-column">
+                                        ${this.renderTablesColumn(column1)}
+                                    </div>
+                                    <div class="leaderboard-column">
+                                        ${this.renderTablesColumn(column2)}
+                                    </div>
+                                </div>
+                            </div>
+                            <div class="leaderboard-background-area blur-right">
+                                ${backgroundImageHtml}
+                            </div>
+                        `}
+                    </div>
+                `;
+                
+                return html;
+            }
+
+            organizeTablesIntoColumns(categories) {
+                // Smart organization based on number of tables:
+                // 1 table: first column only
+                // 2 tables: one per column  
+                // 3 tables: largest in first column, other two stacked in second
+                // 4+ tables: distribute evenly across two columns
+                
+                const numTables = categories.length;
+                let column1 = [];
+                let column2 = [];
+                
+                if (numTables === 1) {
+                    column1 = [categories[0]];
+                } else if (numTables === 2) {
+                    column1 = [categories[0]];
+                    column2 = [categories[1]];
+                } else if (numTables === 3) {
+                    // Find the largest table (most data entries)
+                    const sortedBySize = [...categories].sort((a, b) => b.data.length - a.data.length);
+                    const largest = sortedBySize[0];
+                    const others = categories.filter(cat => cat !== largest);
+                    
+                    column1 = [largest];
+                    column2 = others;
+                } else {
+                    // 4+ tables: split evenly, first column gets extra if odd number
+                    const midpoint = Math.ceil(numTables / 2);
+                    column1 = categories.slice(0, midpoint);
+                    column2 = categories.slice(midpoint);
+                }
+                
+                return { column1, column2 };
+            }
+
+            renderTablesColumn(tables) {
+                if (!tables || tables.length === 0) return '';
+                
+                let html = '';
+                for (const category of tables) {
+                    // Parse title and secondary info using pipe separator (e.g., "Male Youth | 13-18yo")
+                    const parts = category.name.split(' | ');
+                    const mainTitle = parts[0].trim();
+                    const secondaryInfo = parts[1] ? parts[1].trim() : '';
+                    
+                    html += `
+                        <div class="leaderboard-category">
+                            <div class="category-header" style="--header-color: ${category.color}; background: linear-gradient(135deg, ${category.color}, rgba(255,255,255,0.9));">
+                                <span class="main-title">${mainTitle}</span>
+                                ${secondaryInfo ? `<span class="bracket-info">${secondaryInfo}</span>` : ''}
+                            </div>
+                            <table class="leaderboard-table">
+                    `;
+                    
+                    for (const entry of category.data) {
+                        html += `
+                            <tr>
+                                <td class="rank-cell">${entry.rank}</td>
+                                <td class="name-cell">${entry.name}</td>
+                                <td class="time-cell">${entry.time}</td>
+                            </tr>
+                        `;
+                    }
+                    
+                    html += `
+                            </table>
+                        </div>
+                    `;
+                }
+                return html;
+            }
+
+            showMetadata(slide) {
+                const titleEl = document.getElementById('title-overlay');
+                const descEl = document.getElementById('description-overlay');
+                
+                // Show title if parsed from description field
+                if (slide.title && slide.title.trim() && slide.type !== 'leaderboard') {
+                    titleEl.textContent = slide.title;
+                    setTimeout(() => titleEl.classList.add('show'), 100);
+                } else {
+                    titleEl.classList.remove('show');
+                }
+                
+                // Show description if parsed from description field
+                if (slide.description && slide.description.trim() && slide.type !== 'leaderboard') {
+                    descEl.textContent = slide.description;
+                    setTimeout(() => descEl.classList.add('show'), 200);
+                } else {
+                    descEl.classList.remove('show');
+                }
+            }
+
+            clearOverlays() {
+                document.getElementById('title-overlay').classList.remove('show');
+                document.getElementById('description-overlay').classList.remove('show');
+            }
+
+            nextSlide() {
+                if (this.currentTimeout) {
+                    clearTimeout(this.currentTimeout);
+                }
+                
+                const nextIndex = this.currentIndex + 1;
+                
+                // showSlide already handles looping, so just pass the next index
+                this.showSlide(nextIndex);
+            }
+
+            showError(message) {
+                document.getElementById('loading').style.display = 'none';
+                const errorEl = document.getElementById('error-message');
+                errorEl.textContent = message;
+                errorEl.style.display = 'block';
+            }
+        }
+
+        // Initialize OAuth system when page loads
+        window.addEventListener('load', async () => {
+            // Wait for Google libraries to load
+            let attempts = 0;
+            const maxAttempts = 50; // 5 seconds max
+            
+            while (attempts < maxAttempts && (typeof gapi === 'undefined' || typeof google === 'undefined')) {
+                await new Promise(resolve => setTimeout(resolve, 100));
+                attempts++;
+            }
+            
+            if (typeof gapi === 'undefined' || typeof google === 'undefined') {
+                // Google libraries failed to load
+                alert('Google authentication libraries failed to load. Please check your internet connection and refresh the page.');
+                return;
+            }
+            
+            // Check if we're returning from an auto-refresh during slideshow
+            const savedAuth = localStorage.getItem('ujSlideshow_auth');
+            const savedFolder = localStorage.getItem('ujSlideshow_folder');
+            const wasInSlideshow = localStorage.getItem('ujSlideshow_active');
+            
+            if (savedAuth && savedFolder && wasInSlideshow === 'true') {
+                // Check for previous session - show resume popup if valid
+
+                try {
+                    const authData = JSON.parse(savedAuth);
+                    const folderData = JSON.parse(savedFolder);
+
+                    // Check if auth is still valid
+                    if (authData.expiry > Date.now()) {
+                        // Quick validation - just check if we have the necessary data
+                        if (authData.token && folderData.id && folderData.name) {
+                            // Show resume popup with default timeout (we'll load config after user choice)
+                            showResumeSessionPopup(folderData, authData, 30); // Default 30 seconds
+                            return;
+                        }
+                    }
+                } catch (error) {
+                    // Failed to parse session data - fall through to normal OAuth flow
+                    console.log('Session parsing failed:', error.message);
+                }
+            }
+            
+            // Normal OAuth initialization
+            window.driveAuth = new DriveAuth();
+            await window.driveAuth.init();
+        });
+
+        // Handle keyboard controls
+        document.addEventListener('keydown', (event) => {
+            switch (event.key) {
+                case 'ArrowRight':
+                case ' ':
+                    // Next slide
+                    if (window.slideshow) {
+                        window.slideshow.nextSlide();
+                    }
+                    break;
+                case 'Escape':
+                    // Exit fullscreen or go back to folder browser
+                    if (document.fullscreenElement) {
+                        document.exitFullscreen();
+                    } else if (window.driveAuth && window.slideshow) {
+                        // Stop slideshow and return to folder browser
+                        if (window.slideshow.currentTimeout) {
+                            clearTimeout(window.slideshow.currentTimeout);
+                        }
+                        localStorage.removeItem('ujSlideshow_active'); // Clear slideshow active flag
+                        
+                        // Reset slideshow content to prevent old content showing
+                        document.getElementById('media-display').innerHTML = '';
+                        document.getElementById('title-overlay').classList.remove('show');
+                        document.getElementById('description-overlay').classList.remove('show');
+                        
+                        // Hide slideshow button
+                        document.getElementById('start-slideshow-btn').style.display = 'none';
+                        
+                        document.getElementById('slideshow-container').style.display = 'none';
+                        document.getElementById('folder-browser').style.display = 'flex';
+                        
+                        // Refresh folder browser and show user info
+                        if (window.driveAuth.accessToken) {
+                            // Get user email from localStorage if available
+                            const savedAuth = localStorage.getItem('ujSlideshow_auth');
+                            if (savedAuth) {
+                                const authData = JSON.parse(savedAuth);
+                                document.getElementById('user-email').textContent = authData.userEmail || 'User';
+                            }
+                            // Reload folders for current view
+                            window.driveAuth.loadFoldersForCurrentView();
+                        }
+                    }
+                    break;
+                case 'F11':
+                    // Toggle fullscreen
+                    if (document.fullscreenElement) {
+                        document.exitFullscreen();
+                    } else {
+                        document.documentElement.requestFullscreen();
+                    }
+                    break;
+            }
+        });
+    </script>
+</body>
+</html>

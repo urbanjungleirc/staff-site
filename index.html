@@ -76,6 +76,81 @@
         border: 1px solid var(--border);
       }
 
+      .tool-group {
+        border-radius: 18px;
+        padding: 28px;
+        background: linear-gradient(135deg, rgba(139, 28, 35, 0.06), rgba(139, 28, 35, 0));
+        border: 1px solid rgba(139, 28, 35, 0.12);
+        box-shadow: 0 10px 28px -24px rgba(139, 28, 35, 0.7);
+        display: flex;
+        flex-direction: column;
+        gap: 20px;
+      }
+
+      .group-heading {
+        display: flex;
+        flex-direction: column;
+        gap: 6px;
+      }
+
+      .group-title, .tool-name {
+        margin: 0;
+        font-size: 1.2rem;
+        font-weight: 600;
+        letter-spacing: -0.01em;
+        color: var(--text);
+      }
+
+      .group-description {
+        margin: 0;
+        color: var(--text-muted);
+        font-size: 0.95rem;
+      }
+
+      .group-buttons {
+        display: grid;
+        grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+        gap: 16px;
+      }
+
+      .group-button {
+        display: flex;
+        flex-direction: column;
+        gap: 6px;
+        padding: 18px 20px;
+        border-radius: 14px;
+        background: var(--bg-alt);
+        color: var(--accent);
+        border: 1px solid rgba(139, 28, 35, 0.25);
+        text-decoration: none;
+        font-weight: 600;
+        letter-spacing: -0.01em;
+        box-shadow: 0 12px 24px -20px rgba(15, 23, 42, 0.25);
+        transition: transform 150ms ease, box-shadow 150ms ease, background 150ms ease, color 150ms ease;
+      }
+
+      .group-button:hover,
+      .group-button:focus-visible {
+        transform: translateY(-3px);
+        box-shadow: 0 18px 30px -24px rgba(15, 23, 42, 0.32);
+        background: rgba(139, 28, 35, 0.08);
+        color: var(--accent);
+      }
+
+      .group-button-label {
+        font-size: 1rem;
+      }
+
+      .group-button-name {
+        font-size: 0.85rem;
+        font-weight: 500;
+        opacity: 0.9;
+      }
+
+      #tool-content > * + * {
+        margin-top: 32px;
+      }
+
       .tools-grid {
         display: grid;
         grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
@@ -108,11 +183,7 @@
         flex: 1;
       }
 
-      .tool-name {
-        font-weight: 600;
-        font-size: 1.12rem;
-        letter-spacing: -0.01em;
-      }
+      
 
       .tool-description {
         color: var(--text-muted);
@@ -161,6 +232,18 @@
         section {
           padding: 24px;
         }
+
+        .tool-group {
+          padding: 22px;
+        }
+
+        .group-buttons {
+          grid-template-columns: 1fr;
+        }
+
+        .group-button {
+          padding: 16px 18px;
+        }
       }
     </style>
   </head>
@@ -191,59 +274,176 @@
           if (!response.ok) throw new Error("Unable to fetch tools");
 
           const payload = await response.json();
-          const tools = Array.isArray(payload?.tools) ? payload.tools : [];
 
-          if (!tools.length) {
+          const assembledEntries = [];
+
+          if (Array.isArray(payload?.entries)) {
+            assembledEntries.push(...payload.entries);
+          } else {
+            if (Array.isArray(payload?.groups)) {
+              for (const group of payload.groups) {
+                assembledEntries.push({ type: "group", ...group });
+              }
+            }
+            if (Array.isArray(payload?.tools)) {
+              for (const tool of payload.tools) {
+                assembledEntries.push({ type: "tool", ...tool });
+              }
+            }
+          }
+
+          if (!assembledEntries.length) {
             container.innerHTML =
               '<p class="empty-state" role="status">No tools are published here yet.</p>';
             return;
           }
 
-          const grid = document.createElement("div");
-          grid.className = "tools-grid";
-
-          for (const tool of tools) {
-            if (!tool?.path || !tool?.name) continue;
-            const card = document.createElement("article");
-            card.className = "tool-card";
-
-            const link = document.createElement("a");
-            link.href = tool.path;
-            link.setAttribute("data-tool-id", tool.id ?? tool.name.toLowerCase());
-
-            const name = document.createElement("h3");
-            name.className = "tool-name";
-            name.textContent = tool.name;
-
-            const description = document.createElement("p");
-            description.className = "tool-description";
-            description.textContent = tool.description ?? "Launch the tool.";
-
-            link.append(name, description);
-
-            if (tool.category || tool.status) {
-              const meta = document.createElement("div");
-              meta.className = "tool-meta";
-              if (tool.category) {
-                const pill = document.createElement("span");
-                pill.className = "meta-pill";
-                pill.textContent = tool.category;
-                meta.appendChild(pill);
-              }
-              if (tool.status) {
-                const pill = document.createElement("span");
-                pill.className = "meta-pill";
-                pill.textContent = tool.status;
-                meta.appendChild(pill);
-              }
-              link.appendChild(meta);
+          const fragment = document.createDocumentFragment();
+          let pendingGrid = null;
+          const flushGrid = () => {
+            if (pendingGrid?.childElementCount) {
+              fragment.appendChild(pendingGrid);
             }
+            pendingGrid = null;
+          };
 
-            card.appendChild(link);
-            grid.appendChild(card);
+          let hasRenderableContent = false;
+
+          for (const entry of assembledEntries) {
+            if (!entry || typeof entry !== "object") continue;
+            const type = String(entry.type ?? "").toLowerCase();
+
+            if (type === "group") {
+              const items = Array.isArray(entry.items)
+                ? entry.items.filter((item) => item?.path)
+                : [];
+              if (!items.length) continue;
+
+              flushGrid();
+              const groupCard = document.createElement("article");
+              groupCard.className = "tool-group";
+              if (entry.id) {
+                groupCard.setAttribute("data-group-id", entry.id);
+              }
+
+              const heading = document.createElement("div");
+              heading.className = "group-heading";
+
+              const title = document.createElement("h3");
+              title.className = "group-title";
+              title.textContent = entry.name ?? "Tool Group";
+              heading.appendChild(title);
+
+              if (entry.description) {
+                const blurb = document.createElement("p");
+                blurb.className = "group-description";
+                blurb.textContent = entry.description;
+                heading.appendChild(blurb);
+              }
+
+              groupCard.appendChild(heading);
+
+              const buttons = document.createElement("div");
+              buttons.className = "group-buttons";
+
+              for (const item of items) {
+                const button = document.createElement("a");
+                button.className = "group-button";
+                button.href = item.path;
+
+                if (item.id || item.name) {
+                  const identifier =
+                    item.id ??
+                    (typeof item.name === "string"
+                      ? item.name.toLowerCase().replace(/\s+/g, "-")
+                      : undefined);
+                  if (identifier) {
+                    button.setAttribute("data-tool-id", identifier);
+                  }
+                }
+
+                const label = document.createElement("span");
+                label.className = "group-button-label";
+                label.textContent =
+                  item.buttonText ??
+                  (item.name ? `Open ${item.name}` : "Open tool");
+                button.appendChild(label);
+
+                if (item.name) {
+                  const name = document.createElement("span");
+                  name.className = "group-button-name";
+                  name.textContent = item.name;
+                  button.appendChild(name);
+                }
+
+                buttons.appendChild(button);
+              }
+
+              groupCard.appendChild(buttons);
+              fragment.appendChild(groupCard);
+              hasRenderableContent = true;
+            } else if (type === "tool") {
+              if (!entry.path || !entry.name) continue;
+
+              if (!pendingGrid) {
+                pendingGrid = document.createElement("div");
+                pendingGrid.className = "tools-grid";
+              }
+
+              const card = document.createElement("article");
+              card.className = "tool-card";
+
+              const link = document.createElement("a");
+              link.href = entry.path;
+              link.setAttribute(
+                "data-tool-id",
+                entry.id ?? entry.name.toLowerCase()
+              );
+
+              const name = document.createElement("h3");
+              name.className = "tool-name";
+              name.textContent = entry.name;
+
+              const description = document.createElement("p");
+              description.className = "tool-description";
+              description.textContent =
+                entry.description ?? "Launch the tool.";
+
+              link.append(name, description);
+
+              if (entry.category || entry.status) {
+                const meta = document.createElement("div");
+                meta.className = "tool-meta";
+                if (entry.category) {
+                  const pill = document.createElement("span");
+                  pill.className = "meta-pill";
+                  pill.textContent = entry.category;
+                  meta.appendChild(pill);
+                }
+                if (entry.status) {
+                  const pill = document.createElement("span");
+                  pill.className = "meta-pill";
+                  pill.textContent = entry.status;
+                  meta.appendChild(pill);
+                }
+                link.appendChild(meta);
+              }
+
+              card.appendChild(link);
+              pendingGrid.appendChild(card);
+              hasRenderableContent = true;
+            }
           }
 
-          container.replaceChildren(grid);
+          flushGrid();
+
+          if (!hasRenderableContent) {
+            container.innerHTML =
+              '<p class="empty-state" role="status">No tools are published here yet.</p>';
+            return;
+          }
+
+          container.replaceChildren(fragment);
         } catch (error) {
           console.error(error);
           container.innerHTML =

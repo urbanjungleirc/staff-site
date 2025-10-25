@@ -1,0 +1,87 @@
+# General OS files
+.DS_Store
+Thumbs.db
+ehthumbs.db
+Icon?
+.Spotlight-V100
+.Trashes
+Desktop.ini
+$RECYCLE.BIN/
+
+# Editor and IDE settings
+.vscode/
+.idea/
+*.iml
+*.code-workspace
+
+# Local AI assistant configs
+.claude/
+
+# Codex CLI and similar tooling (local state/logs)
+.codex/
+.codexrc
+codex*.log
+.codex.*
+.cursor/
+.aider*
+aider*.log
+.openai/
+.anthropic/
+
+# Logs and diagnostics
+logs/
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+
+# Runtime data
+pids
+*.pid
+*.seed
+*.pid.lock
+
+# Dependency directories
+node_modules/
+jspm_packages/
+
+# Build outputs / caches
+dist/
+build/
+out/
+coverage/
+.nyc_output/
+.cache/
+.tmp/
+.temp/
+
+# TypeScript
+*.tsbuildinfo
+
+# Environment files
+.env
+.env.*
+!.env.example
+
+# Python (in case of helper scripts)
+__pycache__/
+*.py[cod]
+*.pyo
+*.pyd
+*.pytest_cache/
+
+# Archives
+*.zip
+*.tar
+*.gz
+*.rar
+*.7z
+
+# Merge/patch leftovers
+*.orig
+*.rej
+
+# Google Apps Script / clasp
+# Keep .clasp.json if present (contains scriptId/rootDir)
+# .clasprc.json is user-level and not in the repo by default

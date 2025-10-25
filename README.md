@@ -8,7 +8,9 @@ The site is intended for Urban Jungle team members only. Access is enforced thro
 
 ## Managing Tools
 
-- Update `tools.json` to add, edit, or remove entries. Each tool requires at least a `name` and `path`, and you can optionally include `description`, `category`, or `status`.
+- Update `tools.json` to add, edit, re-order, or remove entries. The file exposes a single `entries` array; items render in the same order they are listed.
+- To surface a standalone tool, create an entry with `"type": "tool"` plus at least `name` and `path`. Optional keys like `description`, `category`, and `status` enrich the card.
+- To group related static pages, create an entry with `"type": "group"`, supply a `name`/`description`, and populate the `items` array. Each item requires a `path` and can define `buttonText` to control the button label that appears on the hub.
 - Create a matching directory or file for every `path` you register. Static assets for a tool should live alongside its entry (e.g. `/hvt/index.html`).
 
 ## Local Preview

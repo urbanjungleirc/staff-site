@@ -1,11 +1,100 @@
 {
-  "tools": [
+  "entries": [
+     {
+      "type": "tool",
+      "id": "slideshow",
+      "name": "TV slideshow",
+      "description": "Chromecasting content of Google Drive folder.",
+      "path": "slideshow/",
+      "category": "Utility"
+    },
     {
+      "type": "tool",
       "id": "hvt",
       "name": "High-volume Training",
       "description": "Track and analyse climbing performance.",
       "path": "hvt/",
       "category": "Classes"
+    },
+        {
+      "type": "group",
+      "id": "sls-dashboards",
+      "name": "Summer Lead Series",
+      "description": "Quick launch shortcuts for broadcast overlays, scoreboard feeds, and booking utilities.",
+      "items": [
+        {
+          "id": "sls-tv",
+          "name": "SLS TV",
+          "path": "sls_tv.html",
+          "buttonText": "Launch Broadcast View"
+        },
+        {
+          "id": "sls-finals-scoring",
+          "name": "SLS Finals Scoring",
+          "path": "sls_finals_scoring.html",
+          "buttonText": "Enter Finals Scores"
+        }
+      ]
+    },
+    {
+      "type": "group",
+      "id": "live-event-dashboards",
+      "name": "Super Socail Pumpfest",
+      "description": "Quick launch shortcuts for broadcast overlays, scoreboard feeds, and booking utilities.",
+      "items": [
+        {
+          "id": "ssp-ticks",
+          "name": "SSP Tick Generator",
+          "path": "ssp_ticks.html",
+          "buttonText": "Generate Tick Feed"
+        },
+        {
+          "id": "live-score-ssp",
+          "name": "Live Score SSP",
+          "path": "livescore_ssp.html",
+          "buttonText": "View Live Score"
+        },
+        {
+          "id": "live-score-ssp-results",
+          "name": "Live Score SSP Results",
+          "path": "livescore_ssp_results.html",
+          "buttonText": "Open Results Feed"
+        }
+      ]
+    },
+    {
+      "type": "group",
+      "id": "test-tools",
+      "name": "Furthe tools",
+      "description": "Testing additional tool integrations.",
+      "items": [
+        {
+          "id": "iframe-booking-calendar",
+          "name": "Booking Calendar",
+          "path": "iFrameTestBookingCalendar.html",
+          "buttonText": "Test booking calender snippet available on UJ website."
+        }
+      ]
+    },
+        {
+      "type": "group",
+      "id": "rumble-dashboards",
+      "name": "Rumble in the Jungle",
+      "description": "Quick launch shortcuts for broadcast overlays, scoreboard feeds, and booking utilities.",
+      "items": [
+        {
+          "id": "live-rumble-control",
+          "name": "Live Rumble Control",
+          "path": "liverumble.html",
+          "buttonText": "Launch Control Panel"
+        },
+        {
+          "id": "live-rumble-results",
+          "name": "Live Rumble Results",
+          "path": "liverumble_results.html",
+          "buttonText": "Open Results Overlay"
+        }
+      ]
     }
   ]
 }

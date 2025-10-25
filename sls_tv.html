@@ -1,0 +1,164 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta http-equiv="X-UA-Compatible" content="IE=edge">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Summer Lead Series</title>
+    <link href="https://ujfront.github.io/assets/img/sls_logo.png" rel="icon">
+
+    <link href="https://cdn.datatables.net/2.1.8/css/dataTables.bootstrap5.min.css" rel="stylesheet">
+    <link href="https://cdn.datatables.net/buttons/3.2.0/css/buttons.bootstrap5.min.css" rel="stylesheet">
+    <link href="https://cdn.datatables.net/datetime/1.5.4/css/dataTables.dateTime.min.css" rel="stylesheet">
+    <link href="https://cdn.datatables.net/fixedheader/4.0.1/css/fixedHeader.bootstrap5.min.css" rel="stylesheet">
+    <link href="https://cdn.datatables.net/responsive/3.0.3/css/responsive.bootstrap5.min.css" rel="stylesheet">
+    <link href="https://cdn.datatables.net/rowgroup/1.5.1/css/rowGroup.bootstrap5.min.css" rel="stylesheet">
+    <link href="https://cdn.datatables.net/searchpanes/2.3.3/css/searchPanes.bootstrap5.min.css" rel="stylesheet">
+    <link href="https://cdn.datatables.net/select/2.1.0/css/select.bootstrap5.min.css" rel="stylesheet">
+    <link rel="stylesheet" type="text/css" href="https://ujfront.github.io/assets/css/uj_sls.min.css">
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.min.css">
+    <link rel="stylesheet" href="https://use.typekit.net/tco5lzp.css"> <!-- font-family: 'fatFrank', sans-serif; -->
+
+    <style>
+        /* ENDLESS ROTATE */
+        .rotate {
+            animation: rotate 5s linear infinite;
+        }
+
+        @keyframes rotate {
+            to {
+                transform: rotate(360deg);
+            }
+        }
+
+        /* SPINNER */
+        .spinner {
+            display: inline-block;
+            width: 50px;
+            height: 50px;
+            border-radius: 50%;
+            box-shadow: inset -2px 0 0 2px rgb(255, 217, 0);
+        }
+
+        h1,
+        h2,
+        h3,
+        .sls-font {
+            font-family: 'FatFrank', sans-serif;
+        }
+
+        /* Prevent text wrapping for Names */
+        .dataTables_wrapper td.name-cell {
+            white-space: nowrap;
+            overflow: hidden;
+            text-overflow: ellipsis;
+            max-width: 100%;
+        }
+    </style>
+
+</head>
+
+<body class="bg-light">
+
+    <!-- Spinner-->
+    <div class="modal fade" id="modalSpinner" data-bs-backdrop="static" data-bs-keyboard="true" tabindex="-1"
+        aria-hidden="true">
+        <div class="modal-dialog modal-dialog-centered modal" style="width: 100%; max-width: 800px; overflow: hidden;">
+            <div class="modal-content p-3 text-center"
+                style="background-color: transparent !important; border: none !important;">
+                <img src="https://ujfront.github.io/assets/img/sls_logo.png" width="700" height="700" alt="SLS" class="mx-auto d-block rotate">
+            </div>
+        </div>
+    </div>
+
+    <!-- main container -->
+    <div class="container-fluid">
+
+        <!-- heading -->
+        <div class="row text-white bg-primary mb-0 py-1">
+            <div class="col-auto me-auto">
+                <h1 class="d-flex align-items-center"><img src="https://ujfront.github.io/assets/img/sls_logo.png" alt="SLS" width="50"
+                        height="50" class="me-2"> Summer Lead Series
+                    <small class="text-white-50 visually-hidden">LIVESCORE</small>
+                    <small id="updatedAt" class="text-white-50 visually-hidden"></small>
+                </h1>
+            </div>
+            <div class="col-auto">
+                <h1 class="d-flex align-items-center text-white-50" id="timer">
+                    <span data-days class="text-white fw-bold me-2"></span>days left
+                </h1>
+            </div>
+        </div>
+
+        <!-- sub-heading -->
+        <div class="row bg-light text-primary mb-1 pt-2 pb-0">
+            <div class="col align-self-start">
+                <h2 class="text-primary"><i class="bi bi-gender-male me-2"></i>male</h2>
+            </div>
+            <div class="col align-self-center text-center">
+                <h2 id="activeCategory"
+                    class="text-light bg-primary border border-1 border-opacity-25 border-primary rounded-5 ">
+                    Category</h2>
+            </div>
+            <div class="col align-self-end text-end">
+                <h2 id="femaleHeading" class="text-primary"><i class="bi bi-gender-female me-2 py-1"></i>female</h2>
+            </div>
+        </div>
+
+        <!-- tables -->
+        <div class="row justify-content-center px-1">
+            <div class="col card bg-white border border-1 border-primary border-opacity-25 mx-1 px-1"
+                style="border-radius: .5rem;">
+                <div class="card-body p-0">
+                    <div class="table-responsive" style="width: 100%;">
+                        <table id="tableMale"
+                            class="table table-striped align-middle bg-white align-bottom fs-2 pe-1 rounded nowrap"
+                            style="width: 100%;">
+                            <thead class="visually-hidden"></thead>
+                        </table>
+                    </div>
+                </div>
+            </div>
+            <div class="col card bg-white border border-1 border-primary border-opacity-25 mx-1 px-1"
+                style="border-radius: .5rem;">
+                <div class="card-body p-0">
+                    <div class="table-responsive" style="width: 100%;">
+                        <table id="tableFemale" class="table table-striped bg-white align-bottom fs-2 pe-1 rounded nowrap"
+                            style="width: 100%;">
+                            <thead class="visually-hidden"></thead>
+                        </table>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script src="https://code.jquery.com/jquery-3.7.0.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js"
+        integrity="sha384-YvpcrYf0tY3lHB60NNkmXc5s9fDVZLESaAA55NDzOxhy9GkcIdslK1eN7N6jIeHz"
+        crossorigin="anonymous"></script>
+    <script src="https://cdn.datatables.net/2.1.8/js/dataTables.min.js"></script>
+    <script src="https://cdn.datatables.net/2.1.8/js/dataTables.bootstrap5.min.js"></script>
+    <script src="https://cdn.datatables.net/buttons/3.2.0/js/dataTables.buttons.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/moment.js/2.8.4/moment.min.js"></script>
+    <script src="https://cdn.datatables.net/plug-ins/1.11.4/sorting/datetime-moment.js"></script>
+    <script src="https://cdn.datatables.net/buttons/3.2.0/js/buttons.bootstrap5.min.js"></script>
+    <script src="https://cdn.datatables.net/datetime/1.5.4/js/dataTables.dateTime.min.js"></script>
+    <script src="https://cdn.datatables.net/fixedheader/4.0.1/js/dataTables.fixedHeader.min.js"></script>
+    <script src="https://cdn.datatables.net/responsive/3.0.3/js/dataTables.responsive.min.js"></script>
+    <script src="https://cdn.datatables.net/responsive/3.0.3/js/responsive.bootstrap5.js"></script>
+    <script src="https://cdn.datatables.net/rowgroup/1.5.1/js/dataTables.rowGroup.min.js"></script>
+    <script src="https://cdn.datatables.net/searchpanes/2.3.3/js/dataTables.searchPanes.min.js"></script>
+    <script src="https://cdn.datatables.net/searchpanes/2.3.3/js/searchPanes.bootstrap5.min.js"></script>
+    <script src="https://cdn.datatables.net/select/2.1.0/js/dataTables.select.min.js"></script>
+    <!-- <script src="https://cdn.datatables.net/1.12.0/js/jquery.dataTables.min.js"></script> -->
+    <script src="https://cdn.jsdelivr.net/npm/luxon@3.2.1/build/global/luxon.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/countdown/2.6.0/countdown.min.js"></script>
+
+    <!-- custom -->
+    <script src="https://ujfront.github.io/assets/js/sls_tv.js"></script>
+
+</body>
+
+</html>

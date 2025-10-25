@@ -1,0 +1,560 @@
+/* Add animation keyframes directly in the document */
+        @keyframes goldPulse {
+            0% { 
+                box-shadow: 0 0 20px rgba(255, 215, 0, 0.6);
+                transform: scale(1);
+            }
+            100% { 
+                box-shadow: 0 0 30px rgba(255, 215, 0, 0.9), 0 0 40px rgba(255, 165, 0, 0.7);
+                transform: scale(1.1);
+            }
+        }
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta http-equiv="X-UA-Compatible" content="IE=edge">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>SSP Results</title>
+
+    <link rel="stylesheet" href="https://ujfront.github.io/assets/css/uj_colors.min.css">
+    <link rel="stylesheet" type="text/css" href="https://cdn.datatables.net/1.12.0/css/dataTables.bootstrap5.min.css">
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.8.3/font/bootstrap-icons.css">
+    <link rel="stylesheet" href="https://cdn.datatables.net/searchpanes/2.0.2/css/searchPanes.dataTables.min.css">
+    <link rel="stylesheet" href="https://cdn.datatables.net/select/1.4.0/css/select.dataTables.min.css">
+    <link rel="stylesheet" href="https://cdn.datatables.net/buttons/2.2.3/js/dataTables.buttons.min.js">
+
+    <style>
+        /* Elegant gradient background */
+        body {
+            /* background: linear-gradient(135deg, #1a1a2e 0%, #16213e 50%, #0f3460 100%); */
+            background: linear-gradient(135deg, #2a1a1a 0%, #3e1621 50%, #601a0f 100%);
+            min-height: 100vh;
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+        }
+        
+        /* Sophisticated header */
+        .results-header {
+            background: linear-gradient(135deg, var(--bs-dark) 0%, var(--bs-info) 100%);
+            backdrop-filter: blur(20px);
+            box-shadow: 0 8px 32px rgba(0, 0, 0, 0.3);
+            border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+            position: relative;
+            overflow: hidden;
+        }
+        
+        /* Enhanced header shimmer animation */
+        .results-header::before {
+            content: '';
+            position: absolute;
+            top: 0;
+            left: -100%;
+            width: 100%;
+            height: 100%;
+            background: linear-gradient(90deg, transparent, rgba(255, 255, 255, 0.2), transparent);
+            animation: headerShimmer 4s infinite;
+        }
+        
+        @keyframes headerShimmer {
+            0% { left: -100%; opacity: 0; }
+            50% { opacity: 1; }
+            100% { left: 100%; opacity: 0; }
+        }
+        
+        /* Premium admin controls */
+        .admin-controls {
+            position: relative;
+            z-index: 99999;
+        }
+        
+        .hamburger-menu {
+            background: rgba(255, 255, 255, 0.15);
+            backdrop-filter: blur(15px);
+            border: 1px solid rgba(255, 255, 255, 0.2);
+            border-radius: 15px;
+            width: 45px;
+            height: 45px;
+            color: white;
+            font-size: 18px;
+            transition: all 0.4s ease;
+            box-shadow: 0 8px 25px rgba(0, 0, 0, 0.2);
+        }
+        
+        .hamburger-menu:hover {
+            background: rgba(255, 255, 255, 0.25);
+            transform: translateY(-3px) rotate(10deg);
+            box-shadow: 0 12px 35px rgba(0, 0, 0, 0.3);
+            color: white;
+        }
+        
+        .admin-panel {
+            position: absolute;
+            top: 60px;
+            right: 0;
+            background: rgba(255, 255, 255, 0.95);
+            backdrop-filter: blur(25px);
+            border: 1px solid rgba(255, 255, 255, 0.3);
+            border-radius: 20px;
+            padding: 25px;
+            min-width: 320px;
+            box-shadow: 0 25px 50px rgba(0, 0, 0, 0.2);
+            display: none;
+            transform: translateY(-15px) scale(0.95);
+            opacity: 0;
+            transition: all 0.4s cubic-bezier(0.68, -0.55, 0.265, 1.55);
+            z-index: 99999;
+        }
+        
+        /* Enhanced admin panel animation */
+        .admin-panel.show {
+            display: block;
+            transform: translateY(0) scale(1);
+            opacity: 1;
+            animation: panelEntrance 0.6s cubic-bezier(0.68, -0.55, 0.265, 1.55);
+        }
+        
+        @keyframes panelEntrance {
+            0% {
+                transform: translateY(-20px) scale(0.8);
+                opacity: 0;
+            }
+            60% {
+                transform: translateY(5px) scale(1.05);
+                opacity: 0.8;
+            }
+            100% {
+                transform: translateY(0) scale(1);
+                opacity: 1;
+            }
+        }
+        
+        /* Enhanced filter indicator animation */
+        .filter-indicator {
+            background: linear-gradient(45deg, rgba(255, 255, 255, 0.2), rgba(255, 255, 255, 0.1));
+            backdrop-filter: blur(15px);
+            color: white;
+            padding: 10px 18px;
+            border-radius: 25px;
+            border: 1px solid rgba(255, 255, 255, 0.3);
+            font-weight: 600;
+            font-size: 1.6em;
+            margin-left: 15px;
+            animation: elegantGlow 3s ease-in-out infinite alternate;
+            display: inline-block;
+            text-shadow: 0 2px 8px rgba(0, 0, 0, 0.3);
+        }
+        
+        @keyframes elegantGlow {
+            0% { 
+                box-shadow: 0 0 15px rgba(255, 255, 255, 0.4);
+                transform: scale(1);
+                border-color: rgba(255, 255, 255, 0.3);
+            }
+            100% { 
+                box-shadow: 0 0 30px rgba(255, 255, 255, 0.8), 0 0 40px rgba(174, 34, 42, 0.6);
+                transform: scale(1.05);
+                border-color: rgba(174, 34, 42, 0.8);
+            }
+        }
+        
+        /* Premium table design */
+        .results-card {
+            background: rgba(255, 255, 255, 0.95);
+            backdrop-filter: blur(25px);
+            border-radius: 25px;
+            box-shadow: 0 25px 50px rgba(0, 0, 0, 0.15);
+            border: 1px solid rgba(255, 255, 255, 0.3);
+            overflow: hidden;
+            margin: 20px;
+        }
+        
+        .premium-table {
+            border-radius: 25px;
+            overflow: hidden;
+        }
+        
+        .premium-table thead th {
+            background: linear-gradient(135deg, var(--bs-info) 0%, var(--bs-dark) 100%);
+            color: white;
+            font-weight: 700;
+            text-transform: uppercase;
+            letter-spacing: 1px;
+            font-size: 0.9rem;
+            padding: 20px 15px;
+            border: none;
+            position: relative;
+        }
+        
+        .premium-table thead th::after {
+            content: '';
+            position: absolute;
+            bottom: 0;
+            left: 0;
+            width: 100%;
+            height: 2px;
+            background: linear-gradient(90deg, var(--bs-primary), var(--bs-warning), var(--bs-success));
+        }
+        
+        .premium-table tbody tr {
+            transition: none;
+            border: none;
+            position: relative;
+        }
+        
+        .premium-table tbody td {
+            padding: 18px 15px;
+            border: none;
+            vertical-align: middle;
+            font-weight: 500;
+            font-size: 1.1em;
+            white-space: nowrap;
+            overflow: hidden;
+            text-overflow: ellipsis;
+            max-width: 200px;
+        }
+        
+        /* Make competitor names bigger */
+        .premium-table tbody td:first-child {
+            font-size: 1.9em;
+            font-weight: 600;
+            /* max-width: 300px; */
+        }
+        
+        /* Enhanced ranking badges with working animations */
+        .rank-badge {
+            width: 45px;
+            height: 45px;
+            border-radius: 50%;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-weight: bold;
+            font-size: 1.1em;
+            margin: 0 auto;
+            transition: all 0.3s ease;
+            position: relative;
+            overflow: hidden;
+        }
+        
+        .rank-badge::before {
+            content: '';
+            position: absolute;
+            top: -50%;
+            left: -50%;
+            width: 200%;
+            height: 200%;
+            background: linear-gradient(45deg, transparent, rgba(255, 255, 255, 0.5), transparent);
+            transform: rotate(45deg) translateX(-100%);
+            transition: transform 0.6s ease;
+        }
+        
+        .rank-badge:hover::before {
+            transform: rotate(45deg) translateX(100%);
+        }
+        
+        .rank-1 {
+            background: linear-gradient(45deg, #FFD700, #FFA500, #FF8C00);
+            color: #1C121B;
+            border: 3px solid #FFD700;
+            box-shadow: 0 0 20px rgba(255, 215, 0, 0.6);
+            animation: goldPulse 2s ease-in-out infinite alternate;
+        }
+        
+        @keyframes goldPulse {
+            0% { 
+                box-shadow: 0 0 20px rgba(255, 215, 0, 0.6);
+                transform: scale(1);
+            }
+            100% { 
+                box-shadow: 0 0 30px rgba(255, 215, 0, 0.9), 0 0 40px rgba(255, 165, 0, 0.7);
+                transform: scale(1.1);
+            }
+        }
+        
+        .rank-2 {
+            background: linear-gradient(45deg, #E5E5E5, #C0C0C0, #A8A8A8);
+            color: #1C121B;
+            border: 3px solid #C0C0C0;
+            box-shadow: 0 0 20px rgba(192, 192, 192, 0.6);
+            animation: silverPulse 2.5s ease-in-out infinite alternate;
+        }
+        
+        @keyframes silverPulse {
+            0% { 
+                box-shadow: 0 0 15px rgba(192, 192, 192, 0.6);
+                transform: scale(1);
+            }
+            100% { 
+                box-shadow: 0 0 25px rgba(192, 192, 192, 0.9);
+                transform: scale(1.08);
+            }
+        }
+        
+        .rank-3 {
+            background: linear-gradient(45deg, #CD7F32, #B8860B, #A0522D);
+            color: white;
+            border: 3px solid #CD7F32;
+            box-shadow: 0 0 20px rgba(205, 127, 50, 0.6);
+            animation: bronzePulse 3s ease-in-out infinite alternate;
+        }
+        
+        @keyframes bronzePulse {
+            0% { 
+                box-shadow: 0 0 15px rgba(205, 127, 50, 0.6);
+                transform: scale(1);
+            }
+            100% { 
+                box-shadow: 0 0 25px rgba(205, 127, 50, 0.9);
+                transform: scale(1.06);
+            }
+        }
+        
+        /* Enhanced performance badges with animations */
+        .performance-badge {
+            border-radius: 12px;
+            padding: 8px 12px;
+            font-weight: bold;
+            font-size: 1em;
+            transition: all 0.3s ease;
+            position: relative;
+            overflow: hidden;
+            animation: badgeGlow 4s ease-in-out infinite;
+        }
+        
+        .performance-badge::before {
+            content: '';
+            position: absolute;
+            top: 0;
+            left: -100%;
+            width: 100%;
+            height: 100%;
+            background: linear-gradient(90deg, transparent, rgba(255, 255, 255, 0.4), transparent);
+            transition: left 0.8s ease;
+        }
+        
+        .performance-badge:hover::before {
+            left: 100%;
+        }
+        
+        @keyframes badgeGlow {
+            0%, 100% { 
+                box-shadow: 0 4px 15px rgba(0, 0, 0, 0.2);
+                transform: scale(1);
+            }
+            50% { 
+                box-shadow: 0 6px 20px rgba(0, 0, 0, 0.3);
+                transform: scale(1.02);
+            }
+        }
+        
+        .tops-badge {
+            background: linear-gradient(45deg, var(--bs-success), #4caf50);
+            color: white;
+            box-shadow: 0 4px 15px rgba(99, 166, 35, 0.4);
+        }
+        
+        .zones-badge {
+            background: linear-gradient(45deg, var(--bs-warning), #ff9800);
+            color: var(--bs-dark);
+            box-shadow: 0 4px 15px rgba(231, 117, 13, 0.4);
+        }
+        
+        .attempts-badge {
+            background: linear-gradient(45deg, var(--bs-secondary), #757575);
+            color: white;
+            box-shadow: 0 4px 15px rgba(153, 153, 153, 0.3);
+        }
+        
+        /* Modern form controls */
+        .modern-select {
+            border-radius: 10px;
+            border: 2px solid rgba(174, 34, 42, 0.2);
+            transition: all 0.3s ease;
+            background: rgba(255, 255, 255, 0.9);
+        }
+        
+        .modern-select:focus {
+            border-color: var(--bs-primary);
+            box-shadow: 0 0 0 0.2rem rgba(174, 34, 42, 0.25);
+            background: white;
+        }
+        
+        /* Premium buttons */
+        .premium-btn {
+            border-radius: 12px;
+            font-weight: 600;
+            transition: all 0.3s ease;
+            border: none;
+            backdrop-filter: blur(10px);
+            position: relative;
+            overflow: hidden;
+        }
+        
+        .premium-btn::before {
+            content: '';
+            position: absolute;
+            top: 0;
+            left: -100%;
+            width: 100%;
+            height: 100%;
+            background: linear-gradient(90deg, transparent, rgba(255, 255, 255, 0.2), transparent);
+            transition: all 0.6s ease;
+        }
+        
+        .premium-btn:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 8px 25px rgba(0, 0, 0, 0.2);
+        }
+        
+        .premium-btn:hover::before {
+            left: 100%;
+        }
+        
+        /* Responsive design */
+        @media (max-width: 768px) {
+            .hamburger-menu {
+                width: 40px;
+                height: 40px;
+                font-size: 16px;
+            }
+            
+            .filter-indicator {
+                font-size: 0.8em;
+                padding: 8px 14px;
+            }
+            
+            .admin-panel {
+                min-width: 280px;
+                padding: 20px;
+            }
+        }
+    </style>
+
+</head>
+
+<body>
+
+    <div class="container-fluid p-0">
+        <!-- Sophisticated header -->
+        <div class="results-header">
+            <div class="container-fluid">
+                <div class="row align-items-center py-4 px-4">
+                    <div class="col-8">
+                        <div class="d-flex align-items-center flex-wrap">
+                            <h1 class="text-white mb-0 me-2">
+                                Super Social Pumpfest 
+                                <small class="text-primary ms-2">RESULTS</small>
+                            </h1>
+                            <span id="filterDisplay" class="filter-indicator" style="display: none;">All Competitors</span>
+                        </div>
+                        <small id="updatedAt" class="text-white-50 d-block mt-2">Competition Complete</small>
+                    </div>
+                    <div class="col-4 d-flex justify-content-end align-items-center">
+                        <!-- Premium Admin Controls -->
+                        <div class="admin-controls">
+                            <button class="hamburger-menu" id="adminToggle" title="Results Controls">
+                                <i class="bi bi-sliders"></i>
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Premium table container -->
+    <div class="container-xxl">
+        <div class="row justify-content-center">
+            <div class="col-12">
+                <div class="results-card">
+                    <div class="table-responsive">
+                        <table id="results" class="table premium-table mb-0" style="width: 100%;">
+                            <thead></thead>
+                        </table>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Admin Controls Panel - moved below table -->
+    <div class="admin-panel" id="adminPanel">
+        <h6 class="mb-4 text-dark fw-bold">Results Controls</h6>
+        <div class="row mb-3">
+            <div class="col-6">
+                <label class="form-label small text-muted fw-bold">Category</label>
+                <select id="categoryFilter" class="form-select form-select-sm modern-select">
+                    <option value="">All Categories</option>
+                </select>
+            </div>
+            <div class="col-6">
+                <label class="form-label small text-muted fw-bold">Gender</label>
+                <select id="genderFilter" class="form-select form-select-sm modern-select">
+                    <option value="">All Genders</option>
+                    <option value="male">Male</option>
+                    <option value="female">Female</option>
+                </select>
+            </div>
+        </div>
+        <div class="d-grid gap-2">
+            <button id="btnShowRankings" class="btn btn-primary premium-btn btn-sm">
+                <i class="bi bi-trophy-fill"></i> Show Rankings
+            </button>
+            <button id="btnShowNames" class="btn btn-outline-secondary premium-btn btn-sm">
+                <i class="bi bi-sort-alpha-down"></i> Sort by Name
+            </button>
+            <button id="btnClearFilters" class="btn btn-outline-warning premium-btn btn-sm">
+                <i class="bi bi-arrow-counterclockwise"></i> Reset All
+            </button>
+        </div>
+        <hr class="my-3">
+        <div class="row text-center">
+            <div class="col-6">
+                <div class="small text-muted">
+                    <i class="bi bi-people-fill"></i> Total
+                </div>
+                <div id="totalCompetitorsDisplay" class="fw-bold text-primary h5 mb-0">0</div>
+            </div>
+            <div class="col-6">
+                <div class="small text-muted">
+                    <i class="bi bi-funnel-fill"></i> Showing
+                </div>
+                <div id="filteredCompetitorsDisplay" class="fw-bold text-success h5 mb-0">0</div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        /*  -------------------------------------
+            Premium Results Page Settings
+            -------------------------------------
+        */
+        const score = "https://script.google.com/macros/s/AKfycbw64UI2d20Hb-XeIgt9ymAfCD62ZPOTwJKTq_G3_iCXTTBYE2BSAd-f0fYVv-D0kO9qng/exec";
+        const minPageDisplay = 10000;
+        let dataRefreshInterval = 300000;
+        const rowsPerPage = 12;
+        const filter = "";
+        const catTimeEnd = new Date('2025-06-27T20:00:00Z');
+        const allowModalTimer = false;
+    </script>
+
+    <!-- Dependencies -->
+    <script src="https://code.jquery.com/jquery-3.5.1.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js" integrity="sha384-YvpcrYf0tY3lHB60NNkmXc5s9fDVZLESaAA55NDzOxhy9GkcIdslK1eN7N6jIeHz" crossorigin="anonymous"></script>
+
+    <!-- DataTables -->
+    <script src="https://cdn.datatables.net/1.12.0/js/jquery.dataTables.min.js"></script>
+    <script src="https://cdn.datatables.net/1.12.0/js/dataTables.bootstrap5.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/moment.js/2.8.4/moment.min.js"></script>
+    <script src="https://cdn.datatables.net/plug-ins/1.11.4/sorting/datetime-moment.js"></script>
+    <script src="https://cdn.datatables.net/searchpanes/2.0.2/js/dataTables.searchPanes.min.js"></script>
+    <script src="https://cdn.datatables.net/select/1.4.0/js/dataTables.select.min.js"></script>
+    <script src="https://cdn.datatables.net/buttons/2.2.3/js/dataTables.buttons.min.js"></script>
+
+    <!-- Custom Scripts -->
+    <script src="https://ujfront.github.io/assets/js/livescore_ssp_results.js"></script>
+
+</body>
+
+</html>
