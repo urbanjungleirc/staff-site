@@ -1,8 +1,8 @@
 {
-  "version": "1.0.1",
+  "version": "1.0.0",
   "buildDate": "2025-10-25",
-  "buildTime": "01:29:19 UTC",
-  "branch": "session-stats-realtime",
-  "commit": "a1c0ab08c3c8eabe1f550947f2a5b4a221010f64",
+  "buildTime": "02:17:06 UTC",
+  "branch": "feature/class-management",
+  "commit": "26dc614eb2e0f431b805dc93631e347f7488709e",
   "deployedBy": "happykcz"
 }
