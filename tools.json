@@ -20,7 +20,7 @@
       "type": "group",
       "id": "sls-dashboards",
       "name": "Summer Lead Series",
-      "description": "Quick launch shortcuts for broadcast overlays, scoreboard feeds, and booking utilities.",
+      "description": "All about our signature competition; login scores, TV slideshow and the app for finals.",
       "items": [
         {
           "id": "sls-tv",
@@ -39,8 +39,8 @@
     {
       "type": "group",
       "id": "live-event-dashboards",
-      "name": "Super Socail Pumpfest",
-      "description": "Quick launch shortcuts for broadcast overlays, scoreboard feeds, and booking utilities.",
+      "name": "Super Social Pumpfest",
+      "description": "Quick launch shortcuts for broadcast overlays, lifescore and final results.",
       "items": [
         {
           "id": "ssp-ticks",
@@ -65,14 +65,14 @@
     {
       "type": "group",
       "id": "test-tools",
-      "name": "Furthe tools",
+      "name": "Further tools",
       "description": "Testing additional tool integrations.",
       "items": [
         {
           "id": "iframe-booking-calendar",
           "name": "Booking Calendar",
           "path": "iFrameTestBookingCalendar.html",
-          "buttonText": "Test booking calender snippet available on UJ website."
+          "buttonText": "Test booking calendar snippet available on UJ website."
         }
       ]
     },
@@ -80,7 +80,7 @@
       "type": "group",
       "id": "rumble-dashboards",
       "name": "Rumble in the Jungle",
-      "description": "Quick launch shortcuts for broadcast overlays, scoreboard feeds, and booking utilities.",
+      "description": "Control panel and results overlay for Rumble in the Jungle 2024.",
       "items": [
         {
           "id": "live-rumble-control",
