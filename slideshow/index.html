@@ -546,6 +546,43 @@
             line-height: 1.5;
         }
 
+        .connect-drive-btn {
+            background: #10b981;
+            color: white;
+            border: none;
+            padding: 15px 40px;
+            font-size: 1.2rem;
+            font-weight: bold;
+            border-radius: 50px;
+            cursor: pointer;
+            transition: all 0.3s ease;
+            text-transform: uppercase;
+            letter-spacing: 1px;
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            gap: 10px;
+        }
+
+        .connect-drive-btn:hover {
+            background: #059669;
+            transform: translateY(-2px);
+            box-shadow: 0 10px 25px rgba(0,0,0,0.2);
+        }
+
+        .connect-drive-btn:disabled {
+            background: #6b7280;
+            cursor: not-allowed;
+            transform: none;
+        }
+
+        .auth-note {
+            color: #9ca3af;
+            font-size: 0.9rem;
+            margin-top: 20px;
+            line-height: 1.4;
+        }
+
         /* Folder Browser Interface */
         #folder-browser {
             position: fixed;
@@ -874,11 +911,16 @@
     <div id="auth-container">
         <div class="auth-card">
             <div class="slideshow-logo">🎬 Slideshow</div>
-            <h1 class="auth-title">Connecting to Google Drive</h1>
+            <h1 class="auth-title">Connect to Google Drive</h1>
             <p class="auth-description">
-                Loading your folders...
+                You're authenticated via Cloudflare. Now connect your Google Drive to access slideshow folders.
             </p>
-            <div class="loading-spinner"></div>
+            <button class="connect-drive-btn" id="connect-drive-btn" onclick="window.driveAuth && window.driveAuth.login()">
+                📁 Connect Google Drive
+            </button>
+            <p class="auth-note">
+                Note: A popup window will open to authorize access. Please allow popups for this site if prompted.
+            </p>
         </div>
     </div>
 
@@ -1190,13 +1232,26 @@
                     }
                 }
 
-                // Automatically request Google Drive access
-                // User is already authenticated via Cloudflare Zero Trust
-                await this.login();
+                // Show the connect button and wait for user interaction
+                // This prevents popup blocker issues
+                this.showConnectInterface();
+            }
+
+            showConnectInterface() {
+                // Make sure the auth container and button are visible
+                document.getElementById('auth-container').style.display = 'flex';
+                document.getElementById('folder-browser').style.display = 'none';
+                document.getElementById('slideshow-container').style.display = 'none';
             }
 
             async login() {
+                const btn = document.getElementById('connect-drive-btn');
+
                 try {
+                    // Update button state
+                    btn.disabled = true;
+                    btn.innerHTML = '<div class="loading-spinner"></div> Connecting...';
+
                     // Use simple OAuth 2.0 flow
                     const tokenClient = google.accounts.oauth2.initTokenClient({
                         client_id: this.clientId,
@@ -1233,11 +1288,32 @@
 
                                 } catch (error) {
                                     // Failed to get user info
+                                    btn.disabled = false;
+                                    btn.innerHTML = '📁 Connect Google Drive';
                                     this.showError(`Failed to verify user information: ${error.message}`);
                                 }
                             } else {
-                                // No access token received
-                                this.showError('Authentication failed. Please refresh the page.');
+                                // No access token received (user cancelled or popup blocked)
+                                btn.disabled = false;
+                                btn.innerHTML = '📁 Connect Google Drive';
+
+                                // Check if it was likely a popup blocker
+                                if (tokenResponse.error === 'popup_closed_by_user') {
+                                    this.showError('Connection cancelled. Click the button to try again.');
+                                } else {
+                                    this.showError('Authentication failed. Please ensure popups are allowed and try again.');
+                                }
+                            }
+                        },
+                        error_callback: (error) => {
+                            // Handle OAuth errors
+                            btn.disabled = false;
+                            btn.innerHTML = '📁 Connect Google Drive';
+
+                            if (error.type === 'popup_failed_to_open') {
+                                this.showError('Popup blocked! Please allow popups for this site and try again.');
+                            } else {
+                                this.showError(`Connection error: ${error.message || 'Please try again'}`);
                             }
                         }
                     });
@@ -1246,6 +1322,8 @@
 
                 } catch (error) {
                     // Login failed
+                    btn.disabled = false;
+                    btn.innerHTML = '📁 Connect Google Drive';
                     this.showError(`Login failed: ${error.message}. Please refresh the page.`);
                 }
             }
@@ -1255,11 +1333,17 @@
                 authContainer.innerHTML = `
                     <div class="auth-card">
                         <div class="slideshow-logo">🎬 Slideshow</div>
-                        <h1 class="auth-title" style="color: #ef4444;">Connection Error</h1>
+                        <h1 class="auth-title" style="color: #ef4444;">Connection Issue</h1>
                         <p class="auth-description">${message}</p>
-                        <button onclick="location.reload()" style="background: #10b981; color: white; border: none; padding: 15px 40px; font-size: 1.1rem; border-radius: 25px; cursor: pointer;">
-                            Retry
+                        <button class="connect-drive-btn" id="connect-drive-btn" onclick="window.driveAuth && window.driveAuth.login()">
+                            📁 Try Again
                         </button>
+                        <p class="auth-note">
+                            If problems persist, try: <br>
+                            • Allowing popups for this site<br>
+                            • Clearing your browser cache<br>
+                            • Using a different browser
+                        </p>
                     </div>
                 `;
             }
