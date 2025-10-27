@@ -496,7 +496,7 @@
         }
 
 
-        /* Authentication Interface */
+        /* Loading Screen (replaces auth interface) */
         #auth-container {
             position: fixed;
             top: 0;
@@ -544,34 +544,6 @@
             font-size: 1.1rem;
             margin-bottom: 40px;
             line-height: 1.5;
-        }
-
-        .google-login-btn {
-            background: #2563eb; /* Blue fallback */
-            color: white !important;
-            border: none;
-            padding: 15px 40px;
-            font-size: 1.2rem;
-            font-weight: bold;
-            border-radius: 50px;
-            cursor: pointer;
-            transition: all 0.3s ease;
-            text-transform: uppercase;
-            letter-spacing: 1px;
-            display: flex;
-            align-items: center;
-            justify-content: center;
-            gap: 10px;
-        }
-
-        .google-login-btn:hover {
-            background: #ea580c; /* Orange fallback */
-            transform: translateY(-2px);
-            box-shadow: 0 10px 25px rgba(0,0,0,0.2);
-        }
-
-        .google-login-btn span {
-            color: white !important;
         }
 
         /* Folder Browser Interface */
@@ -898,18 +870,15 @@
     </style>
 </head>
 <body>
-    <!-- Authentication Interface -->
+    <!-- Loading Interface -->
     <div id="auth-container">
         <div class="auth-card">
             <div class="slideshow-logo">🎬 Slideshow</div>
-            <h1 class="auth-title">From your Google Drive folders</h1>
+            <h1 class="auth-title">Connecting to Google Drive</h1>
             <p class="auth-description">
-                Connect your Google Drive to create professional slideshows with live speed leaderboard.
-                Access your folders and start displaying content instantly.
+                Loading your folders...
             </p>
-            <button class="google-login-btn" onclick="driveAuth.login()">
-                🔐 <span>Connect Google Drive</span>
-            </button>
+            <div class="loading-spinner"></div>
         </div>
     </div>
 
@@ -1088,12 +1057,12 @@
             localStorage.removeItem('ujSlideshow_folder');
             localStorage.removeItem('ujSlideshow_active');
 
-            // Start fresh OAuth flow (don't interfere with existing DriveAuth)
+            // Show loading screen and reinitialize
             document.getElementById('auth-container').style.display = 'flex';
             document.getElementById('folder-browser').style.display = 'none';
             document.getElementById('slideshow-container').style.display = 'none';
 
-            // Initialize fresh OAuth
+            // Initialize fresh authentication
             window.driveAuth = new DriveAuth();
             window.driveAuth.init();
         }
@@ -1101,11 +1070,10 @@
         // OAuth Authentication Class
         class DriveAuth {
             constructor() {
-                this.clientId = '743038481656-p4r90h8112ta5tqhdt1h7ct8rd036t5k.apps.googleusercontent.com'; // Replace with your actual client ID
+                this.clientId = '743038481656-p4r90h8112ta5tqhdt1h7ct8rd036t5k.apps.googleusercontent.com';
                 this.apiKey = 'AIzaSyAL0c1mpOJImMGiDA6XtMV2aPA2mWgdrJE';
                 this.scope = 'https://www.googleapis.com/auth/drive.readonly https://www.googleapis.com/auth/userinfo.email';
-                // PRODUCTION DOMAIN RESTRICTION - Only these domains are allowed to use the slideshow
-                this.allowedDomains = ['urbanjungleirc.com', 'happyk.au', 'climberswa.asn.au'];
+                // Note: Domain restrictions are handled by Cloudflare Zero Trust
                 this.selectedFolder = null;
                 this.accessToken = null;
                 this.currentView = 'recentSlideshows'; // Default to recent slideshows
@@ -1204,7 +1172,6 @@
 
                     await gapi.client.init({
                         apiKey: this.apiKey
-                        // Removed discoveryDocs to prevent 502 Bad Gateway errors
                     });
                 } catch (error) {
                     // Continue anyway - we can work without gapi client
@@ -1223,57 +1190,36 @@
                     }
                 }
 
-                // Show login interface
-                this.showAuthInterface();
-            }
-
-
-            showAuthInterface() {
-                document.getElementById('auth-container').style.display = 'flex';
-                document.getElementById('folder-browser').style.display = 'none';
-                document.getElementById('slideshow-container').style.display = 'none';
+                // Automatically request Google Drive access
+                // User is already authenticated via Cloudflare Zero Trust
+                await this.login();
             }
 
             async login() {
                 try {
-                    const loginBtn = document.querySelector('.google-login-btn');
-                    loginBtn.innerHTML = '<div class="loading-spinner"></div><span>Connecting...</span>';
-                    loginBtn.disabled = true;
-
-                    // Use simple OAuth 2.0 flow like the working version
+                    // Use simple OAuth 2.0 flow
                     const tokenClient = google.accounts.oauth2.initTokenClient({
                         client_id: this.clientId,
                         scope: this.scope,
                         callback: async (tokenResponse) => {
                             if (tokenResponse.access_token) {
                                 this.accessToken = tokenResponse.access_token;
-                                
-                                // Get user info to validate domain
+
+                                // Get user info
                                 try {
                                     const userInfo = await fetch(`https://www.googleapis.com/oauth2/v2/userinfo?access_token=${this.accessToken}`);
-                                    
+
                                     if (!userInfo.ok) {
                                         throw new Error(`HTTP ${userInfo.status}: ${userInfo.statusText}`);
                                     }
-                                    
+
                                     const userData = await userInfo.json();
-                                    
+
                                     if (!userData.email) {
                                         throw new Error('No email found in user data');
                                     }
-                                    
+
                                     const email = userData.email;
-                                    const domain = email.split('@')[1];
-
-                                    // PRODUCTION SECURITY: Domain restriction enforced (except localhost for development)
-                                    const isLocalhost = window.location.hostname === '127.0.0.1' || window.location.hostname === 'localhost';
-                                    if (!isLocalhost && !this.allowedDomains.includes(domain)) {
-                                        alert(`🚫 Access denied. Only users from ${this.allowedDomains.join(', ')} domains are allowed.`);
-                                        loginBtn.innerHTML = '🔐 <span>Connect Google Drive</span>';
-                                        loginBtn.disabled = false;
-                                        return;
-                                    }
-
 
                                     // Save authentication
                                     const authData = {
@@ -1287,15 +1233,11 @@
 
                                 } catch (error) {
                                     // Failed to get user info
-                                    loginBtn.innerHTML = '🔐 <span>Connect Google Drive</span>';
-                                    loginBtn.disabled = false;
-                                    alert(`Failed to verify user information: ${error.message}`);
+                                    this.showError(`Failed to verify user information: ${error.message}`);
                                 }
                             } else {
                                 // No access token received
-                                loginBtn.innerHTML = '🔐 <span>Connect Google Drive</span>';
-                                loginBtn.disabled = false;
-                                alert('Authentication failed. Please try again.');
+                                this.showError('Authentication failed. Please refresh the page.');
                             }
                         }
                     });
@@ -1304,11 +1246,22 @@
 
                 } catch (error) {
                     // Login failed
-                    const loginBtn = document.querySelector('.google-login-btn');
-                    loginBtn.innerHTML = '🔐 <span>Connect Google Drive</span>';
-                    loginBtn.disabled = false;
-                    alert('Login failed. Please try again.');
+                    this.showError(`Login failed: ${error.message}. Please refresh the page.`);
                 }
+            }
+
+            showError(message) {
+                const authContainer = document.getElementById('auth-container');
+                authContainer.innerHTML = `
+                    <div class="auth-card">
+                        <div class="slideshow-logo">🎬 Slideshow</div>
+                        <h1 class="auth-title" style="color: #ef4444;">Connection Error</h1>
+                        <p class="auth-description">${message}</p>
+                        <button onclick="location.reload()" style="background: #10b981; color: white; border: none; padding: 15px 40px; font-size: 1.1rem; border-radius: 25px; cursor: pointer;">
+                            Retry
+                        </button>
+                    </div>
+                `;
             }
 
             async showFolderBrowser(userEmail) {
@@ -1849,24 +1802,24 @@
                             method: 'POST'
                         });
                     }
-                    
+
                     localStorage.removeItem('ujSlideshow_auth');
                     localStorage.removeItem('ujSlideshow_folder');
                     localStorage.removeItem('ujSlideshow_active');
-                    
+
                     this.accessToken = null;
                     this.selectedFolder = null;
-                    
-                    this.showAuthInterface();
+
+                    // Reload page to restart authentication
+                    location.reload();
                 } catch (error) {
-                    // Logout error
-                    // Clear local data anyway
+                    // Logout error - clear local data anyway
                     localStorage.removeItem('ujSlideshow_auth');
                     localStorage.removeItem('ujSlideshow_folder');
                     localStorage.removeItem('ujSlideshow_active');
                     this.accessToken = null;
                     this.selectedFolder = null;
-                    this.showAuthInterface();
+                    location.reload();
                 }
             }
         }
@@ -2969,8 +2922,21 @@
             }
             
             if (typeof gapi === 'undefined' || typeof google === 'undefined') {
-                // Google libraries failed to load
-                alert('Google authentication libraries failed to load. Please check your internet connection and refresh the page.');
+                // Google libraries failed to load - show error screen
+                const authContainer = document.getElementById('auth-container');
+                authContainer.innerHTML = `
+                    <div class="auth-card">
+                        <div class="slideshow-logo">🎬 Slideshow</div>
+                        <h1 class="auth-title" style="color: #ef4444;">Loading Error</h1>
+                        <p class="auth-description">
+                            Google authentication libraries failed to load.
+                            Please check your internet connection and try again.
+                        </p>
+                        <button onclick="location.reload()" style="background: #10b981; color: white; border: none; padding: 15px 40px; font-size: 1.1rem; border-radius: 25px; cursor: pointer;">
+                            Retry
+                        </button>
+                    </div>
+                `;
                 return;
             }
             
