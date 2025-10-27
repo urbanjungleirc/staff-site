@@ -23,16 +23,40 @@
       "description": "All about our signature competition; login scores, TV slideshow and the app for finals.",
       "items": [
         {
+          "id": "sls-score-input",
+          "name": "Log climbers ticks here",
+          "path": "https://script.google.com/macros/s/AKfycbzdk1-DMmEdRKKEYBNdfTqRQd0QMwjvcmM30ZQ2SWDcPMQxOcytU6R-OqSgLH-6yWS_/exec",
+          "buttonText": "Score Input App"
+        },
+        {
           "id": "sls-tv",
-          "name": "SLS TV",
+          "name": "Slideshow of live scores",
           "path": "sls_tv.html",
-          "buttonText": "Launch Broadcast View"
+          "buttonText": "TV live score broadcast"
+        },
+        {
+          "id": "sls-finals-results",
+          "name": "TV Slideshow for FINALS night schedule and results",
+          "path": "https://script.google.com/a/macros/urbanjungleirc.com/s/AKfycbylscImbv5C8IBdlOKO6bzszKHKVqHaYJAxICNsb2F7-SrSEbUk_IDdIyGhNP0Ty93rbA/exec",
+          "buttonText": "FINALS TV slideshow"
         },
         {
           "id": "sls-finals-scoring",
-          "name": "SLS Finals Scoring",
+          "name": "An app for headjudges to input scores",
           "path": "sls_finals_scoring.html",
-          "buttonText": "Enter Finals Scores"
+          "buttonText": "FINALS Scoring App"
+        },
+        {
+          "id": "sls-public-scores",
+          "name": "Live score",
+          "path": "https://tools.urbanjungleirc.com/sls.html", 
+          "buttonText": "Public view"
+        },
+        {
+          "id": "sls-public-ticks",
+          "name": "Ticks",
+          "path": "https://tools.urbanjungleirc.com/sls_ticks.html", 
+          "buttonText": "Public view"
         }
       ]
     },
@@ -43,22 +67,22 @@
       "description": "Quick launch shortcuts for broadcast overlays, lifescore and final results.",
       "items": [
         {
-          "id": "ssp-ticks",
-          "name": "SSP Tick Generator",
-          "path": "ssp_ticks.html",
-          "buttonText": "Generate Tick Feed"
-        },
-        {
           "id": "live-score-ssp",
-          "name": "Live Score SSP",
+          "name": "Live Score slideshow",
           "path": "livescore_ssp.html",
-          "buttonText": "View Live Score"
+          "buttonText": "Launch Live view for TV"
         },
         {
           "id": "live-score-ssp-results",
-          "name": "Live Score SSP Results",
+          "name": "SSP Results",
           "path": "livescore_ssp_results.html",
           "buttonText": "Open Results Feed"
+        }, 
+        {
+          "id": "ssp-ticks",
+          "name": "Old version of livestats",
+          "path": "ssp_ticks.html",
+          "buttonText": "do not use"
         }
       ]
     },
