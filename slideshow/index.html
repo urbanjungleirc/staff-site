@@ -911,14 +911,14 @@
     <div id="auth-container">
         <div class="auth-card">
             <div class="slideshow-logo">🎬 Slideshow</div>
-            <h1 class="auth-title">Connect to Google Drive</h1>
-            <p class="auth-description">
-                You're authenticated via Cloudflare. Now connect your Google Drive to access slideshow folders.
+            <h1 class="auth-title" id="auth-title">Connecting to Google Drive</h1>
+            <p class="auth-description" id="auth-description">
+                Please wait while we connect to your Google Drive...
             </p>
-            <button class="connect-drive-btn" id="connect-drive-btn" onclick="window.driveAuth && window.driveAuth.login()">
-                📁 Connect Google Drive
-            </button>
-            <p class="auth-note">
+            <div id="auth-action">
+                <div class="loading-spinner"></div>
+            </div>
+            <p class="auth-note" id="auth-note" style="display: none;">
                 Note: A popup window will open to authorize access. Please allow popups for this site if prompted.
             </p>
         </div>
@@ -1232,16 +1232,67 @@
                     }
                 }
 
-                // Show the connect button and wait for user interaction
-                // This prevents popup blocker issues
-                this.showConnectInterface();
+                // Try silent authentication first (since user is already authenticated via Cloudflare)
+                try {
+                    await this.attemptSilentAuth();
+                } catch (error) {
+                    // Silent auth failed - show button for user interaction
+                    this.showConnectInterface();
+                }
+            }
+
+            async attemptSilentAuth() {
+                return new Promise((resolve, reject) => {
+                    const tokenClient = google.accounts.oauth2.initTokenClient({
+                        client_id: this.clientId,
+                        scope: this.scope,
+                        prompt: '', // Try to get token without showing UI (if user already granted access)
+                        callback: async (tokenResponse) => {
+                            if (tokenResponse.access_token) {
+                                this.accessToken = tokenResponse.access_token;
+
+                                try {
+                                    const userInfo = await fetch(`https://www.googleapis.com/oauth2/v2/userinfo?access_token=${this.accessToken}`);
+                                    if (!userInfo.ok) throw new Error('Failed to get user info');
+
+                                    const userData = await userInfo.json();
+                                    if (!userData.email) throw new Error('No email found');
+
+                                    const authData = {
+                                        token: this.accessToken,
+                                        expiry: Date.now() + (tokenResponse.expires_in * 1000),
+                                        userEmail: userData.email
+                                    };
+                                    localStorage.setItem('ujSlideshow_auth', JSON.stringify(authData));
+
+                                    await this.showFolderBrowser(userData.email);
+                                    resolve();
+                                } catch (error) {
+                                    reject(error);
+                                }
+                            } else {
+                                reject(new Error('No access token received'));
+                            }
+                        },
+                        error_callback: (error) => {
+                            reject(error);
+                        }
+                    });
+
+                    tokenClient.requestAccessToken();
+                });
             }
 
             showConnectInterface() {
-                // Make sure the auth container and button are visible
-                document.getElementById('auth-container').style.display = 'flex';
-                document.getElementById('folder-browser').style.display = 'none';
-                document.getElementById('slideshow-container').style.display = 'none';
+                // Update UI to show the connect button
+                document.getElementById('auth-title').textContent = 'Connect to Google Drive';
+                document.getElementById('auth-description').textContent = "You're authenticated via Cloudflare. Click below to authorize access to your Google Drive folders.";
+                document.getElementById('auth-action').innerHTML = `
+                    <button class="connect-drive-btn" id="connect-drive-btn" onclick="window.driveAuth && window.driveAuth.login()">
+                        📁 Connect Google Drive
+                    </button>
+                `;
+                document.getElementById('auth-note').style.display = 'block';
             }
 
             async login() {
@@ -1252,10 +1303,11 @@
                     btn.disabled = true;
                     btn.innerHTML = '<div class="loading-spinner"></div> Connecting...';
 
-                    // Use simple OAuth 2.0 flow
+                    // Use OAuth 2.0 flow with consent prompt (user already authenticated via Cloudflare)
                     const tokenClient = google.accounts.oauth2.initTokenClient({
                         client_id: this.clientId,
                         scope: this.scope,
+                        prompt: 'consent', // Show consent screen to allow Drive access
                         callback: async (tokenResponse) => {
                             if (tokenResponse.access_token) {
                                 this.accessToken = tokenResponse.access_token;
