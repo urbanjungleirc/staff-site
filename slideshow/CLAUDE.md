@@ -388,3 +388,109 @@ slideshow_title: Competition Display  # Display title
 ---
 
 **Status: CONTINUOUS OPERATION READY ✅ - Slideshow now runs indefinitely without user intervention, automatically updating content while maintaining uninterrupted display. Perfect for professional TV displays at competitions and events requiring 24/7 operation.**
+
+---
+
+## 📋 Planned Enhancements - Next Development Session
+
+### 🎯 Priority Features for Next Session:
+
+#### 1. Help/How-To Section 📚
+**Location:** Main page (folder browser screen)
+**Purpose:** Guide non-technical staff through slideshow setup and usage
+
+**Proposed Content:**
+- Quick start guide for first-time users
+- Filename duration syntax examples: `[30]image.jpg`
+- How to add titles/descriptions via Google Drive file descriptions
+- Leaderboard configuration examples
+- Troubleshooting common issues
+- Keyboard shortcuts reference
+
+**Implementation Ideas:**
+- Collapsible help panel with icon/button
+- Modal dialog with tabbed sections
+- Link to comprehensive README.md
+- Inline tooltips on folder browser interface
+
+#### 2. File Management Editor 🔧
+**Purpose:** Simplify content management without leaving the slideshow interface
+
+**Core Features:**
+- **Rename files** - Edit filename (including duration prefix) inline
+- **Edit descriptions** - Modify titles/descriptions without opening Google Drive
+- **Drag & drop reordering** - Visual file reordering (updates filenames with alphabetical prefixes)
+- **Preview mode** - See changes before applying
+- **Batch operations** - Update multiple files at once
+
+**Technical Considerations:**
+- Uses Google Drive API v3 file update endpoints
+- Requires write permissions (`drive.file` scope in OAuth)
+- Real-time validation for duration syntax
+- Undo/redo functionality for safety
+- Auto-save vs manual save options
+
+**UI Design:**
+- Modal editor accessible from folder browser
+- Split view: file list on left, editor panel on right
+- Drag handles for reordering with visual feedback
+- Color-coded file types (images, videos, leaderboards)
+
+#### 3. Image Cropping Tool ✂️
+**Purpose:** Prepare images for TV display without external editing software
+
+**Features:**
+- **Preset aspect ratios** for common TV formats:
+  - 16:9 (Full HD, 4K standard)
+  - 21:9 (Ultrawide)
+  - 4:3 (Older displays)
+  - Custom ratios
+- **Live preview** showing how image will appear in slideshow
+- **Zoom/pan controls** for precise framing
+- **Multiple crops per image** - Save variations with different names
+- **Non-destructive editing** - Creates new files, preserves originals
+
+**Technical Implementation:**
+- Canvas API for client-side image manipulation
+- Upload new cropped versions to Google Drive
+- Filename suffix convention: `image_16-9.jpg`, `image_4-3.jpg`
+- Optional: Store crop metadata in file description for re-editing
+
+**User Workflow:**
+1. Select image from file list
+2. Choose aspect ratio preset or custom
+3. Adjust crop area with visual handles
+4. Preview in slideshow context
+5. Save cropped version to Drive folder
+6. Option to set duration for new file
+
+### 🎨 Additional Considerations:
+
+**Integration Points:**
+- All three features accessible from main folder browser interface
+- Unified navigation between help, editor, and cropping tools
+- Consistent design language with existing slideshow UI
+
+**User Experience:**
+- Minimize need to switch between slideshow and Google Drive web interface
+- Simple, visual controls suitable for non-technical staff
+- Mobile/tablet friendly for on-the-go content management
+
+**Performance:**
+- Lazy-load editor components to keep main app lightweight
+- Client-side operations where possible to reduce API calls
+- Progress indicators for file uploads/updates
+
+**Documentation:**
+- Update README.md with new feature guides
+- Add inline help text within each tool
+- Video tutorials for complex workflows (optional)
+
+### 📝 Implementation Priority:
+1. **Help section** (Quick win, high user value)
+2. **File editor** (Core functionality, moderate complexity)
+3. **Cropping tool** (Advanced feature, higher complexity)
+
+---
+
+**Next Session Goals:** Implement help section first to improve onboarding, then evaluate user feedback before starting file editor and cropping features.
