@@ -978,13 +978,27 @@
         }
 
         .editor-preview-label {
-            display: block;
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
             font-size: 0.85rem;
             font-weight: 600;
             color: #374151;
             margin-bottom: 10px;
             text-transform: uppercase;
             letter-spacing: 0.025em;
+        }
+
+        .editor-image-info {
+            font-size: 0.8rem;
+            font-weight: 400;
+            color: #9ca3af;
+            text-transform: none;
+            letter-spacing: normal;
+        }
+
+        .editor-image-info-warning {
+            color: #dc2626;
         }
 
         .editor-preview-container {
@@ -2301,7 +2315,7 @@ default_leaderboard_row_limit: 12
 
                 // Use fetch like the rest of the app
                 const response = await fetch(
-                    `https://www.googleapis.com/drive/v3/files?q='${folderId}'+in+parents+and+trashed=false&fields=files(id,name,mimeType,description)&orderBy=name&access_token=${accessToken}`
+                    `https://www.googleapis.com/drive/v3/files?q='${folderId}'+in+parents+and+trashed=false&fields=files(id,name,mimeType,description,size,imageMediaMetadata)&orderBy=name&access_token=${accessToken}`
                 );
 
                 if (!response.ok) {
@@ -2388,16 +2402,26 @@ default_leaderboard_row_limit: 12
 
             let previewHTML = '';
             if (isImage) {
+                // Format file size
+                const fileSizeMB = file.size ? (parseInt(file.size) / (1024 * 1024)).toFixed(2) : '?';
+
+                // Get image dimensions from metadata if available
+                const width = file.imageMediaMetadata?.width || null;
+                const height = file.imageMediaMetadata?.height || null;
+
                 previewHTML = `
                     <div class="editor-image-preview">
-                        <label class="editor-preview-label">Image Preview</label>
+                        <label class="editor-preview-label">
+                            <span>Image Preview</span>
+                            <span class="editor-image-info" id="image-info-${fileId}">${fileSizeMB} MB</span>
+                        </label>
                         <div class="editor-preview-container" id="preview-container-${fileId}">
                             <div class="editor-preview-spinner"></div>
-                            <img class="editor-preview-image"
+                            <img class="editor-preview-image" id="preview-image-${fileId}"
                                  src="https://drive.google.com/thumbnail?id=${fileId}&sz=w600&access_token=${accessToken}"
                                  alt="${file.name}"
                                  onerror="document.getElementById('preview-container-${fileId}').innerHTML='<div class=\\'editor-preview-loading\\'>Failed to load preview</div>'"
-                                 onload="this.previousElementSibling.style.display='none'; this.style.display='block';"
+                                 onload="handleImageLoad('${fileId}', ${fileSizeMB}, ${width}, ${height})"
                                  style="display: none;">
                         </div>
                     </div>
@@ -2420,6 +2444,78 @@ default_leaderboard_row_limit: 12
                     </div>
                 </form>
             `;
+        }
+
+        function handleImageLoad(fileId, fileSizeMB, width, height) {
+            const img = document.getElementById(`preview-image-${fileId}`);
+            const infoSpan = document.getElementById(`image-info-${fileId}`);
+
+            if (!img || !infoSpan) return;
+
+            // Hide spinner and show image
+            const spinner = img.previousElementSibling;
+            if (spinner) spinner.style.display = 'none';
+            img.style.display = 'block';
+
+            // Use the original image dimensions from API metadata
+            if (width && height) {
+                // Calculate decimal ratio for comparison
+                const decimalRatio = width / height;
+                const tolerance = 0.01; // 1% tolerance
+
+                // Common aspect ratios with their decimal values
+                const commonRatios = [
+                    { name: '21:9', value: 21/9 },      // 2.333...
+                    { name: '16:9', value: 16/9 },      // 1.777...
+                    { name: '16:10', value: 16/10 },    // 1.6
+                    { name: '3:2', value: 3/2 },        // 1.5
+                    { name: '4:3', value: 4/3 },        // 1.333...
+                    { name: '5:4', value: 5/4 },        // 1.25
+                    { name: '1:1', value: 1/1 },        // 1.0
+                    { name: '4:5', value: 4/5 },        // 0.8 (vertical)
+                    { name: '3:4', value: 3/4 },        // 0.75 (vertical)
+                    { name: '2:3', value: 2/3 },        // 0.666... (vertical)
+                    { name: '9:16', value: 9/16 }       // 0.5625 (vertical)
+                ];
+
+                // Check if the ratio is close to any common ratio
+                let ratioText = '';
+                for (const ratio of commonRatios) {
+                    if (Math.abs(decimalRatio - ratio.value) / ratio.value <= tolerance) {
+                        ratioText = ratio.name;
+                        break;
+                    }
+                }
+
+                // If no common ratio found, calculate the simplified fraction
+                if (!ratioText) {
+                    const gcd = (a, b) => b === 0 ? a : gcd(b, a % b);
+                    const divisor = gcd(width, height);
+                    const ratioW = width / divisor;
+                    const ratioH = height / divisor;
+                    ratioText = `${ratioW}:${ratioH}`;
+                }
+
+                // Format dimensions with comma separators for large numbers
+                const formattedWidth = width.toLocaleString();
+                const formattedHeight = height.toLocaleString();
+
+                // Check if image specs are ideal for TV display
+                const isIdealSize = fileSizeMB <= 1.5;
+                const isIdealRatio = ratioText === '16:9';
+
+                // Build info string with conditional highlighting
+                const sizeClass = isIdealSize ? '' : ' class="editor-image-info-warning"';
+                const ratioClass = isIdealRatio ? '' : ' class="editor-image-info-warning"';
+
+                // Update info span with HTML for colored warnings
+                infoSpan.innerHTML = `<span${sizeClass}>${fileSizeMB} MB</span> • ${formattedWidth}×${formattedHeight}px • <span${ratioClass}>${ratioText}</span>`;
+            } else {
+                // If dimensions aren't available, just show file size
+                const isIdealSize = fileSizeMB <= 1.5;
+                const sizeClass = isIdealSize ? '' : ' class="editor-image-info-warning"';
+                infoSpan.innerHTML = `<span${sizeClass}>${fileSizeMB} MB</span>`;
+            }
         }
 
         function submitFileChanges() {
