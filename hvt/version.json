@@ -1,8 +1,8 @@
 {
-  "version": "1.0.1",
+  "version": "1.0.3",
   "buildDate": "2025-11-02",
-  "buildTime": "16:49:01 UTC",
+  "buildTime": "17:09:25 UTC",
   "branch": "feature/scoring-crud",
-  "commit": "da4e0deff81293aafff20dc037df79f27c7073a9",
+  "commit": "71892bc984f4ee8f3bfa560180a844f6e33bd5b6",
   "deployedBy": "happykcz"
 }
