@@ -1,8 +1,8 @@
 {
-  "version": "1.0.4",
-  "buildDate": "2025-11-02",
-  "buildTime": "17:12:41 UTC",
+  "version": "1.1.0",
+  "buildDate": "2025-11-10",
+  "buildTime": "07:31:58 UTC",
   "branch": "feature/stats",
-  "commit": "93e6e538ff3ad12879f79dec798fc4ad1732615e",
+  "commit": "64e8f8ad41cc1d08b9d66ec0e9d8fd328ab503bd",
   "deployedBy": "happykcz"
 }
