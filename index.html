@@ -247,6 +247,103 @@
         }
       }
     </style>
+    <!-- n8n chat widget styles -->
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@n8n/chat@0.66.0/dist/style.css"/>
+    <style>
+    :root {
+      --chat--color-primary: #8b1c23;
+      --chat--color-primary-shade-50: #7a1820;
+      --chat--color-primary-shade-100: #6b181e;
+      --chat--color-secondary: #1f2937;
+      --chat--color-secondary-shade-50: #111827;
+      --chat--color-white: #ffffff;
+      --chat--color-light: #f3f4f6;
+      --chat--color-light-shade-50: #e5e7eb;
+      --chat--color-light-shade-100: #d1d5db;
+      --chat--color-medium: #cbd5e1;
+      --chat--color-dark: #0f172a;
+      --chat--color-disabled: #94a3b8;
+      --chat--color-typing: #4b5563;
+
+      --chat--spacing: 1rem;
+      --chat--border-radius: 14px;
+      --chat--transition-duration: 0.18s;
+      /* --chat--font-family: ("Inter", "Segoe UI", system-ui, -apple-system, sans-serif); */
+
+      --chat--window--width: 380px;
+      --chat--window--height: 560px;
+      --chat--window--bottom: 20px;
+      --chat--window--right: 20px;
+      --chat--window--z-index: 9999;
+      --chat--window--border: 1px solid rgba(139, 28, 35, 0.12);
+      --chat--window--border-radius: 16px;
+      --chat--window--margin-bottom: 0;
+
+      --chat--header-height: auto;
+      --chat--header--padding: 16px 18px;
+      --chat--header--background: linear-gradient(145deg, #6b181e, #8b1c23);
+      --chat--header--color: #ffffff;
+      --chat--heading--font-size: 1.2rem;
+      --chat--subtitle--font-size: 0.95rem;
+      --chat--subtitle--line-height: 1.5;
+
+      --chat--message--font-size: 1rem;
+      --chat--message--padding: 0.9rem 1rem;
+      --chat--message--border-radius: 12px;
+      --chat--message-line-height: 1.55;
+      --chat--message--margin-bottom: 0.75rem;
+      --chat--message--bot--background: #ffffff;
+      --chat--message--bot--color: #1f2937;
+      --chat--message--bot--border: 1px solid rgba(15, 23, 42, 0.05);
+      --chat--message--user--background: #8b1c23;
+      --chat--message--user--color: #ffffff;
+      --chat--message--user--border: none;
+      --chat--message--pre--background: rgba(15, 23, 42, 0.04);
+      --chat--messages-list--padding: 1rem;
+
+      --chat--toggle--size: 64px;
+      --chat--toggle--background: #8b1c23;
+      --chat--toggle--hover--background: #7a1820;
+      --chat--toggle--active--background: #6b181e;
+      --chat--toggle--color: #ffffff;
+
+      --chat--textarea--height: 54px;
+      --chat--textarea--max-height: 30rem;
+      --chat--input--font-size: 1rem;
+      --chat--input--padding: 0.85rem 1rem;
+      --chat--input--background: #ffffff;
+      --chat--input--text-color: #1f2937;
+      --chat--input--border: 1px solid #e5e7eb;
+      --chat--input--border-active: 1px solid rgba(139, 28, 35, 0.35);
+      --chat--input--left--panel--width: 2.2rem;
+
+      --chat--button--color: #ffffff;
+      --chat--button--background: #8b1c23;
+      --chat--button--padding: 0.65rem 1rem;
+      --chat--button--border-radius: 12px;
+      --chat--button--hover--color: #ffffff;
+      --chat--button--hover--background: #7a1820;
+      --chat--close--button--color-hover: #8b1c23;
+
+      --chat--input--send--button--background: #ffffff;
+      --chat--input--send--button--color: #8b1c23;
+      --chat--input--send--button--background-hover: rgba(139, 28, 35, 0.08);
+      --chat--input--send--button--color-hover: #6b181e;
+      --chat--input--file--button--background: #ffffff;
+      --chat--input--file--button--color: #1f2937;
+      --chat--input--file--button--background-hover: #ffffff;
+      --chat--input--file--button--color-hover: #111827;
+      --chat--files-spacing: 0.35rem;
+
+      --chat--body--background: #f8fafc;
+      --chat--footer--background: #f8fafc;
+      --chat--footer--color: #1f2937;
+    }
+
+    .chat-message {
+      max-width: 68%;
+    }
+    </style>
   </head>
   <body>
     <header>
@@ -555,23 +652,38 @@
       })();
     </script>
     
-    <!-- UJ Staff Assistant (n8n chat) -->
-    <script defer src="https://cdn.jsdelivr.net/npm/@n8n/chat@latest"></script>
-    <script>
-      window.addEventListener('DOMContentLoaded', () => {
-        // If you haven’t set the CSS variables globally, paste the earlier :root theme block above this script.
-        window.N8N_CHAT.init({
-          webhookUrl: 'https://n8n.happyk.au/webhook/60ef0174-4d66-458b-977d-3fcf4094f321/chat',
-          title: 'UJ Staff Assistant',
-          subtitle: 'Answers from Urban Jungle internal docs only',
-          defaultOpen: false,                // keep closed until clicked
-          showCloseButton: true,
-          inputPlaceholder: 'Ask about policies, tools, or workflows…',
-          privacyText: 'Runs on Urban Jungle internal RAG; only uses documents we uploaded.',
-          // position, z-index, sizing and colors come from the CSS variables we set earlier
-        });
+    <!-- n8n chat widget (ES module build) -->
+    <script type="module">
+      import { createChat } from 'https://cdn.jsdelivr.net/npm/@n8n/chat@0.66.0/dist/chat.bundle.es.js';
+
+      createChat({
+        webhookUrl: 'https://n8n.happyk.au/webhook/60ef0174-4d66-458b-977d-3fcf4094f321/chat',
+
+        // UI options
+        title: 'UJ Staff Assistant',
+        subtitle: 'Answers from Urban Jungle internal docs only',
+        defaultOpen: false,
+        showCloseButton: true,
+        privacyText: 'Runs on Urban Jungle internal RAG; only uses documents we uploaded.',
+        initialMessages: [
+          'Hi! I’m the UJ Staff Assistant. ',
+          'I can answer questions based on the internal docs we’ve uploaded. Ask away.'
+        ],
+        i18n: {
+          en: {
+            title: 'UJ Staff Assistant',
+            subtitle: "Answers from Urban Jungle internal docs only.",
+            footer: '',
+            getStarted: 'New Conversation',
+            inputPlaceholder: 'Ask about policies, tools, or workflows…',
+          },
+        },
       });
     </script>
+
+
+
+
 
   </body>
 </html>

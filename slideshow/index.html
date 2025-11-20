@@ -122,6 +122,47 @@
             transform: translateY(0);
         }
 
+        /* Per-slide overlay system - overlays that are part of each slide */
+        .slide-title-overlay {
+            position: absolute;
+            bottom: 100px;
+            left: 50px;
+            right: 50px;
+            background: rgba(0, 0, 0, 0.7);
+            padding: 20px 30px;
+            border-radius: 10px;
+            font-size: 2.5rem;
+            font-weight: bold;
+            text-align: center;
+            z-index: 10;
+            opacity: 0;
+            transform: translateY(20px);
+            animation: slideOverlayIn 0.6s ease-out 0.3s forwards;
+        }
+
+        .slide-description-overlay {
+            position: absolute;
+            bottom: 20px;
+            left: 50px;
+            right: 50px;
+            background: rgba(0, 0, 0, 0.6);
+            padding: 15px 30px;
+            border-radius: 8px;
+            font-size: 2.5rem;
+            text-align: center;
+            z-index: 10;
+            opacity: 0;
+            transform: translateY(20px);
+            animation: slideOverlayIn 0.6s ease-out 0.5s forwards;
+        }
+
+        @keyframes slideOverlayIn {
+            to {
+                opacity: 1;
+                transform: translateY(0);
+            }
+        }
+
         #error-message {
             position: absolute;
             top: 50%;
@@ -4221,9 +4262,6 @@ default_leaderboard_row_limit: 12
                     // Add new slide to DOM (hidden)
                     mediaDisplay.appendChild(newSlideWrapper);
 
-                    // Update metadata immediately (will smoothly transition text)
-                    this.showMetadata(slide);
-
                     // Force reflow to ensure transition works
                     newSlideWrapper.offsetHeight;
 
@@ -4262,6 +4300,26 @@ default_leaderboard_row_limit: 12
                     this.showError(`Error loading ${slide.filename}: ${error.message}`);
                     // Skip to next slide after 3 seconds
                     setTimeout(() => this.nextSlide(), 3000);
+                }
+            }
+
+            addOverlaysToSlide(slideWrapper, slide) {
+                // Add title and description overlays as children of the slide
+                // They will automatically fade in/out with the parent slide
+                if (slide.type !== 'leaderboard' && slide.type !== 'title') {
+                    if (slide.title && slide.title.trim()) {
+                        const titleOverlay = document.createElement('div');
+                        titleOverlay.className = 'slide-title-overlay';
+                        titleOverlay.textContent = slide.title;
+                        slideWrapper.appendChild(titleOverlay);
+                    }
+
+                    if (slide.description && slide.description.trim()) {
+                        const descOverlay = document.createElement('div');
+                        descOverlay.className = 'slide-description-overlay';
+                        descOverlay.textContent = slide.description;
+                        slideWrapper.appendChild(descOverlay);
+                    }
                 }
             }
 
@@ -4311,6 +4369,8 @@ default_leaderboard_row_limit: 12
                             slideWrapper.appendChild(img);
                             // Store timer duration on wrapper for later use
                             slideWrapper.dataset.duration = slide.duration;
+                            // Add overlays to this slide
+                            this.addOverlaysToSlide(slideWrapper, slide);
                             resolve(slideWrapper);
                         };
 
@@ -4372,6 +4432,8 @@ default_leaderboard_row_limit: 12
                             video.onended = () => {
                                 this.nextSlide();
                             };
+                            // Add overlays to this slide
+                            this.addOverlaysToSlide(slideWrapper, slide);
                             resolve(slideWrapper);
                         };
 
