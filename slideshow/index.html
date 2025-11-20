@@ -57,10 +57,16 @@
             justify-content: center;
             opacity: 0;
             transition: opacity 0.8s ease-in-out;
+            z-index: 1;
         }
 
         .slide-content.active {
             opacity: 1;
+            z-index: 2;
+        }
+
+        .slide-content.fading-out {
+            z-index: 1;
         }
 
         .slide-content img {
@@ -306,6 +312,9 @@
         .name-cell {
             font-weight: 600;
             font-size: 1.5rem;
+            white-space: nowrap;
+            overflow: hidden;
+            text-overflow: ellipsis;
         }
 
         .time-cell {
@@ -3727,6 +3736,8 @@ default_leaderboard_row_limit: 12
                 this.currentIndex = 0;
                 this.isPlaying = false;
                 this.currentTimeout = null;
+                this.preloadedSlide = null;
+                this.preloadedSlideIndex = -1;
                 this.leaderboardCache = new Map();
                 this.lastLeaderboardFetch = 0;
                 this.liveLeaderboardData = null;
@@ -4185,106 +4196,167 @@ default_leaderboard_row_limit: 12
                 if (index >= this.slides.length) {
                     index = 0; // Loop back to start
                 }
-                
+
                 this.currentIndex = index;
                 const slide = this.slides[index];
-                
-                
-                // Clear previous overlays
-                this.clearOverlays();
-                
-                // Fade out current slide
-                const currentSlide = document.querySelector('.slide-content.active');
-                if (currentSlide) {
-                    currentSlide.classList.remove('active');
-                }
-                
-                // Wait for fade out
-                await new Promise(resolve => setTimeout(resolve, currentSlide ? 400 : 0));
-                
-                // Clear all slide content
+
                 const mediaDisplay = document.getElementById('media-display');
-                mediaDisplay.innerHTML = '';
-                
+                const currentSlide = document.querySelector('.slide-content.active');
+
                 try {
-                    switch (slide.type) {
-                        case 'image':
-                            await this.showImage(slide);
-                            break;
-                        case 'video':
-                            await this.showVideo(slide);
-                            break;
-                        case 'leaderboard':
-                            await this.showLeaderboard(slide);
-                            break;
-                        case 'title':
-                            await this.showTitleSlide(slide);
-                            break;
+                    // Check if we have a preloaded slide ready
+                    let newSlideWrapper = this.preloadedSlide && this.preloadedSlideIndex === index
+                        ? this.preloadedSlide
+                        : null;
+
+                    // If no preloaded slide, load it now
+                    if (!newSlideWrapper) {
+                        newSlideWrapper = await this.loadSlideContent(slide);
                     }
-                    
-                    // Show metadata with delay for smooth appearance
-                    setTimeout(() => this.showMetadata(slide), 600);
-                    
+
+                    // Clear preload cache
+                    this.preloadedSlide = null;
+                    this.preloadedSlideIndex = -1;
+
+                    // Add new slide to DOM (hidden)
+                    mediaDisplay.appendChild(newSlideWrapper);
+
+                    // Update metadata immediately (will smoothly transition text)
+                    this.showMetadata(slide);
+
+                    // Force reflow to ensure transition works
+                    newSlideWrapper.offsetHeight;
+
+                    // Crossfade: fade out old, fade in new (simultaneously)
+                    if (currentSlide) {
+                        currentSlide.classList.add('fading-out');
+                        currentSlide.classList.remove('active');
+                    }
+
+                    // Small delay to ensure DOM is ready
+                    setTimeout(() => {
+                        newSlideWrapper.classList.add('active');
+                    }, 10);
+
+                    // Remove old slide after transition completes
+                    if (currentSlide) {
+                        setTimeout(() => {
+                            if (currentSlide.parentNode === mediaDisplay) {
+                                mediaDisplay.removeChild(currentSlide);
+                            }
+                        }, 850); // Slightly longer than transition duration (0.8s = 800ms)
+                    }
+
+                    // Start timer for next slide (except for videos which use onended)
+                    if (newSlideWrapper.dataset.isVideo !== 'true') {
+                        const duration = parseFloat(newSlideWrapper.dataset.duration) || slide.duration || 10;
+                        this.currentTimeout = setTimeout(() => this.nextSlide(), duration * 1000);
+                    }
+
+                    // Preload next slide in background
+                    setTimeout(() => this.preloadNextSlide(), 100);
+
                 } catch (error) {
                     // Error showing slide
+                    console.error('Error showing slide:', error);
                     this.showError(`Error loading ${slide.filename}: ${error.message}`);
                     // Skip to next slide after 3 seconds
                     setTimeout(() => this.nextSlide(), 3000);
                 }
             }
 
-            async showImage(slide) {
+            async loadSlideContent(slide) {
+                // Load slide content and return the wrapper element (doesn't add to DOM or start timer)
+                switch (slide.type) {
+                    case 'image':
+                        return await this.createImageSlide(slide);
+                    case 'video':
+                        return await this.createVideoSlide(slide);
+                    case 'leaderboard':
+                        return await this.createLeaderboardSlide(slide);
+                    case 'title':
+                        return await this.createTitleSlide(slide);
+                    default:
+                        throw new Error(`Unknown slide type: ${slide.type}`);
+                }
+            }
+
+            async preloadNextSlide() {
+                // Preload the next slide in background
+                const nextIndex = (this.currentIndex + 1) % this.slides.length;
+                const nextSlide = this.slides[nextIndex];
+
+                try {
+                    this.preloadedSlide = await this.loadSlideContent(nextSlide);
+                    this.preloadedSlideIndex = nextIndex;
+                    console.log(`Preloaded slide ${nextIndex}: ${nextSlide.filename}`);
+                } catch (error) {
+                    console.warn(`Failed to preload slide ${nextIndex}:`, error);
+                    // Clear failed preload
+                    this.preloadedSlide = null;
+                    this.preloadedSlideIndex = -1;
+                }
+            }
+
+            async createImageSlide(slide) {
                 const slideWrapper = document.createElement('div');
                 slideWrapper.className = 'slide-content';
-                
+
                 // Helper function to try loading an image with token refresh on failure
                 const tryLoadImage = (src, isRetry = false) => {
                     return new Promise((resolve, reject) => {
                         const img = document.createElement('img');
-                        
+
                         img.onload = () => {
                             slideWrapper.appendChild(img);
-                            document.getElementById('media-display').appendChild(slideWrapper);
-                            setTimeout(() => slideWrapper.classList.add('active'), 50);
-                            this.currentTimeout = setTimeout(() => this.nextSlide(), slide.duration * 1000);
-                            resolve();
+                            // Store timer duration on wrapper for later use
+                            slideWrapper.dataset.duration = slide.duration;
+                            resolve(slideWrapper);
                         };
-                        
+
                         img.onerror = async () => {
                             if (!isRetry && window.driveAuth) {
                                 try {
                                     const refreshSuccess = await window.driveAuth.refreshAccessToken(true);
                                     if (refreshSuccess) {
                                         // Update access token in URL and retry
-                                        const updatedUrl = src.includes('access_token=') 
+                                        const updatedUrl = src.includes('access_token=')
                                             ? src.replace(/access_token=[^&]*/, `access_token=${window.driveAuth.accessToken}`)
                                             : `${src}${src.includes('?') ? '&' : '?'}access_token=${window.driveAuth.accessToken}`;
-                                        
+
                                         tryLoadImage(updatedUrl, true).then(resolve).catch(reject);
                                         return;
                                     }
                                 } catch (error) {
                                 }
                             }
-                            
+
                             // Fallback to alternative URL format
                             const fallbackUrl = `https://drive.google.com/uc?id=${slide.id}&export=download&access_token=${window.driveAuth.accessToken}`;
                             tryLoadImage(fallbackUrl, true).then(resolve).catch(() => {
                                 reject(new Error('Failed to load image after token refresh and fallback'));
                             });
                         };
-                        
+
                         img.src = src;
                     });
                 };
-                
+
                 return tryLoadImage(slide.url);
             }
 
-            async showVideo(slide) {
+            async showImage(slide) {
+                // Legacy wrapper for backwards compatibility - creates slide and displays it
+                const slideWrapper = await this.createImageSlide(slide);
+                document.getElementById('media-display').appendChild(slideWrapper);
+                setTimeout(() => slideWrapper.classList.add('active'), 50);
+                this.currentTimeout = setTimeout(() => this.nextSlide(), slide.duration * 1000);
+            }
+
+            async createVideoSlide(slide) {
                 const slideWrapper = document.createElement('div');
                 slideWrapper.className = 'slide-content';
-                
+
                 // Helper function to try loading a video with token refresh on failure
                 const tryLoadVideo = (src, isRetry = false) => {
                     return new Promise((resolve, reject) => {
@@ -4292,73 +4364,88 @@ default_leaderboard_row_limit: 12
                         video.controls = false;
                         video.autoplay = true;
                         video.muted = false;
-                        
+
                         video.onloadeddata = () => {
                             slideWrapper.appendChild(video);
-                            document.getElementById('media-display').appendChild(slideWrapper);
-                            setTimeout(() => slideWrapper.classList.add('active'), 50);
-                            resolve();
+                            // Store video element and setup end handler
+                            slideWrapper.dataset.isVideo = 'true';
+                            video.onended = () => {
+                                this.nextSlide();
+                            };
+                            resolve(slideWrapper);
                         };
-                        
-                        video.onended = () => {
-                            this.nextSlide();
-                        };
-                        
+
                         video.onerror = async () => {
                             if (!isRetry && window.driveAuth) {
                                 try {
                                     const refreshSuccess = await window.driveAuth.refreshAccessToken(true);
                                     if (refreshSuccess) {
                                         // Update access token in URL and retry
-                                        const updatedUrl = src.includes('access_token=') 
+                                        const updatedUrl = src.includes('access_token=')
                                             ? src.replace(/access_token=[^&]*/, `access_token=${window.driveAuth.accessToken}`)
                                             : `${src}${src.includes('?') ? '&' : '?'}access_token=${window.driveAuth.accessToken}`;
-                                        
+
                                         tryLoadVideo(updatedUrl, true).then(resolve).catch(reject);
                                         return;
                                     }
                                 } catch (error) {
                                 }
                             }
-                            
+
                             reject(new Error('Failed to load video after token refresh attempts'));
                         };
-                        
+
                         video.src = src;
                     });
                 };
-                
+
                 return tryLoadVideo(slide.url);
             }
 
-            async showLeaderboard(slide) {
+            async showVideo(slide) {
+                // Legacy wrapper for backwards compatibility
+                const slideWrapper = await this.createVideoSlide(slide);
+                document.getElementById('media-display').appendChild(slideWrapper);
+                setTimeout(() => slideWrapper.classList.add('active'), 50);
+                // Video end handler is already set up in createVideoSlide
+            }
+
+            async createLeaderboardSlide(slide) {
                 // Extract leaderboard type from filename - handle various formats
                 // Examples: "leaderboard_speed.md", "11 [15] leaderboard kids.md", "05 leaderboard_rainbow.md"
                 let leaderboardType = this.extractLeaderboardType(slide.filename);
-                
-                
+
                 const slideWrapper = document.createElement('div');
                 slideWrapper.className = 'slide-content';
-                
+
                 // Parse leaderboard config from file description
                 const leaderboardConfig = this.parseLeaderboardConfig(slide.description);
-                
+
                 // Count leaderboard slides shown so far for alternating backgrounds
                 const leaderboardSlideIndex = this.getLeaderboardSlideIndex();
-                
+
                 const leaderboardHtml = await this.generateLeaderboard(leaderboardType, leaderboardConfig, leaderboardSlideIndex);
                 slideWrapper.innerHTML = leaderboardHtml;
-                
+
+                // Store duration on wrapper
+                slideWrapper.dataset.duration = slide.duration;
+
+                return slideWrapper;
+            }
+
+            async showLeaderboard(slide) {
+                // Legacy wrapper for backwards compatibility
+                const slideWrapper = await this.createLeaderboardSlide(slide);
                 document.getElementById('media-display').appendChild(slideWrapper);
-                
+
                 // Fade in the slide
                 setTimeout(() => slideWrapper.classList.add('active'), 50);
-                
+
                 // Schedule next slide
                 this.currentTimeout = setTimeout(() => this.nextSlide(), slide.duration * 1000);
             }
 
-            async showTitleSlide(slide) {
+            async createTitleSlide(slide) {
                 const slideWrapper = document.createElement('div');
                 slideWrapper.className = 'slide-content title-slide';
 
@@ -4383,6 +4470,15 @@ default_leaderboard_row_limit: 12
                     </div>
                 `;
 
+                // Store duration on wrapper
+                slideWrapper.dataset.duration = slide.duration;
+
+                return slideWrapper;
+            }
+
+            async showTitleSlide(slide) {
+                // Legacy wrapper for backwards compatibility
+                const slideWrapper = await this.createTitleSlide(slide);
                 document.getElementById('media-display').appendChild(slideWrapper);
 
                 // Fade in the slide
@@ -4752,19 +4848,27 @@ default_leaderboard_row_limit: 12
             showMetadata(slide) {
                 const titleEl = document.getElementById('title-overlay');
                 const descEl = document.getElementById('description-overlay');
-                
+
                 // Show title if parsed from description field
                 if (slide.title && slide.title.trim() && slide.type !== 'leaderboard') {
                     titleEl.textContent = slide.title;
-                    setTimeout(() => titleEl.classList.add('show'), 100);
+                    // If overlay is already visible, keep it visible (just text updated)
+                    // Otherwise, animate it in
+                    if (!titleEl.classList.contains('show')) {
+                        setTimeout(() => titleEl.classList.add('show'), 100);
+                    }
                 } else {
                     titleEl.classList.remove('show');
                 }
-                
+
                 // Show description if parsed from description field
                 if (slide.description && slide.description.trim() && slide.type !== 'leaderboard') {
                     descEl.textContent = slide.description;
-                    setTimeout(() => descEl.classList.add('show'), 200);
+                    // If overlay is already visible, keep it visible (just text updated)
+                    // Otherwise, animate it in
+                    if (!descEl.classList.contains('show')) {
+                        setTimeout(() => descEl.classList.add('show'), 200);
+                    }
                 } else {
                     descEl.classList.remove('show');
                 }

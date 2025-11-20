@@ -43,20 +43,20 @@
         {
           "id": "sls-finals-scoring",
           "name": "An app for headjudges to input scores",
-          "path": "sls_finals_scoring.html",
+          "path": "https://script.google.com/a/macros/urbanjungleirc.com/s/AKfycbylscImbv5C8IBdlOKO6bzszKHKVqHaYJAxICNsb2F7-SrSEbUk_IDdIyGhNP0Ty93rbA/exec?view=scoring",
           "buttonText": "FINALS Scoring App"
         },
         {
           "id": "sls-public-scores",
-          "name": "Live score",
+          "name": "public",
           "path": "https://tools.urbanjungleirc.com/sls.html", 
-          "buttonText": "Public view"
+          "buttonText": "Live score"
         },
         {
           "id": "sls-public-ticks",
-          "name": "Ticks",
+          "name": "public",
           "path": "https://tools.urbanjungleirc.com/sls_ticks.html", 
-          "buttonText": "Public view"
+          "buttonText": "Ticks"
         }
       ]
     },

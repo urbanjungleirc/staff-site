@@ -268,10 +268,15 @@
     <footer>Questions or missing something? Reach out to the digital team.</footer>
 
     <script>
+      // Config for tools and API
+      window.TOOLS_JSON_URL = 'https://raw.githubusercontent.com/urbanjungleirc/staff-site/main/tools.json';
+      // Route your Worker to ujstaff.happyk.au/api/* so this relative base works
+      window.WORKER_API_BASE = '/api';
       async function loadTools() {
         const container = document.getElementById("tool-content");
         try {
-          const response = await fetch("tools.json", { cache: "no-store" });
+          const toolsUrl = window.TOOLS_JSON_URL || "tools.json";
+          const response = await fetch(toolsUrl, { cache: "no-store" });
           if (!response.ok) throw new Error("Unable to fetch tools");
 
           const payload = await response.json();
@@ -453,6 +458,120 @@
       }
 
       loadTools();
+
+      // Lightweight inline editor (only appears when `?admin` is present and WORKER_API_BASE is set)
+      (function initEditor() {
+        const params = new URLSearchParams(location.search);
+        const apiBase = (window.WORKER_API_BASE || '').replace(/\/$/, '');
+        if (!params.has('admin') || !apiBase) return;
+
+        const btn = document.createElement('button');
+        btn.textContent = 'Edit tools.json';
+        btn.style.position = 'fixed';
+        btn.style.bottom = '16px';
+        btn.style.right = '16px';
+        btn.style.zIndex = '9999';
+        btn.style.padding = '10px 14px';
+        btn.style.borderRadius = '10px';
+        btn.style.border = '1px solid rgba(139,28,35,0.3)';
+        btn.style.background = 'white';
+        btn.style.color = '#8b1c23';
+        btn.style.fontWeight = '600';
+        btn.style.boxShadow = '0 8px 20px -12px rgba(15,23,42,0.35)';
+
+        const modal = document.createElement('div');
+        Object.assign(modal.style, {
+          position: 'fixed', inset: '0', background: 'rgba(0,0,0,0.4)',
+          display: 'none', alignItems: 'center', justifyContent: 'center', zIndex: '10000'
+        });
+        const panel = document.createElement('div');
+        Object.assign(panel.style, {
+          width: 'min(900px, 96vw)', maxHeight: '90vh', background: 'white', color: '#111',
+          borderRadius: '14px', border: '1px solid rgba(0,0,0,0.1)', display: 'flex', flexDirection: 'column'
+        });
+        const header = document.createElement('div');
+        header.textContent = 'Edit tools.json';
+        Object.assign(header.style, {
+          padding: '12px 16px', borderBottom: '1px solid rgba(0,0,0,0.08)',
+          fontWeight: '700', color: '#8b1c23'
+        });
+        const ta = document.createElement('textarea');
+        Object.assign(ta.style, {
+          width: '100%', height: '50vh', flex: '1 1 auto', border: 'none', outline: 'none',
+          padding: '12px 16px', fontFamily: 'ui-monospace, SFMono-Regular, Menlo, Consolas, monospace'
+        });
+        const bar = document.createElement('div');
+        Object.assign(bar.style, { padding: '12px 16px', display: 'flex', gap: '8px', justifyContent: 'flex-end', borderTop: '1px solid rgba(0,0,0,0.08)' });
+        const status = document.createElement('div');
+        status.style.marginRight = 'auto';
+        status.style.color = '#4b5563';
+        const close = document.createElement('button'); close.textContent = 'Close';
+        const save = document.createElement('button'); save.textContent = 'Save';
+        for (const b of [close, save]) {
+          Object.assign(b.style, { padding: '8px 12px', borderRadius: '10px', border: '1px solid rgba(0,0,0,0.12)', background: 'white', cursor: 'pointer', fontWeight: 600 });
+        }
+        save.style.background = 'linear-gradient(145deg, rgba(107,24,30,0.95), rgba(139,28,35,0.92))';
+        save.style.color = 'white';
+
+        bar.append(status, close, save);
+        panel.append(header, ta, bar);
+        modal.append(panel);
+        document.body.append(btn, modal);
+
+        async function openEditor() {
+          modal.style.display = 'flex';
+          status.textContent = 'Loading...';
+          try {
+            const res = await fetch(apiBase + '/tools.json', { cache: 'no-store', credentials: 'include' });
+            if (!res.ok) throw new Error('Fetch failed: ' + res.status);
+            const text = await res.text();
+            ta.value = text;
+            status.textContent = 'Loaded';
+          } catch (e) {
+            status.textContent = 'Error loading: ' + (e?.message || e);
+          }
+        }
+        async function saveEditor() {
+          status.textContent = 'Saving...';
+          try {
+            let parsed;
+            try { parsed = JSON.parse(ta.value); } catch (e) { throw new Error('Invalid JSON: ' + e.message); }
+            const res = await fetch(apiBase + '/tools.json', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify(parsed),
+              credentials: 'include',
+            });
+            const data = await res.json().catch(() => ({}));
+            if (!res.ok) throw new Error(data?.error || ('Save failed: ' + res.status));
+            status.textContent = 'Saved. You may need to refresh to see published changes.';
+          } catch (e) {
+            status.textContent = 'Error: ' + (e?.message || e);
+          }
+        }
+        btn.addEventListener('click', openEditor);
+        close.addEventListener('click', () => { modal.style.display = 'none'; });
+        save.addEventListener('click', saveEditor);
+      })();
     </script>
+    
+    <!-- UJ Staff Assistant (n8n chat) -->
+    <script defer src="https://cdn.jsdelivr.net/npm/@n8n/chat@latest"></script>
+    <script>
+      window.addEventListener('DOMContentLoaded', () => {
+        // If you haven’t set the CSS variables globally, paste the earlier :root theme block above this script.
+        window.N8N_CHAT.init({
+          webhookUrl: 'https://n8n.happyk.au/webhook/60ef0174-4d66-458b-977d-3fcf4094f321/chat',
+          title: 'UJ Staff Assistant',
+          subtitle: 'Answers from Urban Jungle internal docs only',
+          defaultOpen: false,                // keep closed until clicked
+          showCloseButton: true,
+          inputPlaceholder: 'Ask about policies, tools, or workflows…',
+          privacyText: 'Runs on Urban Jungle internal RAG; only uses documents we uploaded.',
+          // position, z-index, sizing and colors come from the CSS variables we set earlier
+        });
+      });
+    </script>
+
   </body>
 </html>
