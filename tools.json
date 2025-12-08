@@ -79,10 +79,16 @@
           "buttonText": "Open Results Feed"
         }, 
         {
-          "id": "ssp-ticks",
-          "name": "Old version of livestats",
-          "path": "ssp_ticks.html",
-          "buttonText": "do not use"
+          "id": "ssp-data",
+          "buttonText": "Backend data",
+          "name": "Google Spreadsheet with competitors, categories, and all comp setting",
+          "path": "https://docs.google.com/spreadsheets/d/1rO8T0HvaSeg2QhCbpMtT8oLvjLo3wEBD5evGlKl1SDc/edit?gid=1874682729#gid=1874682729"
+        }, 
+        {
+          "id": "ssp-app",
+          "buttonText": "Score Input App",
+          "name": "https://tools.urbanjungleirc.com/compcard",
+          "path": "https://tools.urbanjungleirc.com/compcard"
         }
       ]
     },
@@ -94,14 +100,13 @@
       "items": [
         {
           "id": "qr-code-generator",
-          "name": "Test",
           "path": "https://happyk.au/tools/qr_code_generator.html",
           "buttonText": "QR Code Generator"
         },{
           "id": "iframe-booking-calendar",
           "name": "Test the booking calendar snippet available on UJ website.",
           "path": "iFrameTestBookingCalendar.html",
-          "buttonText": "Booking Calendar"
+          "buttonText": "Booking Calendar snippet"
         }
       ]
     },
