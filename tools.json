@@ -24,37 +24,37 @@
       "items": [
         {
           "id": "sls-score-input",
-          "name": "Log climbers ticks here",
+          "description": "Log climbers ticks here",
           "path": "https://script.google.com/macros/s/AKfycbzdk1-DMmEdRKKEYBNdfTqRQd0QMwjvcmM30ZQ2SWDcPMQxOcytU6R-OqSgLH-6yWS_/exec",
           "buttonText": "Score Input App"
         },
         {
           "id": "sls-tv",
-          "name": "Slideshow of live scores",
+          "description": "Slideshow of live scores",
           "path": "sls_tv.html",
           "buttonText": "TV live score broadcast"
         },
         {
           "id": "sls-finals-results",
-          "name": "TV Slideshow for FINALS night schedule and results",
+          "description": "TV Slideshow for FINALS night schedule and results",
           "path": "https://script.google.com/a/macros/urbanjungleirc.com/s/AKfycbylscImbv5C8IBdlOKO6bzszKHKVqHaYJAxICNsb2F7-SrSEbUk_IDdIyGhNP0Ty93rbA/exec",
           "buttonText": "FINALS TV slideshow"
         },
         {
           "id": "sls-finals-scoring",
-          "name": "An app for headjudges to input scores",
+          "description": "An app for headjudges to input scores",
           "path": "https://script.google.com/a/macros/urbanjungleirc.com/s/AKfycbylscImbv5C8IBdlOKO6bzszKHKVqHaYJAxICNsb2F7-SrSEbUk_IDdIyGhNP0Ty93rbA/exec?view=scoring",
           "buttonText": "FINALS Scoring App"
         },
         {
           "id": "sls-public-scores",
-          "name": "public",
+          "description": "public",
           "path": "https://tools.urbanjungleirc.com/sls.html", 
           "buttonText": "Live score"
         },
         {
           "id": "sls-public-ticks",
-          "name": "public",
+          "description": "public",
           "path": "https://tools.urbanjungleirc.com/sls_ticks.html", 
           "buttonText": "Ticks"
         }
@@ -68,26 +68,26 @@
       "items": [
         {
           "id": "live-score-ssp",
-          "name": "Live Score slideshow",
+          "description": "Live Score slideshow",
           "path": "livescore_ssp.html",
           "buttonText": "Launch Live view for TV"
         },
         {
           "id": "live-score-ssp-results",
-          "name": "SSP Results",
+          "description": "SSP Results",
           "path": "livescore_ssp_results.html",
           "buttonText": "Open Results Feed"
         }, 
         {
           "id": "ssp-data",
           "buttonText": "Backend data",
-          "name": "Google Spreadsheet with competitors, categories, and all comp setting",
+          "description": "Google Spreadsheet with competitors, categories, and all comp setting",
           "path": "https://docs.google.com/spreadsheets/d/1rO8T0HvaSeg2QhCbpMtT8oLvjLo3wEBD5evGlKl1SDc/edit?gid=1874682729#gid=1874682729"
         }, 
         {
           "id": "ssp-app",
           "buttonText": "Score Input App",
-          "name": "https://tools.urbanjungleirc.com/compcard",
+          "description": "a link to the score input app",
           "path": "https://tools.urbanjungleirc.com/compcard"
         }
       ]
@@ -104,13 +104,13 @@
           "buttonText": "QR Code Generator"
         },{
           "id": "iframe-booking-calendar",
-          "name": "Test the booking calendar snippet available on UJ website.",
+          "description": "Test the booking calendar snippet available on UJ website.",
           "path": "iFrameTestBookingCalendar.html",
           "buttonText": "Booking Calendar snippet"
         }
       ]
     },
-        {
+    {
       "type": "group",
       "id": "rumble-dashboards",
       "name": "Rumble in the Jungle",
@@ -118,13 +118,13 @@
       "items": [
         {
           "id": "live-rumble-control",
-          "name": "Live Rumble Control",
+          "description": "Live Rumble Control",
           "path": "liverumble.html",
           "buttonText": "Launch Control Panel"
         },
         {
           "id": "live-rumble-results",
-          "name": "Live Rumble Results",
+          "description": "Live Rumble Results",
           "path": "liverumble_results.html",
           "buttonText": "Open Results Overlay"
         }

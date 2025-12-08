@@ -145,7 +145,7 @@
         font-size: 0.85rem;
         font-weight: 500;
         opacity: 0.9;
-        color:var(--text-muted)
+        color: var(--text-muted);
       }
 
       #tool-content > * + * {
@@ -372,7 +372,9 @@
 
     <script>
       // Config for tools and API
-      window.TOOLS_JSON_URL = 'https://raw.githubusercontent.com/urbanjungleirc/staff-site/main/tools.json';
+      // TEMPORARY: Testing with local file to debug description display issue
+      window.TOOLS_JSON_URL = 'tools.json';
+      // window.TOOLS_JSON_URL = 'https://raw.githubusercontent.com/urbanjungleirc/staff-site/main/tools.json';
       // Route your Worker to ujstaff.happyk.au/api/* so this relative base works
       window.WORKER_API_BASE = '/api';
       async function loadTools() {
@@ -460,11 +462,11 @@
                 button.className = "group-button";
                 button.href = item.path;
 
-                if (item.id || item.name) {
+                if (item.id || item.buttonText) {
                   const identifier =
                     item.id ??
-                    (typeof item.name === "string"
-                      ? item.name.toLowerCase().replace(/\s+/g, "-")
+                    (typeof item.buttonText === "string"
+                      ? item.buttonText.toLowerCase().replace(/\s+/g, "-")
                       : undefined);
                   if (identifier) {
                     button.setAttribute("data-tool-id", identifier);
@@ -475,14 +477,14 @@
                 label.className = "group-button-label";
                 label.textContent =
                   item.buttonText ??
-                  (item.name ? `Open ${item.name}` : "Open tool");
+                  (item.description ? `Open ${item.description}` : "Open tool");
                 button.appendChild(label);
 
-                if (item.name) {
-                  const name = document.createElement("span");
-                  name.className = "group-button-name";
-                  name.textContent = item.name;
-                  button.appendChild(name);
+                if (item.description) {
+                  const description = document.createElement("span");
+                  description.className = "group-button-name";
+                  description.textContent = item.description;
+                  button.appendChild(description);
                 }
 
                 buttons.appendChild(button);
