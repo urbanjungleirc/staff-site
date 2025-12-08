@@ -88,15 +88,20 @@
     },
     {
       "type": "group",
-      "id": "test-tools",
-      "name": "Further tools",
-      "description": "Testing additional tool integrations.",
+      "id": "other-tools",
+      "name": "Other tools",
+      "description": "Additional tools and integrations.",
       "items": [
         {
+          "id": "qr-code-generator",
+          "name": "Test",
+          "path": "https://happyk.au/tools/qr_code_generator.html",
+          "buttonText": "QR Code Generator"
+        },{
           "id": "iframe-booking-calendar",
-          "name": "Booking Calendar",
+          "name": "Test the booking calendar snippet available on UJ website.",
           "path": "iFrameTestBookingCalendar.html",
-          "buttonText": "Test booking calendar snippet available on UJ website."
+          "buttonText": "Booking Calendar"
         }
       ]
     },
