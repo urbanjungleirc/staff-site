@@ -77,6 +77,7 @@
       }
 
       .tool-group {
+        position: relative;
         border-radius: 18px;
         padding: 28px;
         background: linear-gradient(135deg, rgba(139, 28, 35, 0.06), rgba(139, 28, 35, 0));
@@ -146,6 +147,40 @@
         font-weight: 500;
         opacity: 0.9;
         color: var(--text-muted);
+      }
+
+      .group-short-name {
+        position: absolute;
+        top: 16px;
+        right: 20px;
+        font-size: clamp(1.8rem, 5vw, 3.8rem);
+        font-weight: 900;
+        color: var(--accent);
+        opacity: 0.15;
+        letter-spacing: 0.08em;
+        white-space: nowrap;
+        pointer-events: none;
+        user-select: none;
+        line-height: 1;
+        text-transform: uppercase;
+        z-index: 1;
+      }
+
+      .group-short-name img {
+        display: block;
+        max-width: 80px;
+        max-height: 80px;
+        width: auto;
+        height: auto;
+        object-fit: contain;
+        opacity: 2;
+      }
+
+      .group-short-name svg {
+        display: block;
+        width: 80px;
+        height: 80px;
+        opacity: 2;
       }
 
       #tool-content > * + * {
@@ -244,6 +279,25 @@
 
         .group-button {
           padding: 16px 18px;
+        }
+
+        .group-short-name {
+          top: 12px;
+          right: 16px;
+          font-size: 1.5rem;
+          opacity: 0.06;
+        }
+
+        .group-short-name img {
+          max-width: 60px;
+          max-height: 60px;
+          opacity: 2;
+        }
+
+        .group-short-name svg {
+          width: 60px;
+          height: 60px;
+          opacity: 2;
         }
       }
     </style>
@@ -453,6 +507,30 @@
               }
 
               groupCard.appendChild(heading);
+
+              // Add decorative shortName if present
+              if (entry.shortName) {
+                const shortName = document.createElement("div");
+                shortName.className = "group-short-name";
+                shortName.setAttribute("aria-hidden", "true");
+
+                // Detect if shortName is an image URL or SVG
+                if (entry.shortName.match(/\.(svg|png|jpg|jpeg|gif|webp)$/i)) {
+                  // Image shortName
+                  const img = document.createElement("img");
+                  img.src = entry.shortName;
+                  img.alt = "";
+                  shortName.appendChild(img);
+                } else if (entry.shortName.trim().startsWith('<svg')) {
+                  // Inline SVG shortName
+                  shortName.innerHTML = entry.shortName;
+                } else {
+                  // Text shortName
+                  shortName.textContent = entry.shortName;
+                }
+
+                groupCard.appendChild(shortName);
+              }
 
               const buttons = document.createElement("div");
               buttons.className = "group-buttons";
