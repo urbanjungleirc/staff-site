@@ -5,6 +5,7 @@
       "id": "slideshow",
       "name": "TV slideshow",
       "description": "Chromecasting content of Google Drive folder.",
+      "shortName": "TV",
       "path": "slideshow/",
       "category": "Utility"
     },
@@ -13,6 +14,7 @@
       "id": "hvt",
       "name": "High-volume Training",
       "description": "Track and analyse climbing performance.",
+      "shortName": "HVT",
       "path": "hvt/",
       "category": "Classes"
     },
