@@ -38,6 +38,18 @@
           "buttonText": "TV live score broadcast"
         },
         {
+          "id": "sls-public-scores",
+          "description": "Public webpage of live scores",
+          "path": "https://tools.urbanjungleirc.com/sls.html", 
+          "buttonText": "Live score"
+        },
+        {
+          "id": "sls-public-ticks",
+          "description": "Public webpage of individual ticks and sends",
+          "path": "https://tools.urbanjungleirc.com/sls_ticks.html", 
+          "buttonText": "Ticks"
+        },
+        {
           "id": "sls-finals-results",
           "description": "TV Slideshow for FINALS night schedule and results",
           "path": "https://script.google.com/a/macros/urbanjungleirc.com/s/AKfycbylscImbv5C8IBdlOKO6bzszKHKVqHaYJAxICNsb2F7-SrSEbUk_IDdIyGhNP0Ty93rbA/exec",
@@ -54,18 +66,6 @@
           "description": "An app for headjudges to input scores",
           "path": "https://script.google.com/a/macros/urbanjungleirc.com/s/AKfycbylscImbv5C8IBdlOKO6bzszKHKVqHaYJAxICNsb2F7-SrSEbUk_IDdIyGhNP0Ty93rbA/exec?view=scoring",
           "buttonText": "FINALS Judges Scoring App"
-        },
-        {
-          "id": "sls-public-scores",
-          "description": "public",
-          "path": "https://tools.urbanjungleirc.com/sls.html", 
-          "buttonText": "Live score"
-        },
-        {
-          "id": "sls-public-ticks",
-          "description": "public",
-          "path": "https://tools.urbanjungleirc.com/sls_ticks.html", 
-          "buttonText": "Ticks"
         }
       ]
     },
