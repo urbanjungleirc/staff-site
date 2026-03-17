@@ -50,6 +50,12 @@
           "buttonText": "Ticks"
         },
         {
+          "id": "sls-stats",
+          "description": "Public webpage of stats and analysis",
+          "path": "https://tools.urbanjungleirc.com/sls_stats.html", 
+          "buttonText": "Statistics"
+        },
+        {
           "id": "sls-finals-results",
           "description": "TV Slideshow for FINALS night schedule and results",
           "path": "https://script.google.com/a/macros/urbanjungleirc.com/s/AKfycbylscImbv5C8IBdlOKO6bzszKHKVqHaYJAxICNsb2F7-SrSEbUk_IDdIyGhNP0Ty93rbA/exec",
