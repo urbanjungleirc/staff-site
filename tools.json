@@ -1,5 +1,14 @@
 {
   "entries": [
+    {
+      "type": "tool",
+      "id": "roster",
+      "name": "Staff Roster",
+      "description": "Daily shift overview — who's on, by role, updated from Google Calendar.",
+      "shortName": "📋",
+      "path": "roster.html",
+      "category": "Operations"
+    },
      {
       "type": "tool",
       "id": "slideshow",

@@ -22,17 +22,41 @@ export default {
     }
 
     try {
-      if (!env.GITHUB_OWNER || !env.GITHUB_REPO || !env.GITHUB_BRANCH || !env.TOOLS_PATH) {
-        return json({ error: "Worker not configured" }, 500, allowedOrigin);
-      }
-      if (!env.GITHUB_TOKEN) {
-        return json({ error: "Missing GITHUB_TOKEN secret" }, 500, allowedOrigin);
-      }
-
       // Optionally read the Cloudflare Access header for audit/logging
       const userEmail = request.headers.get("Cf-Access-Authenticated-User-Email") || null;
 
+      if (url.pathname === "/api/ics") {
+        if (request.method !== "GET") {
+          return json({ error: "Method not allowed" }, 405, allowedOrigin, { Allow: "GET, OPTIONS" });
+        }
+        if (!env.ICS_URL) {
+          return json({ error: "ICS_URL secret not configured" }, 500, allowedOrigin);
+        }
+        const icsRes = await fetch(env.ICS_URL, {
+          headers: { "User-Agent": "UJ-Roster-Proxy/1.0" },
+        });
+        if (!icsRes.ok) {
+          return json({ error: `ICS upstream error: ${icsRes.status}` }, 502, allowedOrigin);
+        }
+        const icsText = await icsRes.text();
+        return new Response(icsText, {
+          status: 200,
+          headers: {
+            ...corsHeaders(allowedOrigin),
+            "Content-Type": "text/calendar; charset=utf-8",
+            "Cache-Control": "max-age=120",
+          },
+        });
+      }
+
       if (url.pathname === "/api/tools.json") {
+        if (!env.GITHUB_OWNER || !env.GITHUB_REPO || !env.GITHUB_BRANCH || !env.TOOLS_PATH) {
+          return json({ error: "Worker not configured" }, 500, allowedOrigin);
+        }
+        if (!env.GITHUB_TOKEN) {
+          return json({ error: "Missing GITHUB_TOKEN secret" }, 500, allowedOrigin);
+        }
+
         if (request.method === "GET") {
           const content = await githubGetFile(env);
           return new Response(content.text, {

@@ -28,3 +28,5 @@ COMMITTER_EMAIL = "devnull+uj-tools@happyk.au"
 
 # Secrets (set via `wrangler secret put`):
 # - GITHUB_TOKEN: Fine-grained PAT with repo contents:read/write, or a GitHub App installation token
+# - ICS_URL: When I Work ICS subscription URL (Account → Calendar Sync → copy .ics link)
+#   Run: wrangler secret put ICS_URL

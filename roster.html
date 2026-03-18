@@ -1,0 +1,1261 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+    <title>Staff Roster — Urban Jungle</title>
+    <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
+    <link rel="icon" type="image/png" sizes="32x32" href="/favicon-32.png" />
+    <style>
+      :root {
+        color-scheme: light dark;
+        --bg: #f3f4f6;
+        --bg-alt: #ffffff;
+        --accent: #8b1c23;
+        --accent-soft: rgba(139, 28, 35, 0.12);
+        --text: #1f2937;
+        --text-muted: #4b5563;
+        --border: rgba(31, 41, 55, 0.08);
+        --on-now: #059669;
+        --on-now-soft: rgba(5, 150, 105, 0.1);
+        font-synthesis: none;
+        text-rendering: optimizeLegibility;
+      }
+
+      * { box-sizing: border-box; }
+
+      body {
+        margin: 0;
+        font-family: "Inter", "Segoe UI", system-ui, -apple-system, sans-serif;
+        background: var(--bg);
+        color: var(--text);
+        line-height: 1.5;
+        min-height: 100vh;
+        display: flex;
+        flex-direction: column;
+      }
+
+      /* ── Header ── */
+      header {
+        padding: 40px 24px 56px;
+        background: radial-gradient(circle at 20% -20%, rgba(171, 49, 57, 0.32), transparent 55%),
+          linear-gradient(145deg, rgba(107, 24, 30, 0.95), rgba(139, 28, 35, 0.92));
+        color: #fff;
+        text-align: center;
+      }
+
+      header h1 {
+        margin: 0;
+        font-size: clamp(1.75rem, 4vw, 2.5rem);
+        font-weight: 700;
+        letter-spacing: -0.02em;
+      }
+
+      header p.subtitle {
+        margin: 8px auto 0;
+        max-width: 500px;
+        font-size: 1rem;
+        color: rgba(255, 255, 255, 0.8);
+      }
+
+      /* ── Day navigation ── */
+      .day-nav {
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        gap: 12px;
+        margin-top: 24px;
+        flex-wrap: wrap;
+      }
+
+      .nav-btn {
+        padding: 8px 16px;
+        border-radius: 10px;
+        border: 1px solid rgba(255, 255, 255, 0.3);
+        background: rgba(255, 255, 255, 0.12);
+        color: #fff;
+        font-weight: 600;
+        font-size: 0.9rem;
+        cursor: pointer;
+        transition: background 150ms ease;
+        font-family: inherit;
+      }
+
+      .nav-btn:hover { background: rgba(255, 255, 255, 0.22); }
+      .nav-btn:disabled { opacity: 0.35; cursor: default; }
+
+      .nav-btn.today {
+        background: rgba(255, 255, 255, 0.2);
+        border-color: rgba(255, 255, 255, 0.5);
+      }
+
+      .day-label {
+        font-size: 1.05rem;
+        font-weight: 700;
+        letter-spacing: -0.01em;
+        min-width: 200px;
+        text-align: center;
+      }
+
+      /* ── Main layout ── */
+      main {
+        flex: 1;
+        width: min(1100px, calc(100% - 32px));
+        margin: -40px auto 32px;
+      }
+
+      .roster-panel {
+        background: var(--bg-alt);
+        border-radius: 18px;
+        padding: 28px 32px;
+        box-shadow: 0 12px 30px -24px rgba(15, 23, 42, 1);
+        border: 1px solid var(--border);
+      }
+
+      /* ── Current time bar ── */
+      .time-bar {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        margin-bottom: 24px;
+        flex-wrap: wrap;
+        gap: 8px;
+      }
+
+      .current-time {
+        font-size: 0.9rem;
+        color: var(--text-muted);
+      }
+
+      .current-time strong {
+        color: var(--text);
+        font-size: 1rem;
+      }
+
+      .refresh-info {
+        font-size: 0.8rem;
+        color: var(--text-muted);
+      }
+
+      /* ── Role section ── */
+      .role-section {
+        position: relative;
+        border-radius: 16px;
+        padding: 22px 24px;
+        background: linear-gradient(135deg, rgba(139, 28, 35, 0.06), rgba(139, 28, 35, 0));
+        border: 1px solid rgba(139, 28, 35, 0.12);
+        box-shadow: 0 8px 24px -20px rgba(139, 28, 35, 0.5);
+        margin-bottom: 16px;
+      }
+
+      .role-section:last-child { margin-bottom: 0; }
+
+      .role-header {
+        display: flex;
+        align-items: baseline;
+        gap: 10px;
+        margin-bottom: 14px;
+      }
+
+      .role-name {
+        font-size: 1rem;
+        font-weight: 700;
+        letter-spacing: 0.04em;
+        text-transform: uppercase;
+        color: var(--accent);
+        margin: 0;
+      }
+
+      .role-count {
+        font-size: 0.8rem;
+        color: var(--text-muted);
+        font-weight: 500;
+      }
+
+      /* ── Shift cards ── */
+      .shifts-list {
+        display: flex;
+        flex-direction: column;
+        gap: 8px;
+      }
+
+      .shift-card {
+        display: flex;
+        align-items: center;
+        gap: 12px;
+        padding: 12px 16px;
+        border-radius: 12px;
+        background: var(--bg-alt);
+        border: 1px solid var(--border);
+        transition: box-shadow 160ms ease;
+      }
+
+      .shift-card.on-now {
+        border-color: rgba(5, 150, 105, 0.3);
+        background: var(--on-now-soft);
+      }
+
+      .shift-indicator {
+        width: 8px;
+        height: 8px;
+        border-radius: 50%;
+        background: var(--border);
+        flex-shrink: 0;
+      }
+
+      .shift-card.on-now .shift-indicator {
+        background: var(--on-now);
+        box-shadow: 0 0 6px rgba(5, 150, 105, 0.6);
+      }
+
+      .shift-name {
+        font-weight: 600;
+        font-size: 0.95rem;
+        flex: 1;
+      }
+
+      .shift-time {
+        font-size: 0.85rem;
+        color: var(--text-muted);
+        white-space: nowrap;
+      }
+
+      .on-now-badge {
+        font-size: 0.7rem;
+        font-weight: 700;
+        letter-spacing: 0.06em;
+        text-transform: uppercase;
+        color: var(--on-now);
+        background: rgba(5, 150, 105, 0.12);
+        padding: 3px 8px;
+        border-radius: 999px;
+        white-space: nowrap;
+      }
+
+      /* ── Empty / loading / error ── */
+      .status-msg {
+        text-align: center;
+        padding: 40px 24px;
+        color: var(--text-muted);
+        font-size: 0.95rem;
+      }
+
+      .no-shifts-role {
+        font-size: 0.85rem;
+        color: var(--text-muted);
+        font-style: italic;
+        padding: 4px 0;
+      }
+
+      /* ── Setup warning ── */
+      .setup-banner {
+        background: #fffbeb;
+        border: 1px solid #fcd34d;
+        border-radius: 14px;
+        padding: 20px 24px;
+        margin-bottom: 24px;
+        font-size: 0.9rem;
+        color: #92400e;
+        line-height: 1.6;
+      }
+
+      .setup-banner strong { display: block; margin-bottom: 4px; font-size: 1rem; }
+      .setup-banner code {
+        background: rgba(0,0,0,0.06);
+        padding: 2px 6px;
+        border-radius: 4px;
+        font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+      }
+
+      /* ── Footer ── */
+      footer {
+        text-align: center;
+        padding: 24px;
+        font-size: 0.85rem;
+        color: var(--text-muted);
+      }
+
+      /* ── Responsive ── */
+      /* ── Date picker button ── */
+      .day-picker-wrap {
+        position: relative;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+      }
+
+      .day-picker-btn {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        padding: 9px 20px;
+        border-radius: 12px;
+        border: 1px solid rgba(255, 255, 255, 0.28);
+        background: rgba(255, 255, 255, 0.12);
+        color: #fff;
+        font-family: inherit;
+        font-weight: 600;
+        font-size: 1rem;
+        letter-spacing: -0.01em;
+        cursor: pointer;
+        white-space: nowrap;
+        transition: background 150ms ease, border-color 150ms ease;
+        min-width: 210px;
+        justify-content: center;
+      }
+
+      .day-picker-btn:hover {
+        background: rgba(255, 255, 255, 0.22);
+        border-color: rgba(255, 255, 255, 0.5);
+      }
+
+      .day-picker-btn svg { flex-shrink: 0; opacity: 0.8; }
+
+      /* ── Custom calendar dropdown ── */
+      .dp-dropdown {
+        position: fixed;
+        z-index: 9999;
+        background: #fff;
+        border: 1px solid rgba(139, 28, 35, 0.14);
+        border-radius: 18px;
+        box-shadow: 0 20px 48px -16px rgba(15, 23, 42, 0.4), 0 4px 12px -4px rgba(139, 28, 35, 0.15);
+        padding: 18px;
+        width: 272px;
+        animation: dp-in 160ms ease;
+      }
+
+      @keyframes dp-in {
+        from { opacity: 0; transform: translateY(-6px); }
+        to   { opacity: 1; transform: translateY(0); }
+      }
+
+      .dp-header {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        margin-bottom: 14px;
+      }
+
+      .dp-month-label {
+        font-weight: 700;
+        font-size: 0.95rem;
+        color: #1f2937;
+        letter-spacing: -0.01em;
+      }
+
+      .dp-nav {
+        width: 30px;
+        height: 30px;
+        border-radius: 8px;
+        border: 1px solid rgba(31, 41, 55, 0.1);
+        background: transparent;
+        color: #4b5563;
+        cursor: pointer;
+        font-family: inherit;
+        font-size: 0.9rem;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        transition: background 120ms ease, color 120ms ease;
+        padding: 0;
+      }
+
+      .dp-nav:hover:not(:disabled) { background: rgba(139, 28, 35, 0.08); color: #8b1c23; }
+      .dp-nav:disabled { opacity: 0.3; cursor: default; }
+
+      .dp-weekdays {
+        display: grid;
+        grid-template-columns: repeat(7, 1fr);
+        margin-bottom: 4px;
+      }
+
+      .dp-weekdays span {
+        text-align: center;
+        font-size: 0.68rem;
+        font-weight: 700;
+        color: #4b5563;
+        text-transform: uppercase;
+        letter-spacing: 0.05em;
+        padding: 2px 0 6px;
+      }
+
+      .dp-grid {
+        display: grid;
+        grid-template-columns: repeat(7, 1fr);
+        gap: 2px;
+      }
+
+      .dp-day {
+        aspect-ratio: 1;
+        border-radius: 8px;
+        border: none;
+        background: transparent;
+        color: #1f2937;
+        font-family: inherit;
+        font-size: 0.85rem;
+        font-weight: 500;
+        cursor: pointer;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        padding: 0;
+        width: 100%;
+        transition: background 120ms ease, color 120ms ease;
+        line-height: 1;
+      }
+
+      .dp-day:hover:not(:disabled):not(.dp-selected) {
+        background: rgba(139, 28, 35, 0.1);
+        color: #8b1c23;
+      }
+
+      .dp-day.dp-today {
+        background: rgba(139, 28, 35, 0.1);
+        color: #8b1c23;
+        font-weight: 700;
+      }
+
+      .dp-day.dp-selected {
+        background: #8b1c23;
+        color: #fff;
+        font-weight: 700;
+      }
+
+      .dp-day.dp-today.dp-selected {
+        background: #8b1c23;
+        color: #fff;
+      }
+
+      .dp-day:disabled {
+        opacity: 0.28;
+        cursor: default;
+      }
+
+      .dp-empty { pointer-events: none; }
+
+      /* ── View toggle ── */
+      .view-toggle {
+        display: flex;
+        gap: 4px;
+        margin-bottom: 20px;
+      }
+
+      .view-btn {
+        padding: 7px 16px;
+        border-radius: 8px;
+        border: 1px solid var(--border);
+        background: transparent;
+        color: var(--text-muted);
+        font-weight: 600;
+        font-size: 0.85rem;
+        cursor: pointer;
+        font-family: inherit;
+        transition: all 150ms ease;
+      }
+
+      .view-btn.active {
+        background: var(--accent-soft);
+        color: var(--accent);
+        border-color: rgba(139, 28, 35, 0.25);
+      }
+
+      .view-btn:hover:not(.active) {
+        background: var(--bg);
+        color: var(--text);
+      }
+
+      /* ── Timeline view ── */
+      .tl-wrap { overflow: hidden; }
+
+      .tl-inner { width: 100%; }
+
+      .tl-header {
+        display: flex;
+        align-items: flex-end;
+        padding-bottom: 8px;
+        border-bottom: 2px solid var(--border);
+        margin-bottom: 12px;
+        position: sticky;
+        top: 0;
+        background: var(--bg-alt);
+        z-index: 2;
+      }
+
+      .tl-name-col {
+        width: 130px;
+        flex-shrink: 0;
+        position: sticky;
+        left: 0;
+        background: var(--bg-alt);
+        z-index: 3;
+      }
+
+      .tl-ticks {
+        flex: 1;
+        position: relative;
+        height: 20px;
+      }
+
+      .tl-tick {
+        position: absolute;
+        transform: translateX(-50%);
+        font-size: 0.72rem;
+        color: var(--text-muted);
+        white-space: nowrap;
+        user-select: none;
+      }
+
+      /* Tick grid lines drawn on each row track */
+      .tl-track-grid {
+        position: absolute;
+        top: 0; bottom: 0;
+        width: 1px;
+        background: var(--border);
+        pointer-events: none;
+        z-index: 0;
+      }
+
+      .tl-body { position: relative; }
+
+      /* Now line via CSS custom property */
+      .tl-body.has-now::before {
+        content: '';
+        position: absolute;
+        top: 0; bottom: 0;
+        left: calc(130px + var(--now-frac) * (100% - 130px));
+        width: 2px;
+        background: #ef4444;
+        border-radius: 1px;
+        z-index: 4;
+        pointer-events: none;
+      }
+
+      .tl-role-section { margin-bottom: 14px; }
+
+      .tl-role-header {
+        display: flex;
+        align-items: center;
+        gap: 10px;
+        margin-bottom: 4px;
+      }
+
+      .tl-role-name {
+        font-size: 0.78rem;
+        font-weight: 700;
+        letter-spacing: 0.05em;
+        text-transform: uppercase;
+        color: var(--accent);
+        white-space: nowrap;
+        flex-shrink: 0;
+      }
+
+      .tl-role-rule {
+        flex: 1;
+        height: 1px;
+        background: rgba(139, 28, 35, 0.15);
+      }
+
+      .tl-row {
+        display: flex;
+        align-items: center;
+        height: 34px;
+      }
+
+      .tl-row-name {
+        width: 130px;
+        flex-shrink: 0;
+        font-size: 0.82rem;
+        font-weight: 500;
+        color: var(--text-muted);
+        padding-right: 10px;
+        white-space: nowrap;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        position: sticky;
+        left: 0;
+        background: var(--bg-alt);
+        z-index: 2;
+      }
+
+      .tl-track {
+        flex: 1;
+        position: relative;
+        height: 100%;
+      }
+
+      .tl-bar {
+        position: absolute;
+        top: 5px;
+        height: calc(100% - 10px);
+        background: var(--accent-soft);
+        border: 1px solid rgba(139, 28, 35, 0.28);
+        border-radius: 6px;
+        display: flex;
+        align-items: center;
+        padding: 0 7px;
+        font-size: 0.73rem;
+        font-weight: 600;
+        color: var(--accent);
+        overflow: hidden;
+        white-space: nowrap;
+        min-width: 4px;
+        box-sizing: border-box;
+        cursor: default;
+      }
+
+      .tl-bar.on-now {
+        background: var(--on-now-soft);
+        border-color: rgba(5, 150, 105, 0.3);
+        color: var(--on-now);
+      }
+
+      @media (max-width: 640px) {
+        header { padding: 32px 16px 48px; }
+        .roster-panel { padding: 20px 16px; }
+        .role-section { padding: 18px 16px; }
+        .shift-card { padding: 10px 12px; gap: 10px; }
+        .day-picker-btn { min-width: 0; font-size: 0.9rem; padding: 8px 14px; }
+        .tl-wrap { overflow-x: auto; -webkit-overflow-scrolling: touch; }
+        .tl-inner { min-width: 480px; }
+      }
+    </style>
+  </head>
+  <body>
+    <header>
+      <h1>Staff Roster</h1>
+      <p class="subtitle">Urban Jungle — daily shift overview</p>
+      <div class="day-nav">
+        <button class="nav-btn" id="btn-prev" aria-label="Previous day">&#8592; Prev</button>
+        <div class="day-picker-wrap">
+          <button type="button" class="day-picker-btn" id="day-label-btn" title="Click to pick a date" aria-haspopup="true" aria-expanded="false">
+            <svg xmlns="http://www.w3.org/2000/svg" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="4" width="18" height="18" rx="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/></svg>
+            <span id="day-label">Loading…</span>
+          </button>
+          <div class="dp-dropdown" id="dp-dropdown" hidden aria-label="Date picker">
+            <div class="dp-header">
+              <button type="button" class="dp-nav" id="dp-prev-month" aria-label="Previous month">&#8592;</button>
+              <span class="dp-month-label" id="dp-month-label"></span>
+              <button type="button" class="dp-nav" id="dp-next-month" aria-label="Next month">&#8594;</button>
+            </div>
+            <div class="dp-weekdays">
+              <span>Mo</span><span>Tu</span><span>We</span><span>Th</span><span>Fr</span><span>Sa</span><span>Su</span>
+            </div>
+            <div class="dp-grid" id="dp-grid"></div>
+          </div>
+        </div>
+        <button class="nav-btn" id="btn-next" aria-label="Next day">Next &#8594;</button>
+        <button class="nav-btn today" id="btn-today">Today</button>
+      </div>
+    </header>
+
+    <main>
+      <div class="roster-panel">
+        <div class="time-bar">
+          <span class="current-time">Now: <strong id="clock">—</strong></span>
+          <span class="refresh-info" id="refresh-info">Auto-refreshes every 5 min</span>
+        </div>
+        <div class="view-toggle">
+          <button class="view-btn" id="btn-grouped">Grouped</button>
+          <button class="view-btn active" id="btn-timeline">Timeline</button>
+        </div>
+        <div id="roster-content">
+          <p class="status-msg">Loading roster…</p>
+        </div>
+      </div>
+    </main>
+
+    <footer>Urban Jungle Staff Hub &mdash; roster pulled from Google Calendar</footer>
+
+    <script>
+      // ── Configuration ──
+      const CONFIG = {
+        // Cloudflare Worker ICS proxy endpoint
+        icsProxyUrl: ['localhost', '127.0.0.1', ''].includes(window.location.hostname) || window.location.protocol === 'file:'
+          ? 'http://localhost:8787/api/ics'
+          : '/api/ics',
+
+        // How many days either side of today can you navigate?
+        dayWindowDays: 7,
+
+        // Auto-refresh interval (5 minutes)
+        refreshIntervalMs: 5 * 60 * 1000,
+
+        // Role display order — unrecognised roles appear at the bottom as "Other"
+        roleOrder: ['MOD', 'FOH', 'COACH', 'SETTING', 'ADMIN'],
+
+        // Friendly label for each role
+        roleLabels: {
+          MOD: 'Duty Manager (MOD)',
+          FOH: 'Front of House',
+          COACH: 'Coach',
+          SETTING: 'Route Setting',
+          ADMIN: 'Admin',
+        },
+
+        // Map parsed role names → display group (case-insensitive match on raw role)
+        // e.g. a shift titled "... (Shift as Junior at UJ)" will appear under FOH
+        roleMap: {
+          'JUNIOR': 'FOH',
+          'JUNIOR FOH': 'FOH',
+        },
+      };
+
+      // ── State ──
+      const today = new Date();
+      today.setHours(0, 0, 0, 0);
+      let currentDate = new Date(today);
+      let refreshTimer = null;
+      let viewMode = 'timeline'; // 'grouped' | 'timeline'
+
+      // ── ICS cache (avoids re-fetching on every day change) ──
+      let icsCache = null;
+      let icsCachedAt = null;
+
+      // ── Inactivity reset ──
+      const INACTIVITY_MS = 25 * 60 * 1000; // return to today after 25 min of no interaction
+      let inactivityTimer = null;
+
+      function resetInactivity() {
+        clearTimeout(inactivityTimer);
+        if (currentDate.getTime() === today.getTime()) return; // already on today
+        inactivityTimer = setTimeout(() => {
+          currentDate = new Date(today);
+          updateNav();
+          loadRoster({ showLoading: false });
+        }, INACTIVITY_MS);
+      }
+
+      // ── ICS parser ──
+      // Parses an ICS text string and returns an array of plain event objects:
+      // { summary, startDate, endDate, allDay }
+      function parseIcs(text) {
+        // Unfold continuation lines (RFC 5545 §3.1)
+        const unfolded = text.replace(/\r\n[ \t]/g, '').replace(/\n[ \t]/g, '');
+        const lines = unfolded.split(/\r?\n/);
+
+        // Capture default timezone from X-WR-TIMEZONE if present
+        let calTz = null;
+        for (const line of lines) {
+          if (line.startsWith('X-WR-TIMEZONE:')) {
+            calTz = line.slice('X-WR-TIMEZONE:'.length).trim();
+            break;
+          }
+        }
+
+        const events = [];
+        let evt = null;
+
+        for (const line of lines) {
+          if (line === 'BEGIN:VEVENT') { evt = {}; continue; }
+          if (line === 'END:VEVENT') { if (evt) events.push(evt); evt = null; continue; }
+          if (!evt) continue;
+
+          // Split "PROPNAME;PARAMS:value"
+          const colon = line.indexOf(':');
+          if (colon === -1) continue;
+          const propFull = line.slice(0, colon);
+          const value = line.slice(colon + 1);
+
+          const semi = propFull.indexOf(';');
+          const propName = semi === -1 ? propFull : propFull.slice(0, semi);
+          const params = semi === -1 ? '' : propFull.slice(semi + 1);
+
+          const tzidMatch = params.match(/TZID=([^;]+)/);
+          const tzid = tzidMatch ? tzidMatch[1] : null;
+          const isDateValue = params.includes('VALUE=DATE');
+
+          if (propName === 'SUMMARY') {
+            evt.summary = value.replace(/\\,/g, ',').replace(/\\n/g, '\n').replace(/\\\\/g, '\\');
+          } else if (propName === 'DTSTART') {
+            evt.dtstart = { value, tzid: tzid || calTz, isDate: isDateValue || value.length === 8 };
+          } else if (propName === 'DTEND') {
+            evt.dtend = { value, tzid: tzid || calTz, isDate: isDateValue || value.length === 8 };
+          }
+        }
+
+        return events.map(e => {
+          if (!e.dtstart) return null;
+          const start = icsFieldToDate(e.dtstart);
+          const end = e.dtend ? icsFieldToDate(e.dtend) : null;
+          if (!start) return null;
+          return { summary: e.summary || '', startDate: start.date, endDate: end?.date || null, allDay: start.allDay };
+        }).filter(Boolean);
+      }
+
+      function icsFieldToDate({ value, tzid, isDate }) {
+        if (isDate) {
+          // DATE value: "20260318" — treat as start of that local day
+          const d = new Date(`${value.slice(0,4)}-${value.slice(4,6)}-${value.slice(6,8)}T00:00:00`);
+          return { allDay: true, date: d };
+        }
+
+        const isUtc = value.endsWith('Z');
+        const s = isUtc ? value.slice(0, -1) : value;
+        // s is like "20260318T090000"
+        const iso = `${s.slice(0,4)}-${s.slice(4,6)}-${s.slice(6,8)}T${s.slice(9,11)}:${s.slice(11,13)}:${s.slice(13,15)}`;
+
+        if (isUtc) return { allDay: false, date: new Date(iso + 'Z') };
+
+        if (tzid) {
+          // Convert "local time in tzid" to UTC via Intl offset trick
+          const approx = new Date(iso + 'Z'); // wrong sign, but close enough
+          const offset = getTzOffsetMs(tzid, approx);
+          return { allDay: false, date: new Date(approx.getTime() - offset) };
+        }
+
+        return { allDay: false, date: new Date(iso) };
+      }
+
+      function getTzOffsetMs(tzid, utcDate) {
+        // Returns (local_ms - utc_ms) for the given tzid at utcDate
+        try {
+          const fmt = new Intl.DateTimeFormat('en-CA', {
+            timeZone: tzid,
+            year: 'numeric', month: '2-digit', day: '2-digit',
+            hour: '2-digit', minute: '2-digit', second: '2-digit',
+            hour12: false,
+          });
+          const parts = fmt.formatToParts(utcDate);
+          const get = type => parts.find(p => p.type === type)?.value ?? '00';
+          const localIso = `${get('year')}-${get('month')}-${get('day')}T${get('hour')}:${get('minute')}:${get('second')}Z`;
+          return new Date(localIso).getTime() - utcDate.getTime();
+        } catch {
+          return 0;
+        }
+      }
+
+      // ── Shift extraction ──
+      function parseShift(event) {
+        // Expected title: "Firstname Lastname (Shift as ROLE at UJ)"
+        const match = (event.summary || '').match(/^(.+?)\s*\(Shift as ([^)]+?) at UJ\)$/i);
+        if (!match) return null;
+
+        const name = match[1].trim();
+        const rawRole = match[2].trim().toUpperCase();
+        // Apply role mapping (e.g. JUNIOR → FOH)
+        const role = CONFIG.roleMap[rawRole] || rawRole;
+        if (!event.startDate) return null;
+
+        return { name, role, start: event.startDate, end: event.endDate, allDay: event.allDay };
+      }
+
+      // Returns true if the shift falls (even partially) on the given day
+      function shiftIsOnDay(shift, day) {
+        const dayStart = new Date(day); dayStart.setHours(0, 0, 0, 0);
+        const dayEnd   = new Date(day); dayEnd.setHours(23, 59, 59, 999);
+        const s = new Date(shift.start);
+        const e = shift.end ? new Date(shift.end) : new Date(s.getTime() + 3600000);
+        return s < dayEnd && e > dayStart;
+      }
+
+      function isOnNow(shift) {
+        if (shift.allDay) return false;
+        const now = new Date();
+        return new Date(shift.start) <= now && now < new Date(shift.end);
+      }
+
+      // ── Formatting ──
+      function formatTime(date) {
+        return date.toLocaleTimeString('en-AU', { hour: 'numeric', minute: '2-digit', hour12: true });
+      }
+
+      function shiftTimeLabel(shift) {
+        if (shift.allDay) return 'All day';
+        const s = new Date(shift.start);
+        const e = shift.end ? new Date(shift.end) : null;
+        return e ? `${formatTime(s)} – ${formatTime(e)}` : formatTime(s);
+      }
+
+      function formatDayLabel(d) {
+        const ref = new Date(); ref.setHours(0, 0, 0, 0);
+        const diff = Math.round((d - ref) / 86400000);
+        const dow = d.toLocaleDateString('en-AU', { weekday: 'long' });
+        const date = d.toLocaleDateString('en-AU', { day: 'numeric', month: 'short' });
+        if (diff === 0) return `Today, ${dow} ${date}`;
+        if (diff === 1) return `Tomorrow, ${dow} ${date}`;
+        if (diff === -1) return `Yesterday, ${dow} ${date}`;
+        return `${dow} ${date}`;
+      }
+
+      function escHtml(str) {
+        return String(str)
+          .replace(/&/g, '&amp;').replace(/</g, '&lt;')
+          .replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+      }
+
+      // ── Clock ──
+      function updateClock() {
+        const el = document.getElementById('clock');
+        if (el) el.textContent = new Date().toLocaleTimeString('en-AU', {
+          hour: 'numeric', minute: '2-digit', second: '2-digit', hour12: true,
+        });
+      }
+
+      // ── Render ──
+      function renderRoster(shifts) {
+        const container = document.getElementById('roster-content');
+
+        if (!shifts.length) {
+          container.innerHTML = '<p class="status-msg">No shifts found for this day.</p>';
+          return;
+        }
+
+        const groups = {};
+        for (const shift of shifts) {
+          const key = CONFIG.roleOrder.includes(shift.role) ? shift.role : '__OTHER__';
+          if (!groups[key]) groups[key] = [];
+          groups[key].push(shift);
+        }
+
+        for (const key of Object.keys(groups)) {
+          groups[key].sort((a, b) => {
+            const d = (isOnNow(a) ? 0 : 1) - (isOnNow(b) ? 0 : 1);
+            return d !== 0 ? d : new Date(a.start) - new Date(b.start);
+          });
+        }
+
+        const orderedKeys = [
+          ...CONFIG.roleOrder.filter(r => groups[r]),
+          ...(groups['__OTHER__'] ? ['__OTHER__'] : []),
+        ];
+
+        const html = orderedKeys.map(key => {
+          const roleShifts = groups[key];
+          const label = key === '__OTHER__' ? 'Other' : (CONFIG.roleLabels[key] || key);
+          const count = roleShifts.length;
+
+          const cards = roleShifts.map(shift => {
+            const active = isOnNow(shift);
+            return `
+              <div class="shift-card${active ? ' on-now' : ''}">
+                <div class="shift-indicator"></div>
+                <span class="shift-name">${escHtml(shift.name)}</span>
+                <span class="shift-time">${shiftTimeLabel(shift)}</span>
+                ${active ? '<span class="on-now-badge">On now</span>' : ''}
+              </div>`;
+          }).join('');
+
+          return `
+            <div class="role-section">
+              <div class="role-header">
+                <h3 class="role-name">${escHtml(label)}</h3>
+                <span class="role-count">${count} ${count === 1 ? 'person' : 'people'}</span>
+              </div>
+              <div class="shifts-list">${cards}</div>
+            </div>`;
+        }).join('');
+
+        container.innerHTML = html;
+      }
+
+      // ── Timeline renderer ──
+      function renderTimeline(shifts) {
+        const container = document.getElementById('roster-content');
+        const timed = shifts.filter(s => !s.allDay);
+
+        if (!timed.length) {
+          container.innerHTML = '<p class="status-msg">No timed shifts found for this day.</p>';
+          return;
+        }
+
+        // Calculate time range
+        const allTimes = timed.flatMap(s => {
+          const start = new Date(s.start);
+          const end = s.end ? new Date(s.end) : new Date(start.getTime() + 3600000);
+          return [start.getTime(), end.getTime()];
+        });
+        const rangeStart = new Date(Math.min(...allTimes));
+        rangeStart.setMinutes(0, 0, 0);
+        const rangeEnd = new Date(Math.max(...allTimes));
+        if (rangeEnd.getMinutes() > 0 || rangeEnd.getSeconds() > 0) rangeEnd.setHours(rangeEnd.getHours() + 1, 0, 0, 0);
+        else rangeEnd.setMinutes(0, 0, 0);
+        const totalMs = rangeEnd - rangeStart;
+
+        // Hour ticks
+        const ticks = [];
+        const t = new Date(rangeStart);
+        while (t <= rangeEnd) { ticks.push(new Date(t)); t.setHours(t.getHours() + 1); }
+
+        // Group by role (same order as grouped view)
+        const groups = {};
+        for (const shift of timed) {
+          const key = CONFIG.roleOrder.includes(shift.role) ? shift.role : '__OTHER__';
+          if (!groups[key]) groups[key] = [];
+          groups[key].push(shift);
+        }
+        for (const key of Object.keys(groups)) {
+          groups[key].sort((a, b) => new Date(a.start) - new Date(b.start));
+        }
+        const orderedKeys = [...CONFIG.roleOrder.filter(r => groups[r]), ...(groups['__OTHER__'] ? ['__OTHER__'] : [])];
+
+        // Now line
+        const now = new Date();
+        const isToday = currentDate.toDateString() === now.toDateString();
+        const nowFrac = isToday ? (now - rangeStart) / totalMs : null;
+        const showNow = nowFrac !== null && nowFrac >= 0 && nowFrac <= 1;
+
+        function pct(ms) { return ((ms - rangeStart) / totalMs * 100).toFixed(2) + '%'; }
+
+        // Grid lines per tick (drawn inside each track)
+        const gridLinesHtml = ticks.map(tick => {
+          const left = pct(tick.getTime());
+          return `<div class="tl-track-grid" style="left:${left}"></div>`;
+        }).join('');
+
+        // Tick header
+        const ticksHtml = ticks.map(tick => {
+          const label = tick.toLocaleTimeString('en-AU', { hour: 'numeric', hour12: true });
+          return `<div class="tl-tick" style="left:${pct(tick.getTime())}">${escHtml(label)}</div>`;
+        }).join('');
+
+        // Role sections
+        const sectionsHtml = orderedKeys.map(key => {
+          const label = key === '__OTHER__' ? 'Other' : (CONFIG.roleLabels[key] || key);
+          const rowsHtml = groups[key].map(shift => {
+            const start = new Date(shift.start);
+            const end = shift.end ? new Date(shift.end) : new Date(start.getTime() + 3600000);
+            const leftPct = Math.max(0, (start - rangeStart) / totalMs * 100);
+            const widthPct = Math.max(0.3, Math.min(100 - leftPct, (end - start) / totalMs * 100));
+            const active = isOnNow(shift);
+            return `
+              <div class="tl-row">
+                <div class="tl-row-name">${escHtml(shift.name)}</div>
+                <div class="tl-track">
+                  ${gridLinesHtml}
+                  <div class="tl-bar${active ? ' on-now' : ''}"
+                       style="left:${leftPct.toFixed(2)}%;width:${widthPct.toFixed(2)}%"
+                       title="${escHtml(shift.name)}: ${shiftTimeLabel(shift)}">
+                    ${shiftTimeLabel(shift)}
+                  </div>
+                </div>
+              </div>`;
+          }).join('');
+
+          return `
+            <div class="tl-role-section">
+              <div class="tl-role-header">
+                <span class="tl-role-name">${escHtml(label)}</span>
+                <div class="tl-role-rule"></div>
+              </div>
+              ${rowsHtml}
+            </div>`;
+        }).join('');
+
+        const nowAttr = showNow ? ` class="tl-body has-now" style="--now-frac:${nowFrac.toFixed(4)}"` : ' class="tl-body"';
+        container.innerHTML = `
+          <div class="tl-wrap"><div class="tl-inner">
+            <div class="tl-header">
+              <div class="tl-name-col"></div>
+              <div class="tl-ticks">${ticksHtml}</div>
+            </div>
+            <div${nowAttr}>${sectionsHtml}</div>
+          </div></div>`;
+      }
+
+      // ── Load ──
+      async function fetchIcs() {
+        const res = await fetch(CONFIG.icsProxyUrl, { cache: 'no-store' });
+        if (!res.ok) {
+          const body = await res.json().catch(() => ({}));
+          throw new Error(body?.error || `Proxy returned ${res.status}`);
+        }
+        icsCache = parseIcs(await res.text());
+        icsCachedAt = Date.now();
+        document.getElementById('refresh-info').textContent =
+          `Updated ${new Date().toLocaleTimeString('en-AU', { hour: 'numeric', minute: '2-digit', hour12: true })} · auto-refreshes every 5 min`;
+      }
+
+      async function loadRoster({ forceRefresh = false, showLoading = true } = {}) {
+        const container = document.getElementById('roster-content');
+
+        // Show spinner only on very first load (no cache yet)
+        if (showLoading && !icsCache) {
+          container.innerHTML = '<p class="status-msg">Loading shifts…</p>';
+        }
+
+        try {
+          if (forceRefresh || !icsCache) await fetchIcs();
+
+          const shifts = icsCache.map(parseShift).filter(Boolean)
+                                 .filter(s => shiftIsOnDay(s, currentDate));
+
+          if (viewMode === 'timeline') renderTimeline(shifts);
+          else renderRoster(shifts);
+
+        } catch (err) {
+          console.error('Roster error:', err);
+          // Only replace content with error if we have nothing to show
+          if (!icsCache) {
+            container.innerHTML = `<p class="status-msg">Could not load roster: ${escHtml(err.message)}</p>`;
+          }
+        }
+      }
+
+      // ── Navigation ──
+      function updateNav() {
+        const minDate = new Date(today); minDate.setDate(today.getDate() - CONFIG.dayWindowDays);
+        const maxDate = new Date(today); maxDate.setDate(today.getDate() + CONFIG.dayWindowDays);
+        document.getElementById('day-label').textContent = formatDayLabel(currentDate);
+        document.getElementById('btn-prev').disabled = currentDate <= minDate;
+        document.getElementById('btn-next').disabled = currentDate >= maxDate;
+        document.getElementById('btn-today').disabled = currentDate.getTime() === today.getTime();
+      }
+
+      function changeDay(delta) {
+        const d = new Date(currentDate);
+        d.setDate(d.getDate() + delta);
+        currentDate = d;
+        updateNav();
+        loadRoster({ showLoading: false }); // instant — uses cached ICS
+        resetInactivity();
+      }
+
+      function scheduleRefresh() {
+        if (refreshTimer) clearInterval(refreshTimer);
+        // Background refresh: fetch fresh ICS silently, re-render current day
+        refreshTimer = setInterval(
+          () => loadRoster({ forceRefresh: true, showLoading: false }),
+          CONFIG.refreshIntervalMs
+        );
+      }
+
+      // ── Init ──
+      document.getElementById('btn-prev').addEventListener('click', () => changeDay(-1));
+      document.getElementById('btn-next').addEventListener('click', () => changeDay(1));
+      document.getElementById('btn-today').addEventListener('click', () => {
+        currentDate = new Date(today);
+        updateNav();
+        loadRoster({ showLoading: false });
+        clearTimeout(inactivityTimer); // already on today, no need for reset
+      });
+
+      // ── Custom date picker ──
+      let dpOpen = false;
+      let dpViewYear = today.getFullYear();
+      let dpViewMonth = today.getMonth();
+
+      function openDatePicker() {
+        dpViewYear = currentDate.getFullYear();
+        dpViewMonth = currentDate.getMonth();
+        renderDpCalendar();
+
+        const dd = document.getElementById('dp-dropdown');
+        dd.hidden = false;
+
+        // Position below the trigger button, clamped to viewport
+        const btn = document.getElementById('day-label-btn');
+        const rect = btn.getBoundingClientRect();
+        const dropW = 272;
+        const left = Math.max(8, Math.min(rect.left + rect.width / 2 - dropW / 2, window.innerWidth - dropW - 8));
+        dd.style.top  = (rect.bottom + 10) + 'px';
+        dd.style.left = left + 'px';
+
+        document.getElementById('day-label-btn').setAttribute('aria-expanded', 'true');
+        dpOpen = true;
+      }
+
+      function closeDatePicker() {
+        document.getElementById('dp-dropdown').hidden = true;
+        document.getElementById('day-label-btn').setAttribute('aria-expanded', 'false');
+        dpOpen = false;
+      }
+
+      function renderDpCalendar() {
+        const minDate = new Date(today); minDate.setDate(today.getDate() - CONFIG.dayWindowDays);
+        const maxDate = new Date(today); maxDate.setDate(today.getDate() + CONFIG.dayWindowDays);
+
+        document.getElementById('dp-month-label').textContent =
+          new Date(dpViewYear, dpViewMonth, 1).toLocaleDateString('en-AU', { month: 'long', year: 'numeric' });
+
+        // Disable month nav if no selectable dates in that direction
+        const prevMonthLast = new Date(dpViewYear, dpViewMonth, 0);
+        const nextMonthFirst = new Date(dpViewYear, dpViewMonth + 1, 1);
+        document.getElementById('dp-prev-month').disabled = prevMonthLast < minDate;
+        document.getElementById('dp-next-month').disabled = nextMonthFirst > maxDate;
+
+        // Day grid
+        const firstDow = (new Date(dpViewYear, dpViewMonth, 1).getDay() + 6) % 7; // Mon=0
+        const daysInMonth = new Date(dpViewYear, dpViewMonth + 1, 0).getDate();
+
+        const grid = document.getElementById('dp-grid');
+        grid.innerHTML = '';
+
+        for (let i = 0; i < firstDow; i++) {
+          const el = document.createElement('div');
+          el.className = 'dp-day dp-empty';
+          grid.appendChild(el);
+        }
+
+        for (let d = 1; d <= daysInMonth; d++) {
+          const date = new Date(dpViewYear, dpViewMonth, d);
+          const isSelected = date.toDateString() === currentDate.toDateString();
+          const isTodayCell = date.toDateString() === today.toDateString();
+          const isDisabled = date < minDate || date > maxDate;
+
+          const btn = document.createElement('button');
+          btn.type = 'button';
+          btn.textContent = d;
+          btn.className = 'dp-day' +
+            (isSelected ? ' dp-selected' : isTodayCell ? ' dp-today' : '');
+          btn.disabled = isDisabled;
+          btn.setAttribute('aria-label',
+            date.toLocaleDateString('en-AU', { weekday: 'long', day: 'numeric', month: 'long' }));
+
+          if (!isDisabled) {
+            btn.addEventListener('click', (e) => {
+              e.stopPropagation();
+              currentDate = new Date(dpViewYear, dpViewMonth, d);
+              closeDatePicker();
+              updateNav();
+              loadRoster({ showLoading: false });
+              resetInactivity();
+            });
+          }
+
+          grid.appendChild(btn);
+        }
+      }
+
+      document.getElementById('day-label-btn').addEventListener('click', (e) => {
+        e.stopPropagation();
+        if (dpOpen) closeDatePicker(); else openDatePicker();
+      });
+
+      document.getElementById('dp-prev-month').addEventListener('click', (e) => {
+        e.stopPropagation();
+        dpViewMonth--;
+        if (dpViewMonth < 0) { dpViewMonth = 11; dpViewYear--; }
+        renderDpCalendar();
+      });
+
+      document.getElementById('dp-next-month').addEventListener('click', (e) => {
+        e.stopPropagation();
+        dpViewMonth++;
+        if (dpViewMonth > 11) { dpViewMonth = 0; dpViewYear++; }
+        renderDpCalendar();
+      });
+
+      document.addEventListener('click', () => { if (dpOpen) closeDatePicker(); });
+
+      // View toggle
+      document.getElementById('btn-grouped').addEventListener('click', () => {
+        viewMode = 'grouped';
+        document.getElementById('btn-grouped').classList.add('active');
+        document.getElementById('btn-timeline').classList.remove('active');
+        loadRoster();
+      });
+      document.getElementById('btn-timeline').addEventListener('click', () => {
+        viewMode = 'timeline';
+        document.getElementById('btn-timeline').classList.add('active');
+        document.getElementById('btn-grouped').classList.remove('active');
+        loadRoster();
+      });
+
+      updateNav();
+      loadRoster();
+      scheduleRefresh();
+      updateClock();
+      setInterval(updateClock, 1000);
+    </script>
+  </body>
+</html>
