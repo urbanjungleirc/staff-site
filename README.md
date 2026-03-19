@@ -13,6 +13,85 @@ The site is intended for Urban Jungle team members only. Access is enforced thro
 - To group related static pages, create an entry with `"type": "group"`, supply a `name`/`description`, and populate the `items` array. Each item requires a `path` and can define `buttonText` to control the button label that appears on the hub.
 - Create a matching directory or file for every `path` you register. Static assets for a tool should live alongside its entry (e.g. `/hvt/index.html`).
 
+## Staff Roster (`roster.html`)
+
+`roster.html` is a real-time daily roster display designed for a shared screen in the gym. It fetches shift data directly from the **When I Work** ICS subscription feed (via the Cloudflare Worker proxy) and renders it as a timeline or grouped view.
+
+### How it works
+
+```text
+Browser → ujstaff.happyk.au/api/ics → Cloudflare Worker → When I Work ICS feed
+```
+
+The Worker fetches the full ICS feed (≈ 2 weeks of shifts) and returns it to the page. The page caches it in memory — navigating between days is instant and only actual auto-refresh hits the network.
+
+### First-time setup
+
+#### 1. Add the ICS secret to the Cloudflare Worker
+
+Get your ICS subscription URL from When I Work:
+`My Schedule → Export / Subscribe → Copy ICS subscription link`
+
+Then set it as a Worker secret:
+
+```bash
+cd cloudflare-worker
+echo "https://app.wheniwork.com/calendar/.../global.ics" | npx wrangler secret put ICS_URL
+npx wrangler deploy
+```
+
+#### 2. Add the Worker route in Cloudflare dashboard
+
+The Worker must intercept `/api/*` requests before they reach GitHub Pages.
+
+- Dashboard → Workers & Pages → `uj-tools-editor` → Settings → Triggers → Routes → Add route
+- Pattern: `ujstaff.happyk.au/api/*` · Zone: `happyk.au`
+
+This also enables the `/api/tools.json` admin editor endpoint.
+
+### Configuration
+
+All settings are at the top of `roster.html` in the `CONFIG` block:
+
+| Setting | Default | Description |
+| --- | --- | --- |
+| `icsProxyUrl` | `/api/ics` | Worker endpoint — auto-switches to `localhost:8787` for local dev |
+| `dayWindowDays` | `7` | How many days either side of today the date picker allows |
+| `refreshIntervalMs` | `5 min` | How often the ICS feed is silently re-fetched in the background |
+| `roleOrder` | `MOD, FOH, COACH, SETTING, ADMIN` | Display order of role sections; anything else falls into "Other" |
+| `roleLabels` | see file | Friendly heading text shown for each role key |
+| `roleMap` | `JUNIOR → FOH` | Maps raw role names from WIW to a display group (case-insensitive) |
+
+### Adding or renaming roles
+
+When I Work shift titles follow the format: `Name (Shift as ROLE at UJ)`
+
+- To display a new role in its own section: add its key to `roleOrder` and a label to `roleLabels`.
+- To merge a role into an existing section (e.g. map `JUNIOR` into `FOH`): add an entry to `roleMap`.
+- Anything not listed in `roleOrder` or `roleMap` automatically appears under **Other**.
+
+### Local development
+
+```bash
+# 1. Create the secrets file for local worker
+echo 'ICS_URL="https://app.wheniwork.com/calendar/.../global.ics"' > cloudflare-worker/.dev.vars
+
+# 2. Start the local worker (http://localhost:8787)
+cd cloudflare-worker && npx wrangler dev
+
+# 3. Serve the site root (any static server)
+npx serve .
+# then open http://localhost:PORT/roster.html
+```
+
+The `CONFIG.icsProxyUrl` auto-detects `localhost` and points to `http://localhost:8787/api/ics` — no manual changes needed.
+
+### Behaviour notes
+
+- **Inactivity reset**: if the page is left on a non-today date for 25 minutes with no interaction, it silently returns to today.
+- **Auto-refresh**: every 5 minutes the ICS is re-fetched in the background without any loading flash.
+- **Default view**: Timeline. Users can switch to Grouped view; the choice persists until the page is reloaded.
+
 ## Local Preview
 
 Any static file server (such as `python3 -m http.server` or `npx serve`) can be used to preview locally. Launch the server from the repository root so `index.html` and subdirectory assets are available at the expected paths.
