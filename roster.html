@@ -685,7 +685,7 @@
 
         // Friendly label for each role
         roleLabels: {
-          MOD: 'Duty Manager (MOD)',
+          MOD: 'Manager on Duty',
           FOH: 'Front of House',
           COACH: 'Coach',
           SETTING: 'Route Setting',
@@ -696,7 +696,7 @@
         // e.g. a shift titled "... (Shift as Junior at UJ)" will appear under FOH
         roleMap: {
           'JUNIOR': 'FOH',
-          'JUNIOR FOH': 'FOH',
+          'STRIPING': 'SETTING',
         },
       };
 
@@ -710,6 +710,7 @@
       // ── ICS cache (avoids re-fetching on every day change) ──
       let icsCache = null;
       let icsCachedAt = null;
+      let icsDateRange = { min: null, max: null };
 
       // ── Inactivity reset ──
       const INACTIVITY_MS = 25 * 60 * 1000; // return to today after 25 min of no interaction
@@ -1061,6 +1062,14 @@
         }
         icsCache = parseIcs(await res.text());
         icsCachedAt = Date.now();
+        if (icsCache.length) {
+          const dates = icsCache
+            .filter(e => e.startDate)
+            .map(e => { const d = new Date(e.startDate); d.setHours(0, 0, 0, 0); return d.getTime(); });
+          const mn = new Date(Math.min(...dates)); mn.setHours(0, 0, 0, 0);
+          const mx = new Date(Math.max(...dates)); mx.setHours(0, 0, 0, 0);
+          icsDateRange = { min: mn, max: mx };
+        }
         document.getElementById('refresh-info').textContent =
           `Updated ${new Date().toLocaleTimeString('en-AU', { hour: 'numeric', minute: '2-digit', hour12: true })} · auto-refreshes every 5 min`;
       }
@@ -1093,8 +1102,8 @@
 
       // ── Navigation ──
       function updateNav() {
-        const minDate = new Date(today); minDate.setDate(today.getDate() - CONFIG.dayWindowDays);
-        const maxDate = new Date(today); maxDate.setDate(today.getDate() + CONFIG.dayWindowDays);
+        const minDate = icsDateRange.min || (() => { const d = new Date(today); d.setDate(today.getDate() - CONFIG.dayWindowDays); return d; })();
+        const maxDate = icsDateRange.max || (() => { const d = new Date(today); d.setDate(today.getDate() + CONFIG.dayWindowDays); return d; })();
         document.getElementById('day-label').textContent = formatDayLabel(currentDate);
         document.getElementById('btn-prev').disabled = currentDate <= minDate;
         document.getElementById('btn-next').disabled = currentDate >= maxDate;
@@ -1161,8 +1170,8 @@
       }
 
       function renderDpCalendar() {
-        const minDate = new Date(today); minDate.setDate(today.getDate() - CONFIG.dayWindowDays);
-        const maxDate = new Date(today); maxDate.setDate(today.getDate() + CONFIG.dayWindowDays);
+        const minDate = icsDateRange.min || (() => { const d = new Date(today); d.setDate(today.getDate() - CONFIG.dayWindowDays); return d; })();
+        const maxDate = icsDateRange.max || (() => { const d = new Date(today); d.setDate(today.getDate() + CONFIG.dayWindowDays); return d; })();
 
         document.getElementById('dp-month-label').textContent =
           new Date(dpViewYear, dpViewMonth, 1).toLocaleDateString('en-AU', { month: 'long', year: 'numeric' });
