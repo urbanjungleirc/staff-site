@@ -288,7 +288,7 @@
         display: flex;
         align-items: center;
         gap: 8px;
-        padding: 9px 20px;
+        padding: 12px 20px;
         border-radius: 12px;
         border: 1px solid rgba(255, 255, 255, 0.28);
         background: rgba(255, 255, 255, 0.12);
@@ -664,7 +664,7 @@
       </div>
     </main>
 
-    <footer>Urban Jungle Staff Hub &mdash; roster pulled from Google Calendar</footer>
+    <footer>Urban Jungle Staff Hub &mdash; roster pulled from When I Work</footer>
 
     <script>
       // ── Configuration ──
@@ -688,7 +688,7 @@
           MOD: 'Manager on Duty',
           FOH: 'Front of House',
           COACH: 'Coach',
-          SETTING: 'Route Setting',
+          SETTING: 'Setting',
           ADMIN: 'Admin',
         },
 
@@ -696,7 +696,11 @@
         // e.g. a shift titled "... (Shift as Junior at UJ)" will appear under FOH
         roleMap: {
           'JUNIOR': 'FOH',
-          'STRIPING': 'SETTING',
+          'STRIPPING': 'SETTING',
+          'HOLIDAY': 'ADMIN',
+          'PH': 'ADMIN',
+          'SHIFT SUPERVISOR': 'MOD',
+          'WORK EXPERIENCE': 'FOH',
         },
       };
 
