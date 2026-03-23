@@ -710,7 +710,7 @@
       <div class="roster-panel">
         <div class="time-bar">
           <span class="current-time">Now: <strong id="clock">—</strong></span>
-          <span class="refresh-info" id="refresh-info">Auto-refreshes every 5 min</span>
+          <span class="refresh-info" id="refresh-info">Auto-refreshes every 30 min</span>
         </div>
         <div class="view-toggle">
           <button class="view-btn" id="btn-grouped">Grouped</button>
@@ -768,6 +768,10 @@
       today.setHours(0, 0, 0, 0);
       let currentDate = new Date(today);
       let refreshTimer = null;
+      const refreshMins = Math.round(CONFIG.refreshIntervalMs / 60000);
+      const refreshLabel = refreshMins >= 60
+        ? `${refreshMins / 60}h`
+        : `${refreshMins} min`;
       let viewMode = 'timeline'; // 'grouped' | 'timeline'
 
       // ── ICS cache (avoids re-fetching on every day change) ──
@@ -1088,7 +1092,7 @@
                   ${gridLinesHtml}
                   <div class="tl-bar${active ? ' on-now' : ''}"
                        style="left:${leftPct.toFixed(2)}%;width:${widthPct.toFixed(2)}%"
-                       data-name="${escHtml(shift.name)}" data-time="${escHtml(shiftTimeLabel(shift))}">
+                       data-name="${escHtml(shift.name)}" data-time="${escHtml(shiftTimeLabel(shift))}" data-role="${escHtml(CONFIG.roleLabels[shift.role] || shift.role)}">
                     ${shiftTimeLabel(shift)}
                   </div>
                 </div>
@@ -1134,7 +1138,7 @@
           icsDateRange = { min: mn, max: mx };
         }
         document.getElementById('refresh-info').textContent =
-          `Updated ${new Date().toLocaleTimeString('en-AU', { hour: 'numeric', minute: '2-digit', hour12: true })} · auto-refreshes every 5 min`;
+          `Updated ${new Date().toLocaleTimeString('en-AU', { hour: 'numeric', minute: '2-digit', hour12: true })} · auto-refreshes every ${refreshLabel}`;
       }
 
       async function loadRoster({ forceRefresh = false, showLoading = true } = {}) {
@@ -1329,7 +1333,7 @@
         const bar = e.target.closest('.tl-bar');
         if (!bar) return;
         const rect = bar.getBoundingClientRect();
-        tlTooltip.innerHTML = `<strong>${bar.dataset.name}</strong><span>${bar.dataset.time}</span>`;
+        tlTooltip.innerHTML = `<strong>${bar.dataset.name}</strong><span>${bar.dataset.role}</span><span>${bar.dataset.time}</span>`;
         tlTooltip.style.left = (rect.left + rect.width / 2) + 'px';
         tlTooltip.style.top  = rect.top + 'px';
         tlTooltip.classList.add('visible');
