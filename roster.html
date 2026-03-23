@@ -575,6 +575,12 @@
         left: 0;
         background: var(--bg-alt);
         z-index: 2;
+        transition: color 140ms ease;
+      }
+
+      .tl-row:hover .tl-row-name {
+        color: var(--text);
+        font-weight: 700;
       }
 
       .tl-track {
@@ -601,6 +607,18 @@
         min-width: 4px;
         box-sizing: border-box;
         cursor: default;
+        transform-origin: center;
+        transition: transform 140ms ease, box-shadow 140ms ease,
+                    background 140ms ease, border-color 140ms ease;
+      }
+
+      .tl-bar:hover {
+        transform: scaleY(1.2);
+        box-shadow: 0 4px 14px -4px rgba(139, 28, 35, 0.22);
+        background: rgba(139, 28, 35, 0.2);
+        border-color: rgba(139, 28, 35, 0.5);
+        z-index: 4;
+        overflow: visible;
       }
 
       .tl-bar.on-now {
@@ -608,6 +626,46 @@
         border-color: rgba(5, 150, 105, 0.3);
         color: var(--on-now);
       }
+
+      .tl-bar.on-now:hover {
+        background: rgba(5, 150, 105, 0.2);
+        border-color: rgba(5, 150, 105, 0.55);
+        box-shadow: 0 4px 14px -4px rgba(5, 150, 105, 0.22);
+      }
+
+      .tl-now-line {
+        animation: now-pulse 2.5s ease-in-out infinite;
+      }
+
+      @keyframes now-pulse {
+        0%, 100% { opacity: 1; }
+        50%       { opacity: 0.4; }
+      }
+
+      .tl-tooltip {
+        position: fixed;
+        z-index: 500;
+        background: var(--text);
+        color: #fff;
+        padding: 6px 11px;
+        border-radius: 8px;
+        font-size: 0.8rem;
+        font-family: inherit;
+        pointer-events: none;
+        white-space: nowrap;
+        transform: translateX(-50%) translateY(calc(-100% - 8px));
+        opacity: 0;
+        transition: opacity 120ms ease;
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        gap: 1px;
+        box-shadow: 0 4px 12px -4px rgba(0, 0, 0, 0.25);
+      }
+
+      .tl-tooltip.visible { opacity: 1; }
+      .tl-tooltip strong { font-size: 0.83rem; }
+      .tl-tooltip span { font-size: 0.75rem; opacity: 0.75; }
 
       @media (max-width: 640px) {
         header { padding: 32px 16px 48px; }
@@ -662,6 +720,7 @@
           <p class="status-msg">Loading roster…</p>
         </div>
       </div>
+      <div class="tl-tooltip" id="tl-tooltip" aria-hidden="true"></div>
     </main>
 
     <footer>Urban Jungle Staff Hub &mdash; roster pulled from When I Work</footer>
@@ -1029,7 +1088,7 @@
                   ${gridLinesHtml}
                   <div class="tl-bar${active ? ' on-now' : ''}"
                        style="left:${leftPct.toFixed(2)}%;width:${widthPct.toFixed(2)}%"
-                       title="${escHtml(shift.name)}: ${shiftTimeLabel(shift)}">
+                       data-name="${escHtml(shift.name)}" data-time="${escHtml(shiftTimeLabel(shift))}">
                     ${shiftTimeLabel(shift)}
                   </div>
                 </div>
@@ -1262,6 +1321,21 @@
         document.getElementById('btn-timeline').classList.add('active');
         document.getElementById('btn-grouped').classList.remove('active');
         loadRoster();
+      });
+
+      // ── Timeline tooltip ──
+      const tlTooltip = document.getElementById('tl-tooltip');
+      document.getElementById('roster-content').addEventListener('mouseover', e => {
+        const bar = e.target.closest('.tl-bar');
+        if (!bar) return;
+        const rect = bar.getBoundingClientRect();
+        tlTooltip.innerHTML = `<strong>${bar.dataset.name}</strong><span>${bar.dataset.time}</span>`;
+        tlTooltip.style.left = (rect.left + rect.width / 2) + 'px';
+        tlTooltip.style.top  = rect.top + 'px';
+        tlTooltip.classList.add('visible');
+      });
+      document.getElementById('roster-content').addEventListener('mouseout', e => {
+        if (e.target.closest('.tl-bar')) tlTooltip.classList.remove('visible');
       });
 
       updateNav();
