@@ -57,7 +57,7 @@ All settings are at the top of `roster.html` in the `CONFIG` block:
 | --- | --- | --- |
 | `icsProxyUrl` | `/api/ics` | Worker endpoint — auto-switches to `localhost:8787` for local dev |
 | `dayWindowDays` | `7` | Fallback nav range (days either side of today) used before the ICS loads; once loaded, the range is derived from the actual dates in the feed |
-| `refreshIntervalMs` | `5 min` | How often the ICS feed is silently re-fetched in the background |
+| `refreshIntervalMs` | `30 min` | How often the ICS feed is silently re-fetched in the background |
 | `roleOrder` | `MOD, FOH, COACH, SETTING, ADMIN` | Display order of role sections; anything else falls into "Other" |
 | `roleLabels` | see file | Friendly heading text shown for each role key |
 | `roleMap` | see below | Maps raw role names from WIW to a display group (case-insensitive) |
