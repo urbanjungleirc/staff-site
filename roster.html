@@ -899,12 +899,13 @@
         if (!match) return null;
 
         const name = match[1].trim();
-        const rawRole = match[2].trim().toUpperCase();
+        const shiftLabel = match[2].trim();
+        const rawRole = shiftLabel.toUpperCase();
         // Apply role mapping (e.g. JUNIOR → FOH)
         const role = CONFIG.roleMap[rawRole] || rawRole;
         if (!event.startDate) return null;
 
-        return { name, role, start: event.startDate, end: event.endDate, allDay: event.allDay };
+        return { name, role, shiftLabel, start: event.startDate, end: event.endDate, allDay: event.allDay };
       }
 
       // Returns true if the shift falls (even partially) on the given day
@@ -1092,7 +1093,7 @@
                   ${gridLinesHtml}
                   <div class="tl-bar${active ? ' on-now' : ''}"
                        style="left:${leftPct.toFixed(2)}%;width:${widthPct.toFixed(2)}%"
-                       data-name="${escHtml(shift.name)}" data-time="${escHtml(shiftTimeLabel(shift))}" data-role="${escHtml(CONFIG.roleLabels[shift.role] || shift.role)}">
+                       data-name="${escHtml(shift.name)}" data-time="${escHtml(shiftTimeLabel(shift))}" data-role="${escHtml(shift.shiftLabel)}">
                     ${shiftTimeLabel(shift)}
                   </div>
                 </div>
