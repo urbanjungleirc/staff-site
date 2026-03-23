@@ -56,19 +56,30 @@ All settings are at the top of `roster.html` in the `CONFIG` block:
 | Setting | Default | Description |
 | --- | --- | --- |
 | `icsProxyUrl` | `/api/ics` | Worker endpoint — auto-switches to `localhost:8787` for local dev |
-| `dayWindowDays` | `7` | How many days either side of today the date picker allows |
+| `dayWindowDays` | `7` | Fallback nav range (days either side of today) used before the ICS loads; once loaded, the range is derived from the actual dates in the feed |
 | `refreshIntervalMs` | `5 min` | How often the ICS feed is silently re-fetched in the background |
 | `roleOrder` | `MOD, FOH, COACH, SETTING, ADMIN` | Display order of role sections; anything else falls into "Other" |
 | `roleLabels` | see file | Friendly heading text shown for each role key |
-| `roleMap` | `JUNIOR → FOH` | Maps raw role names from WIW to a display group (case-insensitive) |
+| `roleMap` | see below | Maps raw role names from WIW to a display group (case-insensitive) |
 
 ### Adding or renaming roles
 
 When I Work shift titles follow the format: `Name (Shift as ROLE at UJ)`
 
 - To display a new role in its own section: add its key to `roleOrder` and a label to `roleLabels`.
-- To merge a role into an existing section (e.g. map `JUNIOR` into `FOH`): add an entry to `roleMap`.
+- To merge a role into an existing section: add an entry to `roleMap` (keys are uppercase, matched case-insensitively).
 - Anything not listed in `roleOrder` or `roleMap` automatically appears under **Other**.
+
+Current `roleMap` defaults:
+
+| Raw WIW role | Displayed under |
+| --- | --- |
+| `JUNIOR` | FOH |
+| `WORK EXPERIENCE` | FOH |
+| `SHIFT SUPERVISOR` | MOD |
+| `STRIPPING` | SETTING |
+| `HOLIDAY` | ADMIN |
+| `PH` | ADMIN |
 
 ### Local development
 
