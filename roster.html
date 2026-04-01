@@ -670,8 +670,8 @@
       /* ── Staffing coverage graph ── */
       .tl-coverage {
         display: flex;
-        align-items: flex-end;
-        height: 52px;
+        align-items: stretch;
+        height: 36px;
         margin-bottom: 12px;
         border-bottom: 1px solid var(--border);
       }
@@ -686,7 +686,7 @@
         display: flex;
         align-items: flex-end;
         padding-right: 10px;
-        padding-bottom: 6px;
+        padding-bottom: 5px;
         font-size: 0.68rem;
         font-weight: 700;
         text-transform: uppercase;
@@ -694,35 +694,19 @@
         color: var(--text-muted);
       }
 
-      .tl-cov-track {
+      .tl-cov-svg {
         flex: 1;
-        position: relative;
+        display: block;
         height: 100%;
+        overflow: visible;
       }
 
-      .tl-cov-col {
-        position: absolute;
-        bottom: 0;
-        background: var(--accent-soft);
-        border: 1px solid rgba(139, 28, 35, 0.2);
-        border-bottom: none;
-        border-right-color: var(--bg-alt);
-        border-radius: 3px 3px 0 0;
-        box-sizing: border-box;
-        display: flex;
-        align-items: flex-start;
-        justify-content: center;
-        padding-top: 2px;
-        overflow: hidden;
-        min-height: 6px;
-      }
-
-      .tl-cov-n {
-        font-size: 0.6rem;
-        font-weight: 700;
-        color: var(--accent);
-        line-height: 1;
-        user-select: none;
+      .tl-cov-svg path {
+        fill: var(--accent-soft);
+        stroke: rgba(139, 28, 35, 0.38);
+        stroke-width: 1.5;
+        stroke-linejoin: miter;
+        vector-effect: non-scaling-stroke;
       }
 
       /* ── Ghost time-cursor line (desktop only) ── */
@@ -1216,12 +1200,17 @@
           coverageSlots.push({ t, count });
         }
         const maxCoverage = Math.max(1, ...coverageSlots.map(s => s.count));
-        const slotWidthPct = (SLOT_MS / totalMs * 100).toFixed(3);
-        const coverageColsHtml = coverageSlots.map(({ t, count }) => {
-          if (count === 0) return '';
-          const heightPct = (count / maxCoverage * 100).toFixed(1);
-          return `<div class="tl-cov-col" style="left:${pct(t)};width:${slotWidthPct}%;height:${heightPct}%" title="${count} staff"><span class="tl-cov-n">${count}</span></div>`;
-        }).join('');
+        // Build stepped SVG area path (preserveAspectRatio="none" stretches it to fit)
+        const SVG_W = 1000, SVG_H = 100;
+        const pts = [`M 0 ${SVG_H}`];
+        coverageSlots.forEach(({ t, count }) => {
+          const x1 = ((t - rangeStart.getTime()) / totalMs * SVG_W).toFixed(1);
+          const x2 = ((t + SLOT_MS - rangeStart.getTime()) / totalMs * SVG_W).toFixed(1);
+          const y  = count === 0 ? SVG_H : (SVG_H - count / maxCoverage * 90).toFixed(1);
+          pts.push(`L ${x1} ${y} L ${x2} ${y}`);
+        });
+        pts.push(`L ${SVG_W} ${SVG_H} Z`);
+        const coverageSvgHtml = `<svg class="tl-cov-svg" viewBox="0 0 ${SVG_W} ${SVG_H}" preserveAspectRatio="none" aria-hidden="true"><path d="${pts.join(' ')}"/></svg>`;
 
         const nowAttr = showNow ? ` class="tl-body has-now" style="--now-frac:${nowFrac.toFixed(4)}"` : ' class="tl-body"';
         container.innerHTML = `
@@ -1235,7 +1224,7 @@
             </div>
             <div class="tl-coverage">
               <div class="tl-cov-label-col">Coverage</div>
-              <div class="tl-cov-track">${coverageColsHtml}</div>
+              ${coverageSvgHtml}
             </div>
             <div${nowAttr}>${sectionsHtml}</div>
           </div></div>`;
