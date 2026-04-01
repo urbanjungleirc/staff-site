@@ -702,8 +702,8 @@
       }
 
       .tl-cov-svg path {
-        fill: var(--accent-soft);
-        stroke: rgba(139, 28, 35, 0.38);
+        fill: rgba(107, 114, 128, 0.1);
+        stroke: rgba(107, 114, 128, 0.35);
         stroke-width: 1.5;
         stroke-linejoin: miter;
         vector-effect: non-scaling-stroke;
@@ -1217,7 +1217,7 @@
           <div class="tl-wrap"><div class="tl-inner">
             <div class="tl-header">
               <div class="tl-name-col"></div>
-              <div class="tl-ticks" data-range-start="${rangeStart.getTime()}" data-total-ms="${totalMs}">
+              <div class="tl-ticks" data-range-start="${rangeStart.getTime()}" data-total-ms="${totalMs}" data-coverage="${coverageSlots.map(s => s.count).join(',')}">
                 ${ticksHtml}
                 <div class="tl-ghost-label" aria-hidden="true"></div>
               </div>
@@ -1458,7 +1458,11 @@
           }
           const label = ticks.querySelector('.tl-ghost-label');
           if (label) {
-            label.textContent = hoverTime.toLocaleTimeString('en-AU', { hour: 'numeric', minute: '2-digit', hour12: true });
+            const timeStr = hoverTime.toLocaleTimeString('en-AU', { hour: 'numeric', minute: '2-digit', hour12: true });
+            const coverageCounts = ticks.dataset.coverage ? ticks.dataset.coverage.split(',').map(Number) : [];
+            const slotIndex = Math.min(Math.floor(frac * coverageCounts.length), coverageCounts.length - 1);
+            const staffCount = coverageCounts[slotIndex] ?? 0;
+            label.textContent = staffCount > 0 ? `${timeStr} · ${staffCount}` : timeStr;
             label.style.left = (frac * 100).toFixed(2) + '%';
             label.classList.add('visible');
           }
