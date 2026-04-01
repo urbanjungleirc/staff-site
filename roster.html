@@ -667,6 +667,64 @@
       .tl-tooltip strong { font-size: 0.83rem; }
       .tl-tooltip span { font-size: 0.75rem; opacity: 0.75; }
 
+      /* ── Staffing coverage graph ── */
+      .tl-coverage {
+        display: flex;
+        align-items: flex-end;
+        height: 52px;
+        margin-bottom: 12px;
+        border-bottom: 1px solid var(--border);
+      }
+
+      .tl-cov-label-col {
+        width: 130px;
+        flex-shrink: 0;
+        position: sticky;
+        left: 0;
+        background: var(--bg-alt);
+        z-index: 2;
+        display: flex;
+        align-items: flex-end;
+        padding-right: 10px;
+        padding-bottom: 6px;
+        font-size: 0.68rem;
+        font-weight: 700;
+        text-transform: uppercase;
+        letter-spacing: 0.06em;
+        color: var(--text-muted);
+      }
+
+      .tl-cov-track {
+        flex: 1;
+        position: relative;
+        height: 100%;
+      }
+
+      .tl-cov-col {
+        position: absolute;
+        bottom: 0;
+        background: var(--accent-soft);
+        border: 1px solid rgba(139, 28, 35, 0.2);
+        border-bottom: none;
+        border-right-color: var(--bg-alt);
+        border-radius: 3px 3px 0 0;
+        box-sizing: border-box;
+        display: flex;
+        align-items: flex-start;
+        justify-content: center;
+        padding-top: 2px;
+        overflow: hidden;
+        min-height: 6px;
+      }
+
+      .tl-cov-n {
+        font-size: 0.6rem;
+        font-weight: 700;
+        color: var(--accent);
+        line-height: 1;
+        user-select: none;
+      }
+
       /* ── Ghost time-cursor line (desktop only) ── */
       @media (hover: hover) {
         .tl-body.has-ghost::after {
@@ -1144,6 +1202,27 @@
             </div>`;
         }).join('');
 
+        // ── Coverage graph data ──
+        const SLOT_MS = 30 * 60 * 1000;
+        const coverageShifts = timed.filter(s => s.role !== 'ADMIN');
+        const coverageSlots = [];
+        for (let t = rangeStart.getTime(); t < rangeEnd.getTime(); t += SLOT_MS) {
+          const slotEnd = t + SLOT_MS;
+          const count = coverageShifts.filter(s => {
+            const ss = new Date(s.start).getTime();
+            const se = s.end ? new Date(s.end).getTime() : ss + 3600000;
+            return ss < slotEnd && se > t;
+          }).length;
+          coverageSlots.push({ t, count });
+        }
+        const maxCoverage = Math.max(1, ...coverageSlots.map(s => s.count));
+        const slotWidthPct = (SLOT_MS / totalMs * 100).toFixed(3);
+        const coverageColsHtml = coverageSlots.map(({ t, count }) => {
+          if (count === 0) return '';
+          const heightPct = (count / maxCoverage * 100).toFixed(1);
+          return `<div class="tl-cov-col" style="left:${pct(t)};width:${slotWidthPct}%;height:${heightPct}%" title="${count} staff"><span class="tl-cov-n">${count}</span></div>`;
+        }).join('');
+
         const nowAttr = showNow ? ` class="tl-body has-now" style="--now-frac:${nowFrac.toFixed(4)}"` : ' class="tl-body"';
         container.innerHTML = `
           <div class="tl-wrap"><div class="tl-inner">
@@ -1153,6 +1232,10 @@
                 ${ticksHtml}
                 <div class="tl-ghost-label" aria-hidden="true"></div>
               </div>
+            </div>
+            <div class="tl-coverage">
+              <div class="tl-cov-label-col">Coverage</div>
+              <div class="tl-cov-track">${coverageColsHtml}</div>
             </div>
             <div${nowAttr}>${sectionsHtml}</div>
           </div></div>`;
@@ -1412,6 +1495,13 @@
       updateNav();
       loadRoster();
       scheduleRefresh();
+      // ── Keyboard day navigation ──
+      document.addEventListener('keydown', e => {
+        if (e.target.closest('input, button, [contenteditable]')) return;
+        if (e.key === 'ArrowLeft')  changeDay(-1);
+        if (e.key === 'ArrowRight') changeDay(1);
+      });
+
       updateClock();
       setInterval(updateClock, 1000);
     </script>
