@@ -667,6 +667,42 @@
       .tl-tooltip strong { font-size: 0.83rem; }
       .tl-tooltip span { font-size: 0.75rem; opacity: 0.75; }
 
+      /* ── Ghost time-cursor line (desktop only) ── */
+      @media (hover: hover) {
+        .tl-ticks { cursor: crosshair; }
+
+        .tl-body.has-ghost::after {
+          content: '';
+          position: absolute;
+          top: 0; bottom: 0;
+          left: calc(130px + var(--ghost-frac) * (100% - 130px));
+          width: 1px;
+          background: var(--text-muted);
+          opacity: 0.4;
+          z-index: 3;
+          pointer-events: none;
+        }
+
+        .tl-ghost-label {
+          position: absolute;
+          top: 50%;
+          transform: translateX(-50%) translateY(-50%);
+          background: var(--text);
+          color: #fff;
+          font-size: 0.7rem;
+          font-weight: 600;
+          letter-spacing: -0.01em;
+          padding: 2px 8px;
+          border-radius: 20px;
+          pointer-events: none;
+          white-space: nowrap;
+          opacity: 0;
+          transition: opacity 100ms ease;
+          z-index: 5;
+        }
+        .tl-ghost-label.visible { opacity: 1; }
+      }
+
       @media (max-width: 640px) {
         header { padding: 32px 16px 48px; }
         .roster-panel { padding: 20px 16px; }
@@ -1115,7 +1151,10 @@
           <div class="tl-wrap"><div class="tl-inner">
             <div class="tl-header">
               <div class="tl-name-col"></div>
-              <div class="tl-ticks">${ticksHtml}</div>
+              <div class="tl-ticks" data-range-start="${rangeStart.getTime()}" data-total-ms="${totalMs}">
+                ${ticksHtml}
+                <div class="tl-ghost-label" aria-hidden="true"></div>
+              </div>
             </div>
             <div${nowAttr}>${sectionsHtml}</div>
           </div></div>`;
@@ -1327,6 +1366,35 @@
         document.getElementById('btn-grouped').classList.remove('active');
         loadRoster();
       });
+
+      // ── Ghost time-cursor line ──
+      function hideGhostCursor() {
+        document.querySelectorAll('.tl-body.has-ghost').forEach(b => b.classList.remove('has-ghost'));
+        document.querySelectorAll('.tl-ghost-label.visible').forEach(l => l.classList.remove('visible'));
+      }
+
+      if (window.matchMedia('(hover: hover)').matches) {
+        const rc = document.getElementById('roster-content');
+        rc.addEventListener('mousemove', e => {
+          const ticks = e.target.closest('.tl-ticks');
+          if (!ticks) { hideGhostCursor(); return; }
+          const rect = ticks.getBoundingClientRect();
+          const frac = Math.max(0, Math.min(1, (e.clientX - rect.left) / rect.width));
+          const hoverTime = new Date(parseInt(ticks.dataset.rangeStart) + frac * parseInt(ticks.dataset.totalMs));
+          const body = ticks.closest('.tl-inner').querySelector('.tl-body');
+          if (body) {
+            body.style.setProperty('--ghost-frac', frac.toFixed(4));
+            body.classList.add('has-ghost');
+          }
+          const label = ticks.querySelector('.tl-ghost-label');
+          if (label) {
+            label.textContent = hoverTime.toLocaleTimeString('en-AU', { hour: 'numeric', minute: '2-digit', hour12: true });
+            label.style.left = (frac * 100).toFixed(2) + '%';
+            label.classList.add('visible');
+          }
+        });
+        rc.addEventListener('mouseleave', hideGhostCursor);
+      }
 
       // ── Timeline tooltip ──
       const tlTooltip = document.getElementById('tl-tooltip');
