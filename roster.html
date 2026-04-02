@@ -474,7 +474,7 @@
         align-items: flex-end;
         padding-bottom: 8px;
         border-bottom: 2px solid var(--border);
-        margin-bottom: 12px;
+        margin-bottom: 4px;
         position: sticky;
         top: 0;
         background: var(--bg-alt);
@@ -671,7 +671,7 @@
       .tl-coverage {
         display: flex;
         align-items: stretch;
-        height: 36px;
+        height: 44px;
         margin-bottom: 12px;
       }
 
@@ -724,6 +724,12 @@
         line-height: 1;
         pointer-events: none;
         user-select: none;
+      }
+
+      .tl-cov-n--above {
+        transform: translateX(-50%) translateY(-100%);
+        padding-top: 0;
+        padding-bottom: 2px;
       }
 
       /* ── Ghost time-cursor line (desktop only) ── */
@@ -1248,7 +1254,9 @@
         const countLabelsHtml = covGroups.filter(g => g.count > 0).map(g => {
           const leftPct = ((g.tStart + g.tEnd) / 2 - rangeStart.getTime()) / totalMs * 100;
           const topPct  = (1 - g.count / maxCoverage * 0.9) * 100;
-          return `<span class="tl-cov-n" style="left:${leftPct.toFixed(1)}%;top:${topPct.toFixed(1)}%">${g.count}</span>`;
+          const isShort = g.count / maxCoverage < 0.4;
+          const cls = isShort ? ' tl-cov-n--above' : '';
+          return `<span class="tl-cov-n${cls}" style="left:${leftPct.toFixed(1)}%;top:${topPct.toFixed(1)}%">${g.count}</span>`;
         }).join('');
 
         const nowAttr = showNow ? ` class="tl-body has-now" style="--now-frac:${nowFrac.toFixed(4)}"` : ' class="tl-body"';
