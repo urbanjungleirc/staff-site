@@ -673,7 +673,6 @@
         align-items: stretch;
         height: 36px;
         margin-bottom: 12px;
-        border-bottom: 1px solid var(--border);
       }
 
       .tl-cov-label-col {
@@ -694,19 +693,37 @@
         color: var(--text-muted);
       }
 
-      .tl-cov-svg {
+      .tl-cov-track {
         flex: 1;
-        display: block;
+        position: relative;
+        overflow: hidden;
+      }
+
+      .tl-cov-svg {
+        position: absolute;
+        inset: 0;
+        width: 100%;
         height: 100%;
-        overflow: visible;
+        display: block;
       }
 
       .tl-cov-svg path {
-        fill: rgba(107, 114, 128, 0.1);
         stroke: rgba(107, 114, 128, 0.35);
         stroke-width: 1.5;
         stroke-linejoin: miter;
         vector-effect: non-scaling-stroke;
+      }
+
+      .tl-cov-n {
+        position: absolute;
+        transform: translateX(-50%);
+        padding-top: 2px;
+        font-size: 0.6rem;
+        font-weight: 700;
+        color: rgba(107, 114, 128, 0.65);
+        line-height: 1;
+        pointer-events: none;
+        user-select: none;
       }
 
       /* ── Ghost time-cursor line (desktop only) ── */
@@ -1200,7 +1217,8 @@
           coverageSlots.push({ t, count });
         }
         const maxCoverage = Math.max(1, ...coverageSlots.map(s => s.count));
-        // Build stepped SVG area path (preserveAspectRatio="none" stretches it to fit)
+
+        // Stepped SVG area path
         const SVG_W = 1000, SVG_H = 100;
         const pts = [`M 0 ${SVG_H}`];
         coverageSlots.forEach(({ t, count }) => {
@@ -1210,7 +1228,28 @@
           pts.push(`L ${x1} ${y} L ${x2} ${y}`);
         });
         pts.push(`L ${SVG_W} ${SVG_H} Z`);
-        const coverageSvgHtml = `<svg class="tl-cov-svg" viewBox="0 0 ${SVG_W} ${SVG_H}" preserveAspectRatio="none" aria-hidden="true"><path d="${pts.join(' ')}"/></svg>`;
+        const coverageSvgHtml = `<svg class="tl-cov-svg" viewBox="0 0 ${SVG_W} ${SVG_H}" preserveAspectRatio="none" aria-hidden="true">
+          <defs><linearGradient id="cov-grad" x1="0" y1="0" x2="0" y2="1">
+            <stop offset="0%" stop-color="rgb(107,114,128)" stop-opacity="0.22"/>
+            <stop offset="100%" stop-color="rgb(107,114,128)" stop-opacity="0.02"/>
+          </linearGradient></defs>
+          <path d="${pts.join(' ')}" fill="url(#cov-grad)"/>
+        </svg>`;
+
+        // Group consecutive same-count slots → one label per plateau
+        const covGroups = [];
+        coverageSlots.forEach(({ t, count }) => {
+          if (!covGroups.length || covGroups[covGroups.length - 1].count !== count) {
+            covGroups.push({ count, tStart: t, tEnd: t + SLOT_MS });
+          } else {
+            covGroups[covGroups.length - 1].tEnd = t + SLOT_MS;
+          }
+        });
+        const countLabelsHtml = covGroups.filter(g => g.count > 0).map(g => {
+          const leftPct = ((g.tStart + g.tEnd) / 2 - rangeStart.getTime()) / totalMs * 100;
+          const topPct  = (1 - g.count / maxCoverage * 0.9) * 100;
+          return `<span class="tl-cov-n" style="left:${leftPct.toFixed(1)}%;top:${topPct.toFixed(1)}%">${g.count}</span>`;
+        }).join('');
 
         const nowAttr = showNow ? ` class="tl-body has-now" style="--now-frac:${nowFrac.toFixed(4)}"` : ' class="tl-body"';
         container.innerHTML = `
@@ -1224,7 +1263,7 @@
             </div>
             <div class="tl-coverage">
               <div class="tl-cov-label-col">Coverage</div>
-              ${coverageSvgHtml}
+              <div class="tl-cov-track">${coverageSvgHtml}${countLabelsHtml}</div>
             </div>
             <div${nowAttr}>${sectionsHtml}</div>
           </div></div>`;
