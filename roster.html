@@ -812,8 +812,9 @@
           <span class="refresh-info" id="refresh-info">Auto-refreshes every 30 min</span>
         </div>
         <div class="view-toggle">
-          <button class="view-btn" id="btn-grouped">Grouped</button>
-          <button class="view-btn active" id="btn-timeline">Timeline</button>
+          <button class="view-btn" id="btn-grouped">Cards</button>
+          <button class="view-btn active" id="btn-timeline">Timeline by Role</button>
+          <button class="view-btn" id="btn-alpha">Timeline by Name</button>
         </div>
         <div id="roster-content">
           <p class="status-msg">Loading roster…</p>
@@ -871,7 +872,7 @@
       const refreshLabel = refreshMins >= 60
         ? `${refreshMins / 60}h`
         : `${refreshMins} min`;
-      let viewMode = 'timeline'; // 'grouped' | 'timeline'
+      let viewMode = 'timeline'; // 'grouped' | 'timeline' | 'alpha'
 
       // ── ICS cache (avoids re-fetching on every day change) ──
       let icsCache = null;
@@ -1278,6 +1279,146 @@
       }
 
       // ── Load ──
+      function renderAlphaTimeline(shifts) {
+        const container = document.getElementById('roster-content');
+        const timed = shifts.filter(s => !s.allDay);
+
+        if (!timed.length) {
+          container.innerHTML = '<p class="status-msg">No timed shifts found for this day.</p>';
+          return;
+        }
+
+        // Calculate time range
+        const allTimes = timed.flatMap(s => {
+          const start = new Date(s.start);
+          const end = s.end ? new Date(s.end) : new Date(start.getTime() + 3600000);
+          return [start.getTime(), end.getTime()];
+        });
+        const rangeStart = new Date(Math.min(...allTimes));
+        rangeStart.setMinutes(0, 0, 0);
+        const rangeEnd = new Date(Math.max(...allTimes));
+        if (rangeEnd.getMinutes() > 0 || rangeEnd.getSeconds() > 0) rangeEnd.setHours(rangeEnd.getHours() + 1, 0, 0, 0);
+        else rangeEnd.setMinutes(0, 0, 0);
+        const totalMs = rangeEnd - rangeStart;
+
+        // Hour ticks
+        const ticks = [];
+        const t = new Date(rangeStart);
+        while (t <= rangeEnd) { ticks.push(new Date(t)); t.setHours(t.getHours() + 1); }
+
+        // Group shifts by person name, alphabetically
+        const people = {};
+        for (const shift of timed) {
+          if (!people[shift.name]) people[shift.name] = [];
+          people[shift.name].push(shift);
+        }
+        const sortedNames = Object.keys(people).sort((a, b) => a.localeCompare(b));
+
+        // Now line
+        const now = new Date();
+        const isToday = currentDate.toDateString() === now.toDateString();
+        const nowFrac = isToday ? (now - rangeStart) / totalMs : null;
+        const showNow = nowFrac !== null && nowFrac >= 0 && nowFrac <= 1;
+
+        function pct(ms) { return ((ms - rangeStart) / totalMs * 100).toFixed(2) + '%'; }
+
+        const gridLinesHtml = ticks.map(tick => {
+          const left = pct(tick.getTime());
+          return `<div class="tl-track-grid" style="left:${left}"></div>`;
+        }).join('');
+
+        const ticksHtml = ticks.map(tick => {
+          const label = tick.toLocaleTimeString('en-AU', { hour: 'numeric', hour12: true });
+          return `<div class="tl-tick" style="left:${pct(tick.getTime())}">${escHtml(label)}</div>`;
+        }).join('');
+
+        const rowsHtml = sortedNames.map(name => {
+          const personShifts = people[name];
+          const barsHtml = personShifts.map(shift => {
+            const start = new Date(shift.start);
+            const end = shift.end ? new Date(shift.end) : new Date(start.getTime() + 3600000);
+            const leftPct = Math.max(0, (start - rangeStart) / totalMs * 100);
+            const widthPct = Math.max(0.3, Math.min(100 - leftPct, (end - start) / totalMs * 100));
+            const active = isOnNow(shift);
+            return `<div class="tl-bar${active ? ' on-now' : ''}"
+                         style="left:${leftPct.toFixed(2)}%;width:${widthPct.toFixed(2)}%"
+                         data-name="${escHtml(shift.name)}" data-time="${escHtml(shiftTimeLabel(shift))}" data-role="${escHtml(shift.shiftLabel)}">
+                      ${escHtml(shift.shiftLabel)}
+                    </div>`;
+          }).join('');
+          return `
+            <div class="tl-row">
+              <div class="tl-row-name">${escHtml(name)}</div>
+              <div class="tl-track">${gridLinesHtml}${barsHtml}</div>
+            </div>`;
+        }).join('');
+
+        // Coverage graph (same as timeline view)
+        const SLOT_MS = 30 * 60 * 1000;
+        const coverageShifts = timed.filter(s => s.role !== 'ADMIN');
+        const coverageSlots = [];
+        for (let t = rangeStart.getTime(); t < rangeEnd.getTime(); t += SLOT_MS) {
+          const slotEnd = t + SLOT_MS;
+          const count = coverageShifts.filter(s => {
+            const ss = new Date(s.start).getTime();
+            const se = s.end ? new Date(s.end).getTime() : ss + 3600000;
+            return ss < slotEnd && se > t;
+          }).length;
+          coverageSlots.push({ t, count });
+        }
+        const maxCoverage = Math.max(1, ...coverageSlots.map(s => s.count));
+
+        const SVG_W = 1000, SVG_H = 100;
+        const pts = [`M 0 ${SVG_H}`];
+        coverageSlots.forEach(({ t, count }) => {
+          const x1 = ((t - rangeStart.getTime()) / totalMs * SVG_W).toFixed(1);
+          const x2 = ((t + SLOT_MS - rangeStart.getTime()) / totalMs * SVG_W).toFixed(1);
+          const y  = count === 0 ? SVG_H : (SVG_H - count / maxCoverage * 90).toFixed(1);
+          pts.push(`L ${x1} ${y} L ${x2} ${y}`);
+        });
+        pts.push(`L ${SVG_W} ${SVG_H} Z`);
+        const coverageSvgHtml = `<svg class="tl-cov-svg" viewBox="0 0 ${SVG_W} ${SVG_H}" preserveAspectRatio="none" aria-hidden="true">
+          <defs><linearGradient id="cov-grad-alpha" x1="0" y1="0" x2="0" y2="1">
+            <stop offset="0%" stop-color="rgb(107,114,128)" stop-opacity="0.22"/>
+            <stop offset="100%" stop-color="rgb(107,114,128)" stop-opacity="0.02"/>
+          </linearGradient></defs>
+          <path d="${pts.join(' ')}" fill="url(#cov-grad-alpha)"/>
+        </svg>`;
+
+        const covGroups = [];
+        coverageSlots.forEach(({ t, count }) => {
+          if (!covGroups.length || covGroups[covGroups.length - 1].count !== count) {
+            covGroups.push({ count, tStart: t, tEnd: t + SLOT_MS });
+          } else {
+            covGroups[covGroups.length - 1].tEnd = t + SLOT_MS;
+          }
+        });
+        const countLabelsHtml = covGroups.filter(g => g.count > 0).map(g => {
+          const leftPct = ((g.tStart + g.tEnd) / 2 - rangeStart.getTime()) / totalMs * 100;
+          const topPct  = (1 - g.count / maxCoverage * 0.9) * 100;
+          const isShort = g.count / maxCoverage < 0.4;
+          const cls = isShort ? ' tl-cov-n--above' : '';
+          return `<span class="tl-cov-n${cls}" style="left:${leftPct.toFixed(1)}%;top:${topPct.toFixed(1)}%">${g.count}</span>`;
+        }).join('');
+
+        const nowAttr = showNow ? ` class="tl-body has-now" style="--now-frac:${nowFrac.toFixed(4)}"` : ' class="tl-body"';
+        container.innerHTML = `
+          <div class="tl-wrap"><div class="tl-inner">
+            <div class="tl-header">
+              <div class="tl-name-col"></div>
+              <div class="tl-ticks" data-range-start="${rangeStart.getTime()}" data-total-ms="${totalMs}" data-coverage="${coverageSlots.map(s => s.count).join(',')}">
+                ${ticksHtml}
+                <div class="tl-ghost-label" aria-hidden="true"></div>
+              </div>
+            </div>
+            <div class="tl-coverage">
+              <div class="tl-cov-label-col">Coverage</div>
+              <div class="tl-cov-track">${coverageSvgHtml}${countLabelsHtml}</div>
+            </div>
+            <div${nowAttr}>${rowsHtml}</div>
+          </div></div>`;
+      }
+
       async function fetchIcs() {
         const res = await fetch(CONFIG.icsProxyUrl, { cache: 'no-store' });
         if (!res.ok) {
@@ -1313,6 +1454,7 @@
                                  .filter(s => shiftIsOnDay(s, currentDate));
 
           if (viewMode === 'timeline') renderTimeline(shifts);
+          else if (viewMode === 'alpha') renderAlphaTimeline(shifts);
           else renderRoster(shifts);
 
         } catch (err) {
@@ -1471,18 +1613,16 @@
       document.addEventListener('click', () => { if (dpOpen) closeDatePicker(); });
 
       // View toggle
-      document.getElementById('btn-grouped').addEventListener('click', () => {
-        viewMode = 'grouped';
-        document.getElementById('btn-grouped').classList.add('active');
-        document.getElementById('btn-timeline').classList.remove('active');
+      function setView(mode) {
+        viewMode = mode;
+        document.getElementById('btn-grouped').classList.toggle('active', mode === 'grouped');
+        document.getElementById('btn-timeline').classList.toggle('active', mode === 'timeline');
+        document.getElementById('btn-alpha').classList.toggle('active', mode === 'alpha');
         loadRoster();
-      });
-      document.getElementById('btn-timeline').addEventListener('click', () => {
-        viewMode = 'timeline';
-        document.getElementById('btn-timeline').classList.add('active');
-        document.getElementById('btn-grouped').classList.remove('active');
-        loadRoster();
-      });
+      }
+      document.getElementById('btn-grouped').addEventListener('click', () => setView('grouped'));
+      document.getElementById('btn-timeline').addEventListener('click', () => setView('timeline'));
+      document.getElementById('btn-alpha').addEventListener('click', () => setView('alpha'));
 
       // ── Ghost time-cursor line ──
       function hideGhostCursor() {
