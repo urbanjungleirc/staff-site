@@ -1,0 +1,9 @@
+# CI deployment backups — created automatically by deploy-production.yml
+# Use git history / version.json to roll back, not these folders
+hvt-backup-*/
+
+# CI test deployments — created automatically by deploy-pages.yml
+hvt-test-*/
+
+# Wrangler local cache — should never be committed
+.wrangler/
