@@ -436,9 +436,33 @@
       /* ── View toggle ── */
       .view-toggle {
         display: flex;
-        gap: 4px;
+        align-items: center;
+        justify-content: space-between;
+        gap: 8px;
         margin-bottom: 20px;
       }
+
+      .view-toggle-group {
+        display: flex;
+        gap: 4px;
+      }
+
+      .clock-in-btn {
+        padding: 7px 18px;
+        border-radius: 8px;
+        border: none;
+        background: var(--accent);
+        color: #fff;
+        font-weight: 700;
+        font-size: 0.85rem;
+        cursor: pointer;
+        font-family: inherit;
+        text-decoration: none;
+        transition: opacity 150ms ease;
+        white-space: nowrap;
+      }
+
+      .clock-in-btn:hover { opacity: 0.85; }
 
       .view-btn {
         padding: 7px 16px;
@@ -812,9 +836,12 @@
           <span class="refresh-info" id="refresh-info">Auto-refreshes every 30 min</span>
         </div>
         <div class="view-toggle">
-          <button class="view-btn" id="btn-grouped">Cards</button>
-          <button class="view-btn active" id="btn-timeline">Timeline by Role</button>
-          <button class="view-btn" id="btn-alpha">Timeline by Name</button>
+          <div class="view-toggle-group">
+            <button class="view-btn" id="btn-grouped">Cards</button>
+            <button class="view-btn active" id="btn-timeline">Timeline by Role</button>
+            <button class="view-btn" id="btn-alpha">Timeline by Name</button>
+          </div>
+          <a class="clock-in-btn" href="https://urbanjungle.au.deputy.com/exec/kiosk/web" target="_blank" rel="noopener">Clock In</a>
         </div>
         <div id="roster-content">
           <p class="status-msg">Loading roster…</p>
@@ -857,7 +884,7 @@
           'STAFF': 'FOH',
           'STRIPPING': 'SETTING',
           'WORK EXPERIENCE': 'FOH',
-          // 'JUNIOR': 'FOH',
+          'JUNIOR': 'FOH',
         },
       };
 
