@@ -823,15 +823,14 @@
       <div class="tl-tooltip" id="tl-tooltip" aria-hidden="true"></div>
     </main>
 
-    <footer>Urban Jungle Staff Hub &mdash; roster pulled from When I Work</footer>
+    <footer>Urban Jungle Staff Hub &mdash; roster pulled from Deputy</footer>
 
     <script>
       // ── Configuration ──
       const CONFIG = {
-        // Cloudflare Worker ICS proxy endpoint
-        icsProxyUrl: ['localhost', '127.0.0.1', ''].includes(window.location.hostname) || window.location.protocol === 'file:'
-          ? 'http://localhost:8787/api/ics'
-          : '/api/ics',
+        rosterUrl: ['localhost', '127.0.0.1', ''].includes(window.location.hostname) || window.location.protocol === 'file:'
+          ? 'http://localhost:8787/api/roster'
+          : '/api/roster',
 
         // How many days either side of today can you navigate?
         dayWindowDays: 7,
@@ -851,15 +850,14 @@
           ADMIN: 'Admin',
         },
 
-        // Map parsed role names → display group (case-insensitive match on raw role)
-        // e.g. a shift titled "... (Shift as Junior at UJ)" will appear under FOH
+        // Deputy area name (uppercased) → canonical group key.
+        // Areas whose uppercased name already matches a roleOrder key need no entry.
+        // Anything not listed falls into "Other" automatically.
         roleMap: {
-          'JUNIOR': 'FOH',
+          'STAFF': 'FOH',
           'STRIPPING': 'SETTING',
-          'HOLIDAY': 'ADMIN',
-          'PH': 'ADMIN',
-          'SHIFT SUPERVISOR': 'MOD',
           'WORK EXPERIENCE': 'FOH',
+          // 'JUNIOR': 'FOH',
         },
       };
 
@@ -874,10 +872,10 @@
         : `${refreshMins} min`;
       let viewMode = 'timeline'; // 'grouped' | 'timeline' | 'alpha'
 
-      // ── ICS cache (avoids re-fetching on every day change) ──
-      let icsCache = null;
-      let icsCachedAt = null;
-      let icsDateRange = { min: null, max: null };
+      // ── Roster cache (avoids re-fetching on every day change) ──
+      let rosterCache = null;
+      let rosterCachedAt = null;
+      let rosterDateRange = { min: null, max: null };
 
       // ── Inactivity reset ──
       const INACTIVITY_MS = 25 * 60 * 1000; // return to today after 25 min of no interaction
@@ -893,119 +891,19 @@
         }, INACTIVITY_MS);
       }
 
-      // ── ICS parser ──
-      // Parses an ICS text string and returns an array of plain event objects:
-      // { summary, startDate, endDate, allDay }
-      function parseIcs(text) {
-        // Unfold continuation lines (RFC 5545 §3.1)
-        const unfolded = text.replace(/\r\n[ \t]/g, '').replace(/\n[ \t]/g, '');
-        const lines = unfolded.split(/\r?\n/);
-
-        // Capture default timezone from X-WR-TIMEZONE if present
-        let calTz = null;
-        for (const line of lines) {
-          if (line.startsWith('X-WR-TIMEZONE:')) {
-            calTz = line.slice('X-WR-TIMEZONE:'.length).trim();
-            break;
-          }
-        }
-
-        const events = [];
-        let evt = null;
-
-        for (const line of lines) {
-          if (line === 'BEGIN:VEVENT') { evt = {}; continue; }
-          if (line === 'END:VEVENT') { if (evt) events.push(evt); evt = null; continue; }
-          if (!evt) continue;
-
-          // Split "PROPNAME;PARAMS:value"
-          const colon = line.indexOf(':');
-          if (colon === -1) continue;
-          const propFull = line.slice(0, colon);
-          const value = line.slice(colon + 1);
-
-          const semi = propFull.indexOf(';');
-          const propName = semi === -1 ? propFull : propFull.slice(0, semi);
-          const params = semi === -1 ? '' : propFull.slice(semi + 1);
-
-          const tzidMatch = params.match(/TZID=([^;]+)/);
-          const tzid = tzidMatch ? tzidMatch[1] : null;
-          const isDateValue = params.includes('VALUE=DATE');
-
-          if (propName === 'SUMMARY') {
-            evt.summary = value.replace(/\\,/g, ',').replace(/\\n/g, '\n').replace(/\\\\/g, '\\');
-          } else if (propName === 'DTSTART') {
-            evt.dtstart = { value, tzid: tzid || calTz, isDate: isDateValue || value.length === 8 };
-          } else if (propName === 'DTEND') {
-            evt.dtend = { value, tzid: tzid || calTz, isDate: isDateValue || value.length === 8 };
-          }
-        }
-
-        return events.map(e => {
-          if (!e.dtstart) return null;
-          const start = icsFieldToDate(e.dtstart);
-          const end = e.dtend ? icsFieldToDate(e.dtend) : null;
-          if (!start) return null;
-          return { summary: e.summary || '', startDate: start.date, endDate: end?.date || null, allDay: start.allDay };
-        }).filter(Boolean);
-      }
-
-      function icsFieldToDate({ value, tzid, isDate }) {
-        if (isDate) {
-          // DATE value: "20260318" — treat as start of that local day
-          const d = new Date(`${value.slice(0,4)}-${value.slice(4,6)}-${value.slice(6,8)}T00:00:00`);
-          return { allDay: true, date: d };
-        }
-
-        const isUtc = value.endsWith('Z');
-        const s = isUtc ? value.slice(0, -1) : value;
-        // s is like "20260318T090000"
-        const iso = `${s.slice(0,4)}-${s.slice(4,6)}-${s.slice(6,8)}T${s.slice(9,11)}:${s.slice(11,13)}:${s.slice(13,15)}`;
-
-        if (isUtc) return { allDay: false, date: new Date(iso + 'Z') };
-
-        if (tzid) {
-          // Convert "local time in tzid" to UTC via Intl offset trick
-          const approx = new Date(iso + 'Z'); // wrong sign, but close enough
-          const offset = getTzOffsetMs(tzid, approx);
-          return { allDay: false, date: new Date(approx.getTime() - offset) };
-        }
-
-        return { allDay: false, date: new Date(iso) };
-      }
-
-      function getTzOffsetMs(tzid, utcDate) {
-        // Returns (local_ms - utc_ms) for the given tzid at utcDate
-        try {
-          const fmt = new Intl.DateTimeFormat('en-CA', {
-            timeZone: tzid,
-            year: 'numeric', month: '2-digit', day: '2-digit',
-            hour: '2-digit', minute: '2-digit', second: '2-digit',
-            hour12: false,
-          });
-          const parts = fmt.formatToParts(utcDate);
-          const get = type => parts.find(p => p.type === type)?.value ?? '00';
-          const localIso = `${get('year')}-${get('month')}-${get('day')}T${get('hour')}:${get('minute')}:${get('second')}Z`;
-          return new Date(localIso).getTime() - utcDate.getTime();
-        } catch {
-          return 0;
-        }
-      }
-
       // ── Shift extraction ──
-      function parseShift(event) {
-        // Expected title: "Firstname Lastname (Shift as ROLE at UJ)"
-        const match = (event.summary || '').match(/^(.+?)\s*\(Shift as ([^)]+?) at UJ\)$/i);
-        if (!match) return null;
-
-        const name = match[1].trim();
-        const shiftLabel = match[2].trim();
-        const rawRole = shiftLabel.toUpperCase();
-        // Apply role mapping (e.g. JUNIOR → FOH)
+      function parseShift(s) {
+        if (!s.name || !s.role) return null;
+        const rawRole = s.role.toUpperCase();
         const role = CONFIG.roleMap[rawRole] || rawRole;
-        if (!event.startDate) return null;
-
-        return { name, role, shiftLabel, start: event.startDate, end: event.endDate, allDay: event.allDay };
+        return {
+          name: s.name,
+          role,
+          shiftLabel: s.role,
+          start: new Date(s.start * 1000),
+          end: s.end ? new Date(s.end * 1000) : null,
+          allDay: false,
+        };
       }
 
       // Returns true if the shift falls (even partially) on the given day
@@ -1419,21 +1317,21 @@
           </div></div>`;
       }
 
-      async function fetchIcs() {
-        const res = await fetch(CONFIG.icsProxyUrl, { cache: 'no-store' });
+      async function fetchRoster() {
+        const res = await fetch(CONFIG.rosterUrl, { cache: 'no-store' });
         if (!res.ok) {
           const body = await res.json().catch(() => ({}));
-          throw new Error(body?.error || `Proxy returned ${res.status}`);
+          throw new Error(body?.error || `API returned ${res.status}`);
         }
-        icsCache = parseIcs(await res.text());
-        icsCachedAt = Date.now();
-        if (icsCache.length) {
-          const dates = icsCache
-            .filter(e => e.startDate)
-            .map(e => { const d = new Date(e.startDate); d.setHours(0, 0, 0, 0); return d.getTime(); });
+        rosterCache = await res.json();
+        rosterCachedAt = Date.now();
+        if (rosterCache.length) {
+          const dates = rosterCache
+            .filter(s => s.start)
+            .map(s => { const d = new Date(s.start * 1000); d.setHours(0, 0, 0, 0); return d.getTime(); });
           const mn = new Date(Math.min(...dates)); mn.setHours(0, 0, 0, 0);
           const mx = new Date(Math.max(...dates)); mx.setHours(0, 0, 0, 0);
-          icsDateRange = { min: mn, max: mx };
+          rosterDateRange = { min: mn, max: mx };
         }
         document.getElementById('refresh-info').textContent =
           `Updated ${new Date().toLocaleTimeString('en-AU', { hour: 'numeric', minute: '2-digit', hour12: true })} · auto-refreshes every ${refreshLabel}`;
@@ -1442,16 +1340,15 @@
       async function loadRoster({ forceRefresh = false, showLoading = true } = {}) {
         const container = document.getElementById('roster-content');
 
-        // Show spinner only on very first load (no cache yet)
-        if (showLoading && !icsCache) {
+        if (showLoading && !rosterCache) {
           container.innerHTML = '<p class="status-msg">Loading shifts…</p>';
         }
 
         try {
-          if (forceRefresh || !icsCache) await fetchIcs();
+          if (forceRefresh || !rosterCache) await fetchRoster();
 
-          const shifts = icsCache.map(parseShift).filter(Boolean)
-                                 .filter(s => shiftIsOnDay(s, currentDate));
+          const shifts = rosterCache.map(parseShift).filter(Boolean)
+                                    .filter(s => shiftIsOnDay(s, currentDate));
 
           if (viewMode === 'timeline') renderTimeline(shifts);
           else if (viewMode === 'alpha') renderAlphaTimeline(shifts);
@@ -1459,8 +1356,7 @@
 
         } catch (err) {
           console.error('Roster error:', err);
-          // Only replace content with error if we have nothing to show
-          if (!icsCache) {
+          if (!rosterCache) {
             container.innerHTML = `<p class="status-msg">Could not load roster: ${escHtml(err.message)}</p>`;
           }
         }
@@ -1468,8 +1364,8 @@
 
       // ── Navigation ──
       function updateNav() {
-        const minDate = icsDateRange.min || (() => { const d = new Date(today); d.setDate(today.getDate() - CONFIG.dayWindowDays); return d; })();
-        const maxDate = icsDateRange.max || (() => { const d = new Date(today); d.setDate(today.getDate() + CONFIG.dayWindowDays); return d; })();
+        const minDate = rosterDateRange.min || (() => { const d = new Date(today); d.setDate(today.getDate() - CONFIG.dayWindowDays); return d; })();
+        const maxDate = rosterDateRange.max || (() => { const d = new Date(today); d.setDate(today.getDate() + CONFIG.dayWindowDays); return d; })();
         document.getElementById('day-label').textContent = formatDayLabel(currentDate);
         document.getElementById('btn-prev').disabled = currentDate <= minDate;
         document.getElementById('btn-next').disabled = currentDate >= maxDate;
@@ -1536,8 +1432,8 @@
       }
 
       function renderDpCalendar() {
-        const minDate = icsDateRange.min || (() => { const d = new Date(today); d.setDate(today.getDate() - CONFIG.dayWindowDays); return d; })();
-        const maxDate = icsDateRange.max || (() => { const d = new Date(today); d.setDate(today.getDate() + CONFIG.dayWindowDays); return d; })();
+        const minDate = rosterDateRange.min || (() => { const d = new Date(today); d.setDate(today.getDate() - CONFIG.dayWindowDays); return d; })();
+        const maxDate = rosterDateRange.max || (() => { const d = new Date(today); d.setDate(today.getDate() + CONFIG.dayWindowDays); return d; })();
 
         document.getElementById('dp-month-label').textContent =
           new Date(dpViewYear, dpViewMonth, 1).toLocaleDateString('en-AU', { month: 'long', year: 'numeric' });

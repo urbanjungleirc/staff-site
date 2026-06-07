@@ -49,6 +49,60 @@ export default {
         });
       }
 
+      if (url.pathname === "/api/roster") {
+        if (request.method !== "GET") {
+          return json({ error: "Method not allowed" }, 405, allowedOrigin, { Allow: "GET, OPTIONS" });
+        }
+        if (!env.DEPUTY_TOKEN || !env.DEPUTY_URL) {
+          return json({ error: "DEPUTY_TOKEN or DEPUTY_URL not configured" }, 500, allowedOrigin);
+        }
+
+        const nowMs = Date.now();
+        const pastDays  = parseInt(env.DEPUTY_WINDOW_PAST_DAYS   ?? "7",  10);
+        const futureDays = parseInt(env.DEPUTY_WINDOW_FUTURE_DAYS ?? "14", 10);
+        const fromTs = Math.floor((nowMs - pastDays   * 86400000) / 1000);
+        const toTs   = Math.floor((nowMs + futureDays * 86400000) / 1000);
+
+        const deputyRes = await fetch(`${env.DEPUTY_URL}/resource/Roster/QUERY`, {
+          method: "POST",
+          headers: {
+            Authorization: `Bearer ${env.DEPUTY_TOKEN}`,
+            "Content-Type": "application/json",
+            Accept: "application/json",
+          },
+          body: JSON.stringify({
+            search: {
+              s1: { field: "StartTime", type: "ge", data: fromTs },
+              s2: { field: "StartTime", type: "le", data: toTs  },
+            },
+          }),
+        });
+
+        if (!deputyRes.ok) {
+          const errText = await deputyRes.text().catch(() => "");
+          return json({ error: `Deputy error ${deputyRes.status}: ${errText}` }, 502, allowedOrigin);
+        }
+
+        const raw = await deputyRes.json();
+        const items = Array.isArray(raw) ? raw : Object.values(raw);
+
+        const shifts = items.flatMap(s => {
+          const name = s._DPMetaData?.EmployeeInfo?.DisplayName;
+          const role = s._DPMetaData?.OperationalUnitInfo?.OperationalUnitName;
+          if (!name || !role) return [];
+          return [{ name, role, start: s.StartTime, end: s.EndTime ?? null }];
+        });
+
+        return new Response(JSON.stringify(shifts), {
+          status: 200,
+          headers: {
+            ...corsHeaders(allowedOrigin),
+            "Content-Type": "application/json",
+            "Cache-Control": "max-age=120",
+          },
+        });
+      }
+
       if (url.pathname === "/api/tools.json") {
         if (!env.GITHUB_OWNER || !env.GITHUB_REPO || !env.GITHUB_BRANCH || !env.TOOLS_PATH) {
           return json({ error: "Worker not configured" }, 500, allowedOrigin);

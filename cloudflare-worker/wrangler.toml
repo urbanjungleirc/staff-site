@@ -26,7 +26,14 @@ ALLOWED_ORIGIN = "https://ujstaff.happyk.au"
 COMMITTER_NAME = "UJ Tools Editor"
 COMMITTER_EMAIL = "devnull+uj-tools@happyk.au"
 
+# Deputy API base URL (no trailing slash)
+DEPUTY_URL = "https://8fbf4e19073503.au.deputy.com/api/v1"
+
+# How many days before/after today to fetch from Deputy
+DEPUTY_WINDOW_PAST_DAYS = "7"
+DEPUTY_WINDOW_FUTURE_DAYS = "14"
+
 # Secrets (set via `wrangler secret put`):
 # - GITHUB_TOKEN: Fine-grained PAT with repo contents:read/write, or a GitHub App installation token
-# - ICS_URL: When I Work ICS subscription URL (Account → Calendar Sync → copy .ics link)
-#   Run: wrangler secret put ICS_URL
+# - DEPUTY_TOKEN: Deputy permanent API token (Settings → API → Permanent Tokens)
+#   Run: wrangler secret put DEPUTY_TOKEN
