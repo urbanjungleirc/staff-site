@@ -617,15 +617,15 @@
         position: absolute;
         top: 5px;
         height: calc(100% - 10px);
-        background: var(--accent-soft);
-        border: 1px solid rgba(139, 28, 35, 0.28);
+        background: color-mix(in srgb, var(--bar-color, var(--accent)) 14%, transparent);
+        border: 1px solid color-mix(in srgb, var(--bar-color, var(--accent)) 30%, transparent);
         border-radius: 6px;
         display: flex;
         align-items: center;
         padding: 0 7px;
         font-size: 0.73rem;
         font-weight: 600;
-        color: var(--accent);
+        color: var(--bar-color, var(--accent));
         overflow: hidden;
         white-space: nowrap;
         min-width: 4px;
@@ -638,9 +638,9 @@
 
       .tl-bar:hover {
         transform: scaleY(1.2);
-        box-shadow: 0 4px 14px -4px rgba(139, 28, 35, 0.22);
-        background: rgba(139, 28, 35, 0.2);
-        border-color: rgba(139, 28, 35, 0.5);
+        box-shadow: 0 4px 14px -4px color-mix(in srgb, var(--bar-color, var(--accent)) 22%, transparent);
+        background: color-mix(in srgb, var(--bar-color, var(--accent)) 22%, transparent);
+        border-color: color-mix(in srgb, var(--bar-color, var(--accent)) 55%, transparent);
         z-index: 4;
         overflow: visible;
       }
@@ -886,6 +886,14 @@
           'WORK EXPERIENCE': 'FOH',
           'JUNIOR': 'FOH',
         },
+
+        roleColors: {
+          'MOD': '#bf360c',
+          'FOH': '#f56a00',
+          'COACH': '#109e7a',
+          'SETTING': '#2962ff',
+          'ADMIN': '#374151',
+        },
       };
 
       // ── State ──
@@ -927,6 +935,7 @@
           name: s.name,
           role,
           shiftLabel: s.role,
+          shiftId: s.shiftId ?? null,
           start: new Date(s.start * 1000),
           end: s.end ? new Date(s.end * 1000) : null,
           allDay: false,
@@ -1111,13 +1120,14 @@
             const leftPct = Math.max(0, (start - rangeStart) / totalMs * 100);
             const widthPct = Math.max(0.3, Math.min(100 - leftPct, (end - start) / totalMs * 100));
             const active = isOnNow(shift);
+            const roleColor = CONFIG.roleColors[shift.role];
             return `
               <div class="tl-row">
                 <div class="tl-row-name">${escHtml(shift.name)}</div>
                 <div class="tl-track">
                   ${gridLinesHtml}
                   <div class="tl-bar${active ? ' on-now' : ''}"
-                       style="left:${leftPct.toFixed(2)}%;width:${widthPct.toFixed(2)}%"
+                       style="left:${leftPct.toFixed(2)}%;width:${widthPct.toFixed(2)}%${roleColor ? `;--bar-color:${roleColor}` : ''}"
                        data-name="${escHtml(shift.name)}" data-time="${escHtml(shiftTimeLabel(shift))}" data-role="${escHtml(shift.shiftLabel)}">
                     ${shiftTimeLabel(shift)}
                   </div>
@@ -1141,11 +1151,11 @@
         const coverageSlots = [];
         for (let t = rangeStart.getTime(); t < rangeEnd.getTime(); t += SLOT_MS) {
           const slotEnd = t + SLOT_MS;
-          const count = coverageShifts.filter(s => {
+          const count = new Set(coverageShifts.filter(s => {
             const ss = new Date(s.start).getTime();
             const se = s.end ? new Date(s.end).getTime() : ss + 3600000;
             return ss < slotEnd && se > t;
-          }).length;
+          }).map(s => s.name)).size;
           coverageSlots.push({ t, count });
         }
         const maxCoverage = Math.max(1, ...coverageSlots.map(s => s.count));
@@ -1265,8 +1275,9 @@
             const leftPct = Math.max(0, (start - rangeStart) / totalMs * 100);
             const widthPct = Math.max(0.3, Math.min(100 - leftPct, (end - start) / totalMs * 100));
             const active = isOnNow(shift);
+            const roleColor = CONFIG.roleColors[shift.role];
             return `<div class="tl-bar${active ? ' on-now' : ''}"
-                         style="left:${leftPct.toFixed(2)}%;width:${widthPct.toFixed(2)}%"
+                         style="left:${leftPct.toFixed(2)}%;width:${widthPct.toFixed(2)}%${roleColor ? `;--bar-color:${roleColor}` : ''}"
                          data-name="${escHtml(shift.name)}" data-time="${escHtml(shiftTimeLabel(shift))}" data-role="${escHtml(shift.shiftLabel)}">
                       ${escHtml(shift.shiftLabel)}
                     </div>`;
@@ -1284,11 +1295,11 @@
         const coverageSlots = [];
         for (let t = rangeStart.getTime(); t < rangeEnd.getTime(); t += SLOT_MS) {
           const slotEnd = t + SLOT_MS;
-          const count = coverageShifts.filter(s => {
+          const count = new Set(coverageShifts.filter(s => {
             const ss = new Date(s.start).getTime();
             const se = s.end ? new Date(s.end).getTime() : ss + 3600000;
             return ss < slotEnd && se > t;
-          }).length;
+          }).map(s => s.name)).size;
           coverageSlots.push({ t, count });
         }
         const maxCoverage = Math.max(1, ...coverageSlots.map(s => s.count));
