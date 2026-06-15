@@ -63,33 +63,71 @@ export default {
         const fromTs = Math.floor((nowMs - pastDays   * 86400000) / 1000);
         const toTs   = Math.floor((nowMs + futureDays * 86400000) / 1000);
 
-        const deputyRes = await fetch(`${env.DEPUTY_URL}/resource/Roster/QUERY`, {
-          method: "POST",
-          headers: {
-            Authorization: `Bearer ${env.DEPUTY_TOKEN}`,
-            "Content-Type": "application/json",
-            Accept: "application/json",
-          },
-          body: JSON.stringify({
-            search: {
-              s1: { field: "StartTime", type: "ge", data: fromTs },
-              s2: { field: "StartTime", type: "le", data: toTs  },
-            },
-          }),
-        });
+        const deputyHeaders = {
+          Authorization: `Bearer ${env.DEPUTY_TOKEN}`,
+          "Content-Type": "application/json",
+          Accept: "application/json",
+        };
+        const timeSearch = {
+          s1: { field: "StartTime", type: "ge", data: fromTs },
+          s2: { field: "StartTime", type: "le", data: toTs  },
+        };
 
-        if (!deputyRes.ok) {
-          const errText = await deputyRes.text().catch(() => "");
-          return json({ error: `Deputy error ${deputyRes.status}: ${errText}` }, 502, allowedOrigin);
+        // Fetch parent records and micro-schedule child records in parallel.
+        // Deputy's Roster/QUERY silently excludes records where ParentId != null,
+        // so children require a separate query filtered by ParentId > 0.
+        const [parentRes, childRes] = await Promise.all([
+          fetch(`${env.DEPUTY_URL}/resource/Roster/QUERY`, {
+            method: "POST",
+            headers: deputyHeaders,
+            body: JSON.stringify({ search: timeSearch }),
+          }),
+          fetch(`${env.DEPUTY_URL}/resource/Roster/QUERY`, {
+            method: "POST",
+            headers: deputyHeaders,
+            body: JSON.stringify({ search: { ...timeSearch, s3: { field: "ParentId", type: "gt", data: 0 } } }),
+          }),
+        ]);
+
+        if (!parentRes.ok) {
+          const errText = await parentRes.text().catch(() => "");
+          return json({ error: `Deputy error ${parentRes.status}: ${errText}` }, 502, allowedOrigin);
         }
 
-        const raw = await deputyRes.json();
-        const items = Array.isArray(raw) ? raw : Object.values(raw);
+        const rawParents = await parentRes.json();
+        const items = Array.isArray(rawParents) ? rawParents : Object.values(rawParents);
+
+        // Parse children; tolerate errors (child query may return empty or error)
+        const childrenByParent = {};
+        if (childRes.ok) {
+          try {
+            const rawChildren = await childRes.json();
+            const childItems = Array.isArray(rawChildren) ? rawChildren : [];
+            for (const child of childItems) {
+              if (!child.ParentId) continue;
+              if (!childrenByParent[child.ParentId]) childrenByParent[child.ParentId] = [];
+              childrenByParent[child.ParentId].push(child);
+            }
+            for (const pid of Object.keys(childrenByParent)) {
+              childrenByParent[pid].sort((a, b) => a.StartTime - b.StartTime);
+            }
+          } catch {}
+        }
 
         const shifts = items.flatMap(s => {
           const name = s._DPMetaData?.EmployeeInfo?.DisplayName;
+          if (!name) return [];
+          const children = childrenByParent[s.Id];
+          if (children && children.length > 0) {
+            // Micro-scheduled: replace parent with its child segments
+            return children.flatMap(child => {
+              const role = child._DPMetaData?.OperationalUnitInfo?.OperationalUnitName;
+              if (!role) return [];
+              return [{ name, role, start: child.StartTime, end: child.EndTime ?? null, shiftId: s.Id }];
+            });
+          }
           const role = s._DPMetaData?.OperationalUnitInfo?.OperationalUnitName;
-          if (!name || !role) return [];
+          if (!role) return [];
           return [{ name, role, start: s.StartTime, end: s.EndTime ?? null }];
         });
 
