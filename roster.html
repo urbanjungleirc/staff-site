@@ -1030,6 +1030,10 @@
               ${escHtml(label)}
             </div>`;
           });
+        items.push(`<div class="tl-legend-item">
+              <span class="tl-legend-swatch" style="background:color-mix(in srgb,#059669 14%,transparent);border:1px solid color-mix(in srgb,#059669 30%,transparent)"></span>
+              On now
+            </div>`);
         if (!items.length) return '';
         return `<div class="tl-legend">${items.join('')}</div>`;
       }
@@ -1088,7 +1092,7 @@
             </div>`;
         }).join('');
 
-        container.innerHTML = html + buildLegendHtml(shifts);
+        container.innerHTML = html;
       }
 
       // ── Timeline renderer ──
