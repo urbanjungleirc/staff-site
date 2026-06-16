@@ -191,8 +191,9 @@
       }
 
       .shift-card.on-now {
-        border-color: rgba(5, 150, 105, 0.3);
-        background: var(--on-now-soft);
+        border-color: rgba(5, 150, 105, 0.45);
+        background: var(--bg-alt);
+        box-shadow: 0 6px 18px -12px rgba(15, 23, 42, 0.45);
       }
 
       .shift-indicator {
@@ -646,15 +647,41 @@
       }
 
       .tl-bar.on-now {
-        background: var(--on-now-soft);
-        border-color: rgba(5, 150, 105, 0.3);
-        color: var(--on-now);
+        background: color-mix(in srgb, var(--bar-color, var(--accent)) 14%, transparent);
+        border-color: color-mix(in srgb, var(--bar-color, var(--accent)) 70%, transparent);
+        color: var(--bar-color, var(--accent));
+        box-shadow:
+          0 0 0 2px rgba(255, 255, 255, 0.95),
+          0 5px 16px -6px rgba(15, 23, 42, 0.35);
+        transform: translateY(-1px);
+        z-index: 5;
+        overflow: visible;
+      }
+
+      .tl-bar.on-now::after {
+        content: '\2713';
+        position: absolute;
+        right: -7px;
+        top: -7px;
+        width: 16px;
+        height: 16px;
+        border-radius: 999px;
+        background: var(--on-now);
+        color: #fff;
+        font-size: 11px;
+        font-weight: 800;
+        line-height: 16px;
+        text-align: center;
+        box-shadow: 0 2px 6px rgba(15, 23, 42, 0.25);
       }
 
       .tl-bar.on-now:hover {
-        background: rgba(5, 150, 105, 0.2);
-        border-color: rgba(5, 150, 105, 0.55);
-        box-shadow: 0 4px 14px -4px rgba(5, 150, 105, 0.22);
+        background: color-mix(in srgb, var(--bar-color, var(--accent)) 22%, transparent);
+        border-color: color-mix(in srgb, var(--bar-color, var(--accent)) 80%, transparent);
+        box-shadow:
+          0 0 0 2px rgba(255, 255, 255, 0.95),
+          0 6px 18px -6px rgba(15, 23, 42, 0.4);
+        transform: translateY(-1px) scaleY(1.2);
       }
 
       .tl-now-line {
@@ -821,6 +848,24 @@
         height: 14px;
         border-radius: 4px;
         flex-shrink: 0;
+      }
+
+      .tl-legend-swatch.on-now-marker {
+        position: relative;
+        border-radius: 999px;
+        background: var(--on-now);
+        box-shadow: 0 2px 6px rgba(15, 23, 42, 0.18);
+      }
+
+      .tl-legend-swatch.on-now-marker::after {
+        content: '\2713';
+        position: absolute;
+        inset: 0;
+        color: #fff;
+        font-size: 10px;
+        font-weight: 800;
+        line-height: 14px;
+        text-align: center;
       }
     </style>
   </head>
@@ -1031,7 +1076,7 @@
             </div>`;
           });
         items.push(`<div class="tl-legend-item">
-              <span class="tl-legend-swatch" style="background:color-mix(in srgb,#059669 14%,transparent);border:1px solid color-mix(in srgb,#059669 30%,transparent)"></span>
+              <span class="tl-legend-swatch on-now-marker"></span>
               On now
             </div>`);
         if (!items.length) return '';
