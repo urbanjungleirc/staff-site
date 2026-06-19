@@ -453,8 +453,13 @@
           </div>
 
           <div>
-            <label class="block text-[0.67rem] font-semibold text-neutral-400 uppercase tracking-wider mb-1.5">Email</label>
-            <input type="email" x-model="createEmail" placeholder="Optional"
+            <label class="block text-[0.67rem] font-semibold text-neutral-400 uppercase tracking-wider mb-1.5">
+              Email
+              <span x-show="createType && !voucherTypes.find(t => t.type_id === createType)?.is_physical"
+                class="text-rose-400 normal-case tracking-normal font-normal">*</span>
+            </label>
+            <input type="email" x-model="createEmail"
+              :placeholder="createType && !voucherTypes.find(t => t.type_id === createType)?.is_physical ? 'Required' : 'Optional'"
               class="w-full border border-neutral-200 rounded-xl px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-uj/20 focus:border-uj" />
           </div>
         </div>
@@ -1125,6 +1130,8 @@
         if (!this.createName.trim()) { this.createError = 'Customer name is required'; return; }
         if (!this.createType) { this.createError = 'Select a voucher type'; return; }
         if (!this.createItem && !this.createValue) { this.createError = 'Select an item or enter a value'; return; }
+        const selectedType = this.voucherTypes.find(t => t.type_id === this.createType);
+        if (selectedType && !selectedType.is_physical && !this.createEmail.trim()) { this.createError = 'Email is required for non-physical vouchers'; return; }
         this.createLoading = true;
         this.createError = '';
         try {
