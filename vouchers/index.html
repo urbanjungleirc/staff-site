@@ -354,7 +354,7 @@
           <div class="bg-white rounded-card hub-card border border-neutral-100 p-5 text-center sticky top-[72px]">
             <h3 class="text-[0.67rem] font-semibold text-neutral-400 uppercase tracking-widest mb-4">QR Code</h3>
             <div class="bg-neutral-50 rounded-xl p-3 flex justify-center mb-3 overflow-hidden">
-              <canvas id="qr-canvas" class="rounded block max-w-full"></canvas>
+              <img :src="qrDataUrl" x-show="qrDataUrl" class="rounded block max-w-full" width="164" height="164" alt="QR code">
             </div>
             <div class="font-mono text-[0.67rem] text-neutral-400 break-all leading-relaxed" x-text="voucher?.voucher_id"></div>
             <p class="text-xs text-neutral-400 mt-1.5">Scan to verify</p>
@@ -847,6 +847,8 @@
       redeemLoading: false,
       redeemError: '',
 
+      qrDataUrl: '',
+
       // Resend email modal
       resendOpen: false,
       resendEmailInput: '',
@@ -986,9 +988,10 @@
       },
 
       renderQr() {
-        const el = document.getElementById('qr-canvas');
-        if (!el || !this.voucher || typeof QRCode === 'undefined') return;
-        QRCode.toCanvas(el, this.voucher.voucher_id, { width: 164, margin: 1 }, () => {});
+        if (!this.voucher || typeof QRCode === 'undefined') return;
+        QRCode.toDataURL(this.voucher.voucher_id, { width: 164, margin: 1 }, (err, url) => {
+          if (!err) this.qrDataUrl = url;
+        });
       },
 
       // ── Redeem ───────────────────────────────────────────────────────────
