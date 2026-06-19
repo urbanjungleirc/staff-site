@@ -107,6 +107,38 @@ The `CONFIG.icsProxyUrl` auto-detects `localhost` and points to `http://localhos
 
 Any static file server (such as `python3 -m http.server` or `npx serve`) can be used to preview locally. Launch the server from the repository root so `index.html` and subdirectory assets are available at the expected paths.
 
+## Voucher Portal (`vouchers/`)
+
+The voucher management portal lives at `ujstaff.happyk.au/vouchers/`. It connects to the `uj-payments` Cloudflare Worker using a shared staff secret for API authentication.
+
+### First-time setup (per browser / per device)
+
+The portal uses a URL-hash seeding approach so staff never see a login screen. The secret is stored in `localStorage` after the first visit and never prompts again. the secret is: d60d61624f016b78e84c2caf04980e53
+
+**Step 1 — get the setup URL** (from the password manager entry "UJ Staff Voucher Secret"):
+
+```
+https://ujstaff.happyk.au/vouchers/#<STAFF_SHARED_SECRET>
+```
+
+**Step 2 — open that URL in the browser.** The page loads normally, stores the secret in `localStorage`, and strips the hash from the address bar automatically.
+
+**Step 3 — bookmark `https://ujstaff.happyk.au/vouchers/`** (without the hash) for everyday use.
+
+After step 2 the hash URL is no longer needed. If a device is reset or `localStorage` is cleared, repeat step 2.
+
+### Local development
+
+The `uj-payments` Worker allows any `localhost` or `127.0.0.1` origin so any port works locally. To test with a real secret, visit:
+
+```
+http://127.0.0.1:<port>/vouchers/#<STAFF_SHARED_SECRET>
+```
+
+The `STAFF_SHARED_SECRET` value is in the team password manager under "UJ Staff Voucher Secret".
+
+---
+
 ## Deployment
 
 Deploy the contents of this repository to your static hosting provider (e.g. GitHub Pages, Cloudflare Pages, or S3). Re-run your Cloudflare Zero Trust checks after deployment to confirm only authenticated staff can reach the hub.

@@ -1,4 +1,4 @@
-<!DOCTYPE html>
+﻿<!DOCTYPE html>
 <html lang="en">
 <head>
   <meta charset="UTF-8">
@@ -27,21 +27,262 @@
   <script src="https://unpkg.com/html5-qrcode@2.3.8/html5-qrcode.min.js"></script>
   <style>
     [x-cloak] { display: none !important; }
+    :root {
+      --uj: #8b1c23;
+      --border-soft: rgba(31, 41, 55, 0.08);
+    }
     /* Hub gradient — too complex for JIT */
     .hub-header {
       background:
         radial-gradient(circle at 20% -20%, rgba(171, 49, 57, 0.32), transparent 55%),
         linear-gradient(145deg, rgba(107, 24, 30, 0.95), rgba(139, 28, 35, 0.92));
     }
+    .voucher-panel {
+      background: #fff;
+      border: 1px solid var(--border-soft);
+      border-radius: 18px;
+      box-shadow: 0 12px 30px -24px rgba(15, 23, 42, 1);
+      padding: 28px 32px;
+    }
+    .icon-tile {
+      width: 42px;
+      height: 42px;
+      border-radius: 13px;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      flex-shrink: 0;
+      color: var(--uj);
+      background: linear-gradient(135deg, rgba(139, 28, 35, 0.08), rgba(139, 28, 35, 0.02));
+      border: 1px solid rgba(139, 28, 35, 0.16);
+      box-shadow: inset 0 0 0 1px rgba(255,255,255,0.75), 0 8px 20px -16px rgba(15, 23, 42, 0.5);
+    }
+    .icon-tile svg,
+    .nav-icon svg,
+    .stat-icon svg,
+    .section-icon svg,
+    .button-icon svg {
+      width: 1em;
+      height: 1em;
+      fill: none;
+      stroke: currentColor;
+      stroke-width: 1.8;
+      stroke-linecap: round;
+      stroke-linejoin: round;
+    }
+    .icon-tile svg { width: 21px; height: 21px; }
+    .icon-tile.success {
+      color: #047857;
+      background: rgba(5, 150, 105, 0.08);
+      border-color: rgba(5, 150, 105, 0.18);
+    }
+    .icon-tile.warning {
+      color: #b45309;
+      background: rgba(245, 158, 11, 0.09);
+      border-color: rgba(245, 158, 11, 0.22);
+    }
+    .header-icon {
+      width: 58px;
+      height: 58px;
+      border-radius: 18px;
+      color: rgba(255, 255, 255, 0.96);
+      background: rgba(255, 255, 255, 0.13);
+      border: 1px solid rgba(255, 255, 255, 0.26);
+      box-shadow: inset 0 0 0 1px rgba(255,255,255,0.12);
+    }
+    .header-icon svg { width: 28px; height: 28px; }
+    .nav-icon,
+    .button-icon {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      flex-shrink: 0;
+      font-size: 15px;
+    }
+    .stat-icon {
+      width: 30px;
+      height: 30px;
+      border-radius: 10px;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      color: var(--uj);
+      background: rgba(139, 28, 35, 0.08);
+      border: 1px solid rgba(139, 28, 35, 0.12);
+      font-size: 17px;
+    }
+    .stat-icon.success {
+      color: #047857;
+      background: rgba(5, 150, 105, 0.08);
+      border-color: rgba(5, 150, 105, 0.14);
+    }
+    .stat-icon.warning {
+      color: #b45309;
+      background: rgba(245, 158, 11, 0.09);
+      border-color: rgba(245, 158, 11, 0.18);
+    }
+    .section-icon {
+      width: 28px;
+      height: 28px;
+      border-radius: 10px;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      color: var(--uj);
+      background: rgba(139, 28, 35, 0.08);
+      border: 1px solid rgba(139, 28, 35, 0.12);
+      font-size: 16px;
+    }
+    .detail-grid > div { min-width: 0; }
+    .detail-grid dt {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+    }
+    .detail-grid dt::before {
+      content: none;
+    }
+    .detail-grid dt svg {
+      width: 13px;
+      height: 13px;
+      fill: none;
+      stroke: currentColor;
+      stroke-width: 1.9;
+      stroke-linecap: round;
+      stroke-linejoin: round;
+    }
+    .input-with-icon {
+      position: relative;
+      flex: 1 1 240px;
+      min-width: 200px;
+    }
+    .input-with-icon svg {
+      position: absolute;
+      left: 12px;
+      top: 50%;
+      transform: translateY(-50%);
+      width: 16px;
+      height: 16px;
+      color: #9ca3af;
+      pointer-events: none;
+      fill: none;
+      stroke: currentColor;
+      stroke-width: 1.9;
+      stroke-linecap: round;
+      stroke-linejoin: round;
+    }
+    .combo {
+      position: relative;
+    }
+    .combo-trigger {
+      width: 100%;
+      min-height: 40px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 12px;
+      padding: 0.5rem 0.75rem;
+      border-radius: 12px;
+      border: 1px solid rgba(31, 41, 55, 0.12);
+      background: #fff;
+      color: #1f2937;
+      font-size: 0.875rem;
+      line-height: 1.35;
+      text-align: left;
+      transition: border-color 150ms ease, box-shadow 150ms ease, background-color 150ms ease;
+    }
+    .combo-trigger:hover {
+      border-color: rgba(139, 28, 35, 0.32);
+      background: rgba(255, 255, 255, 0.94);
+    }
+    .combo-trigger:focus {
+      outline: none;
+      border-color: var(--uj);
+      box-shadow: 0 0 0 3px rgba(139, 28, 35, 0.14);
+    }
+    .combo-chevron {
+      width: 16px;
+      height: 16px;
+      flex-shrink: 0;
+      color: #6b7280;
+      fill: none;
+      stroke: currentColor;
+      stroke-width: 2;
+      stroke-linecap: round;
+      stroke-linejoin: round;
+      transition: transform 150ms ease;
+    }
+    .combo-trigger[aria-expanded="true"] .combo-chevron {
+      transform: rotate(180deg);
+    }
+    .combo-menu {
+      position: absolute;
+      z-index: 40;
+      left: 0;
+      right: 0;
+      top: calc(100% + 6px);
+      max-height: 220px;
+      overflow: auto;
+      padding: 6px;
+      border-radius: 14px;
+      border: 1px solid rgba(139, 28, 35, 0.14);
+      background: #fff;
+      box-shadow: 0 18px 36px -26px rgba(15, 23, 42, 0.75);
+    }
+    .combo-option {
+      width: 100%;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 10px;
+      border: 0;
+      border-radius: 10px;
+      padding: 8px 10px;
+      background: transparent;
+      color: #1f2937;
+      font-size: 0.875rem;
+      text-align: left;
+      cursor: pointer;
+    }
+    .combo-option:hover,
+    .combo-option.active {
+      background: rgba(139, 28, 35, 0.08);
+      color: var(--uj);
+    }
+    .combo-option.active {
+      font-weight: 700;
+    }
+    .empty-icon {
+      margin: 0 auto 12px;
+      opacity: 0.75;
+    }
     /* Accent-tinted stat card */
     .stat-card {
+      position: relative;
+      overflow: hidden;
       background: linear-gradient(135deg, rgba(139, 28, 35, 0.06), rgba(139, 28, 35, 0));
       border: 1px solid rgba(139, 28, 35, 0.12);
-      box-shadow: 0 10px 28px -24px rgba(139, 28, 35, 0.7);
+      box-shadow: none;
     }
     /* Hub card shadow */
     .hub-card {
-      box-shadow: 0 12px 30px -24px rgba(15, 23, 42, 0.85);
+      box-shadow: none;
+    }
+    .soft-surface {
+      background: linear-gradient(135deg, rgba(139, 28, 35, 0.035), rgba(139, 28, 35, 0));
+      border-color: rgba(139, 28, 35, 0.12);
+    }
+    @media (max-width: 720px) {
+      .voucher-panel {
+        padding: 20px 16px;
+        border-radius: 16px;
+      }
+      .header-icon {
+        width: 46px;
+        height: 46px;
+        border-radius: 15px;
+      }
+      .header-icon svg { width: 23px; height: 23px; }
     }
     ::-webkit-scrollbar { width: 6px; height: 6px; }
     ::-webkit-scrollbar-track { background: transparent; }
@@ -52,52 +293,63 @@
   x-data="staffApp()" x-init="init()" x-cloak>
 
   <!-- ── Header ──────────────────────────────────────────────────────────── -->
-  <header class="hub-header sticky top-0 z-30 text-white">
-    <div class="max-w-[1100px] mx-auto px-6 h-16 flex items-center justify-between gap-3">
+  <header class="hub-header text-white">
+    <div class="max-w-[1100px] mx-auto px-6 pt-10 pb-16 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-6">
 
       <!-- Page identity (Resend-style icon block) -->
-      <div class="flex items-center gap-3 shrink-0">
-        <div class="w-[38px] h-[38px] rounded-[9px] bg-white/[0.13] border border-white/20 flex items-center justify-center shrink-0">
-          <svg width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="rgba(255,255,255,0.92)" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round">
+      <div class="flex items-center gap-4 shrink-0">
+        <div class="header-icon flex items-center justify-center shrink-0">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
             <path d="M2 9a3 3 0 0 1 0 6v2a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2v-2a3 3 0 0 1 0-6V7a2 2 0 0 0-2-2H4a2 2 0 0 0-2 2v2z"/>
             <line x1="9" y1="9" x2="9" y2="15" stroke-dasharray="1.5 1.5"/>
           </svg>
         </div>
         <div>
-          <div class="text-[0.62rem] font-semibold uppercase tracking-[0.09em] text-white/60 leading-none mb-[3px]">Staff Portal</div>
-          <div class="text-[0.92rem] font-bold tracking-tight text-white leading-none">Vouchers</div>
+          <div class="text-[0.7rem] font-semibold uppercase tracking-[0.12em] text-white/65 leading-none mb-2">Staff Portal</div>
+          <h1 class="text-3xl sm:text-4xl font-bold tracking-tight text-white leading-none">Vouchers</h1>
+          <p class="text-sm text-white/75 mt-2">Search, create, redeem, and report on Urban Jungle vouchers.</p>
+          <span x-show="!secret"
+            class="inline-flex mt-3 text-[0.67rem] font-semibold bg-yellow-400 text-yellow-900 px-2.5 py-0.5 rounded-full tracking-wide">
+            Not configured - see README
+          </span>
         </div>
-        <span x-show="!secret"
-          class="text-[0.67rem] font-semibold bg-yellow-400 text-yellow-900 px-2.5 py-0.5 rounded-full tracking-wide ml-1">
-          Not configured — see README
-        </span>
       </div>
 
       <!-- Nav -->
-      <nav class="flex items-center gap-0.5">
+      <nav class="flex items-center gap-1.5 flex-wrap sm:justify-end">
         <button @click="view='search'; stopScannerIfActive()"
           :class="view==='search' ? 'bg-white/[0.16] text-white font-semibold' : 'text-white/70 hover:text-white hover:bg-white/10'"
-          class="px-3 py-1.5 rounded-lg text-[0.84rem] font-medium transition-all">Search & Redeem</button>
+          class="px-3 py-2 rounded-xl text-[0.84rem] font-medium transition-all inline-flex items-center gap-1.5">
+          <span class="nav-icon"><svg viewBox="0 0 24 24"><circle cx="11" cy="11" r="6.5"/><path d="m16 16 4 4"/></svg></span>
+          Search & Redeem
+        </button>
         <button @click="goCreate()"
           :class="view==='create' ? 'bg-white/[0.16] text-white font-semibold' : 'text-white/70 hover:text-white hover:bg-white/10'"
-          class="px-3 py-1.5 rounded-lg text-[0.84rem] font-medium transition-all">+ Create</button>
+          class="px-3 py-2 rounded-xl text-[0.84rem] font-medium transition-all inline-flex items-center gap-1.5">
+          <span class="nav-icon"><svg viewBox="0 0 24 24"><path d="M3.5 8.5a2 2 0 0 1 2-2h13a2 2 0 0 1 2 2v2.1a2.4 2.4 0 0 0 0 4.8v2.1a2 2 0 0 1-2 2h-13a2 2 0 0 1-2-2v-2.1a2.4 2.4 0 0 0 0-4.8V8.5z"/><path d="M12 9.25v5.5M9.25 12h5.5"/></svg></span>
+          Create
+        </button>
         <button @click="goReport()"
           :class="view==='report' ? 'bg-white/[0.16] text-white font-semibold' : 'text-white/70 hover:text-white hover:bg-white/10'"
-          class="px-3 py-1.5 rounded-lg text-[0.84rem] font-medium transition-all">Reports</button>
-        <button @click="goScan()"
-          :class="view==='scan' ? 'bg-white/[0.16] text-white' : 'text-white/70 hover:text-white hover:bg-white/10'"
-          class="px-2.5 py-1.5 rounded-lg transition-all flex items-center" title="Scan QR">
+          class="px-3 py-2 rounded-xl text-[0.84rem] font-medium transition-all inline-flex items-center gap-1.5">
+          <span class="nav-icon"><svg viewBox="0 0 24 24"><path d="M4.5 19.5h15"/><path d="M7 16v-5"/><path d="M12 16V6.5"/><path d="M17 16v-8"/></svg></span>
+          Reports
+        </button>
+        <button disabled
+          class="px-3 py-2 rounded-xl transition-all flex items-center gap-1.5 text-[0.84rem] font-medium text-white/35 cursor-not-allowed" title="Scan coming later">
           <svg width="15" height="15" fill="none" stroke="currentColor" stroke-width="1.9" viewBox="0 0 24 24">
             <path stroke-linecap="round" stroke-linejoin="round"
               d="M12 4v1m6 11h2m-6 0h-2v4m0-11v3m0 0h.01M12 12h4.01M16 20h4M4 12h4m12 0h.01M5 8h2a1 1 0 001-1V5a1 1 0 00-1-1H5a1 1 0 00-1 1v2a1 1 0 001 1zm12 0h2a1 1 0 001-1V5a1 1 0 00-1-1h-2a1 1 0 00-1 1v2a1 1 0 001 1zM5 20h2a1 1 0 001-1v-2a1 1 0 00-1-1H5a1 1 0 00-1 1v2a1 1 0 001 1z"/>
           </svg>
+          Scan
         </button>
       </nav>
 
     </div>
   </header>
 
-  <main class="max-w-[1100px] mx-auto w-full px-4 py-7">
+  <main class="max-w-[1100px] mx-auto w-full px-4 pb-8 -mt-10">
+    <div class="voucher-panel">
 
     <!-- ── Search ───────────────────────────────────────────────────────── -->
     <div x-show="view==='search'">
@@ -111,25 +363,30 @@
         </div>
         <div x-show="dashStats && !dashStatsLoading" class="grid grid-cols-2 sm:grid-cols-5 gap-3">
           <div class="stat-card rounded-[16px] p-4">
+            <div class="stat-icon mb-3"><svg viewBox="0 0 24 24"><path d="M3.5 8.5a2 2 0 0 1 2-2h13a2 2 0 0 1 2 2v2.1a2.4 2.4 0 0 0 0 4.8v2.1a2 2 0 0 1-2 2h-13a2 2 0 0 1-2-2v-2.1a2.4 2.4 0 0 0 0-4.8V8.5z"/><path d="M9 9.25v5.5"/></svg></div>
             <div class="text-2xl font-bold text-uj tabular-nums tracking-tight" x-text="dashStats?.active_count ?? 0"></div>
             <div class="text-[0.67rem] font-semibold text-neutral-400 uppercase tracking-wider mt-1">Active vouchers</div>
           </div>
           <div class="stat-card rounded-[16px] p-4">
+            <div class="stat-icon mb-3"><svg viewBox="0 0 24 24"><path d="M5 7.5h14a2 2 0 0 1 2 2v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-9.5a2 2 0 0 1 2-2h12"/><path d="M17 13h.01"/><path d="M12 9.5v7"/></svg></div>
             <div class="text-xl font-bold text-neutral-700 tabular-nums tracking-tight"
               x-text="'$' + Number(dashStats?.active_total_value ?? 0).toFixed(0)"></div>
             <div class="text-[0.67rem] font-semibold text-neutral-400 uppercase tracking-wider mt-1">Total active value</div>
           </div>
           <div class="stat-card rounded-[16px] p-4">
+            <div class="stat-icon warning mb-3"><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="7.5"/><path d="M12 7.75v4.5l2.75 1.65"/></svg></div>
             <div class="text-2xl font-bold tabular-nums tracking-tight"
               :class="(dashStats?.expiring_soon_count ?? 0) > 0 ? 'text-amber-500' : 'text-neutral-400'"
               x-text="dashStats?.expiring_soon_count ?? 0"></div>
             <div class="text-[0.67rem] font-semibold text-neutral-400 uppercase tracking-wider mt-1">Expiring in 30 days</div>
           </div>
           <div class="stat-card rounded-[16px] p-4">
+            <div class="stat-icon mb-3"><svg viewBox="0 0 24 24"><path d="M7 3.75v3"/><path d="M17 3.75v3"/><rect x="4" y="5.5" width="16" height="14" rx="2"/><path d="M4 10h16"/><path d="M12 13v4"/><path d="M10 15h4"/></svg></div>
             <div class="text-2xl font-bold text-neutral-700 tabular-nums tracking-tight" x-text="dashStats?.today_issued ?? 0"></div>
             <div class="text-[0.67rem] font-semibold text-neutral-400 uppercase tracking-wider mt-1">Issued today</div>
           </div>
           <div class="stat-card rounded-[16px] p-4">
+            <div class="stat-icon success mb-3"><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="7.5"/><path d="m8.75 12.25 2.1 2.1 4.6-4.85"/></svg></div>
             <div class="text-2xl font-bold text-emerald-600 tabular-nums tracking-tight" x-text="dashStats?.today_redeemed ?? 0"></div>
             <div class="text-[0.67rem] font-semibold text-neutral-400 uppercase tracking-wider mt-1">Redeemed today</div>
           </div>
@@ -139,14 +396,22 @@
       <form @submit.prevent="search()" class="flex gap-2 flex-wrap mb-5">
         <input type="search" x-model="q" placeholder="Name, email or voucher code…"
           class="flex-1 min-w-[200px] border border-neutral-200 rounded-xl px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-uj/20 focus:border-uj bg-white placeholder-neutral-400" />
-        <select x-model="statusFilter"
-          class="border border-neutral-200 rounded-xl px-2.5 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-uj/20 focus:border-uj bg-white text-neutral-700">
-          <option value="">All statuses</option>
-          <option value="active">Active</option>
-          <option value="redeemed">Redeemed</option>
-          <option value="expired">Expired</option>
-          <option value="cancelled">Cancelled</option>
-        </select>
+        <div class="combo min-w-[150px]" @click.outside="statusOpen = false" @keydown.escape.window="statusOpen = false">
+          <button type="button" @click="statusOpen = !statusOpen" :aria-expanded="statusOpen.toString()"
+            class="combo-trigger">
+            <span x-text="statusOptions.find(o => o.value === statusFilter)?.label || 'All statuses'"></span>
+            <svg class="combo-chevron" viewBox="0 0 24 24"><path d="m6 9 6 6 6-6"/></svg>
+          </button>
+          <div x-show="statusOpen" x-transition.origin.top x-cloak class="combo-menu">
+            <template x-for="option in statusOptions" :key="option.value">
+              <button type="button" @click="statusFilter = option.value; statusOpen = false"
+                :class="statusFilter === option.value ? 'active' : ''"
+                class="combo-option">
+                <span x-text="option.label"></span>
+              </button>
+            </template>
+          </div>
+        </div>
         <button type="submit"
           class="bg-uj hover:bg-uj-dark text-white px-4 py-2 rounded-xl text-sm font-semibold transition-colors">Search</button>
       </form>
@@ -169,6 +434,7 @@
 
       <div x-show="!searchLoading && !results.length && !searchError"
         class="text-center py-16 text-neutral-400 text-sm">
+        <div class="icon-tile empty-icon"><svg viewBox="0 0 24 24"><path d="M3.5 8.5a2 2 0 0 1 2-2h13a2 2 0 0 1 2 2v2.1a2.4 2.4 0 0 0 0 4.8v2.1a2 2 0 0 1-2 2h-13a2 2 0 0 1-2-2v-2.1a2.4 2.4 0 0 0 0-4.8V8.5z"/><path d="M9 9.25v5.5"/></svg></div>
         Enter a name, email, or voucher code and press Search.
       </div>
 
@@ -251,11 +517,12 @@
         <div class="md:col-span-2">
 
           <!-- Header card -->
-          <div class="bg-white rounded-card hub-card border border-neutral-100 overflow-hidden">
-            <div class="h-[3px] bg-uj"></div>
+          <div class="bg-white rounded-card hub-card soft-surface border border-neutral-100 overflow-hidden">
             <div class="p-5">
               <div class="flex flex-wrap items-start justify-between gap-4 mb-5">
-                <div>
+                <div class="flex items-start gap-3">
+                  <div class="icon-tile"><svg viewBox="0 0 24 24"><path d="M3.5 8.5a2 2 0 0 1 2-2h13a2 2 0 0 1 2 2v2.1a2.4 2.4 0 0 0 0 4.8v2.1a2 2 0 0 1-2 2h-13a2 2 0 0 1-2-2v-2.1a2.4 2.4 0 0 0 0-4.8V8.5z"/><path d="M9 9.25v5.5"/></svg></div>
+                  <div>
                   <div class="flex items-center gap-2 mb-2.5">
                     <span class="font-mono text-sm font-bold text-uj tracking-wide" x-text="voucher?.voucher_id"></span>
                     <button @click="navigator.clipboard.writeText(voucher.voucher_id); showToast('Copied!')"
@@ -273,6 +540,7 @@
                     <span x-show="voucher?.is_physical"
                       class="inline-flex items-center px-2 py-0.5 rounded-full text-[0.67rem] font-semibold uppercase tracking-wide bg-violet-50 text-violet-700 ring-1 ring-inset ring-violet-700/20">Physical</span>
                   </div>
+                  </div>
                 </div>
                 <div class="text-right">
                   <div class="text-3xl font-bold text-neutral-900 tracking-tight" x-text="fmtMoney(voucher?.balance)"></div>
@@ -280,7 +548,7 @@
                 </div>
               </div>
 
-              <dl class="grid grid-cols-2 gap-x-6 gap-y-3.5 text-sm pt-4 border-t border-neutral-100">
+              <dl class="detail-grid grid grid-cols-2 gap-x-6 gap-y-3.5 text-sm pt-4 border-t border-neutral-100">
                 <div><dt class="text-[0.62rem] font-semibold text-neutral-400 uppercase tracking-wider mb-1">Customer</dt><dd class="font-medium text-neutral-800" x-text="voucher?.customer_name || '—'"></dd></div>
                 <div><dt class="text-[0.62rem] font-semibold text-neutral-400 uppercase tracking-wider mb-1">Email</dt><dd class="text-neutral-700" x-text="voucher?.customer_email || '—'"></dd></div>
                 <div><dt class="text-[0.62rem] font-semibold text-neutral-400 uppercase tracking-wider mb-1">Phone</dt><dd class="text-neutral-700" x-text="voucher?.customer_phone || '—'"></dd></div>
@@ -311,15 +579,18 @@
             <h3 class="text-[0.67rem] font-semibold text-neutral-400 uppercase tracking-widest mb-3">Actions</h3>
             <div class="flex flex-wrap gap-2">
               <button x-show="voucher?.status === 'active'" @click="openRedeem()"
-                class="bg-uj hover:bg-uj-dark text-white px-4 py-2 rounded-xl text-sm font-semibold transition-colors">
+                class="bg-uj hover:bg-uj-dark text-white px-4 py-2 rounded-xl text-sm font-semibold transition-colors inline-flex items-center gap-1.5">
+                <span class="button-icon"><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="7.5"/><path d="m8.75 12.25 2.1 2.1 4.6-4.85"/></svg></span>
                 Redeem
               </button>
               <button x-show="voucher?.last_redeemed_amount" @click="undoRedemption()"
-                class="bg-white hover:bg-neutral-50 text-neutral-700 px-4 py-2 rounded-xl text-sm font-medium border border-neutral-200 hover:border-neutral-300 transition-colors">
+                class="bg-white hover:bg-neutral-50 text-neutral-700 px-4 py-2 rounded-xl text-sm font-medium border border-neutral-200 hover:border-neutral-300 transition-colors inline-flex items-center gap-1.5">
+                <span class="button-icon"><svg viewBox="0 0 24 24"><path d="M8 7.5H4.5V4"/><path d="M5 7.25a7.5 7.5 0 1 1 1.4 9.25"/></svg></span>
                 Undo Redemption
               </button>
               <button x-show="!voucher?.is_physical && voucher?.customer_email" @click="resendEmail()"
-                class="bg-white hover:bg-neutral-50 text-neutral-700 px-4 py-2 rounded-xl text-sm font-medium border border-neutral-200 hover:border-neutral-300 transition-colors">
+                class="bg-white hover:bg-neutral-50 text-neutral-700 px-4 py-2 rounded-xl text-sm font-medium border border-neutral-200 hover:border-neutral-300 transition-colors inline-flex items-center gap-1.5">
+                <span class="button-icon"><svg viewBox="0 0 24 24"><path d="M4.5 7.5h15v10h-15z"/><path d="m5 8 7 5.25L19 8"/><path d="M17.25 4.75v3.5"/><path d="M15.5 6.5h3.5"/></svg></span>
                 Resend Email
               </button>
             </div>
@@ -384,9 +655,9 @@
       <div class="grid grid-cols-1 md:grid-cols-3 gap-4 items-start">
 
         <!-- ① Voucher details -->
-        <div class="bg-white rounded-card hub-card border border-neutral-100 p-5 space-y-4">
+        <div class="bg-white rounded-card hub-card soft-surface border border-neutral-100 p-5 space-y-4">
           <div class="flex items-center gap-2.5 pb-3 border-b border-neutral-100">
-            <div class="w-5 h-5 rounded-full bg-uj/10 text-uj text-[0.6rem] font-bold flex items-center justify-center shrink-0">1</div>
+            <div class="section-icon"><svg viewBox="0 0 24 24"><path d="M3.5 8.5a2 2 0 0 1 2-2h13a2 2 0 0 1 2 2v2.1a2.4 2.4 0 0 0 0 4.8v2.1a2 2 0 0 1-2 2h-13a2 2 0 0 1-2-2v-2.1a2.4 2.4 0 0 0 0-4.8V8.5z"/><path d="M9 9.25v5.5"/></svg></div>
             <span class="text-xs font-semibold text-neutral-600 uppercase tracking-wider">Voucher details</span>
           </div>
 
@@ -394,24 +665,48 @@
             <label class="block text-[0.67rem] font-semibold text-neutral-400 uppercase tracking-wider mb-1.5">
               Type <span class="text-rose-400 normal-case tracking-normal font-normal">*</span>
             </label>
-            <select x-model="createType" @change="onCreateTypeChange()"
-              class="w-full border border-neutral-200 rounded-xl px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-uj/20 focus:border-uj bg-white text-neutral-800">
-              <option value="">Select type…</option>
-              <template x-for="t in voucherTypes" :key="t.type_id">
-                <option :value="t.type_id" x-text="t.display_name"></option>
-              </template>
-            </select>
+            <div class="combo" @click.outside="createTypeOpen = false" @keydown.escape.window="createTypeOpen = false">
+              <button type="button" @click="createTypeOpen = !createTypeOpen" :aria-expanded="createTypeOpen.toString()"
+                class="combo-trigger">
+                <span x-text="voucherTypes.find(t => t.type_id === createType)?.display_name || 'Select type…'"></span>
+                <svg class="combo-chevron" viewBox="0 0 24 24"><path d="m6 9 6 6 6-6"/></svg>
+              </button>
+              <div x-show="createTypeOpen" x-transition.origin.top x-cloak class="combo-menu">
+                <button type="button" @click="createType = ''; onCreateTypeChange(); createTypeOpen = false"
+                  :class="createType === '' ? 'active' : ''"
+                  class="combo-option">Select type…</button>
+                <template x-for="t in voucherTypes" :key="t.type_id">
+                  <button type="button" @click="createType = t.type_id; onCreateTypeChange(); createTypeOpen = false"
+                    :class="createType === t.type_id ? 'active' : ''"
+                    class="combo-option">
+                    <span x-text="t.display_name"></span>
+                  </button>
+                </template>
+              </div>
+            </div>
           </div>
 
           <div x-show="voucherItems.length > 0">
             <label class="block text-[0.67rem] font-semibold text-neutral-400 uppercase tracking-wider mb-1.5">Item</label>
-            <select x-model="createItem" @change="onCreateItemChange()"
-              class="w-full border border-neutral-200 rounded-xl px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-uj/20 focus:border-uj bg-white text-neutral-800">
-              <option value="">Custom amount…</option>
-              <template x-for="i in voucherItems" :key="i.id">
-                <option :value="i.id" x-text="i.name + ' — $' + Number(i.value).toFixed(2)"></option>
-              </template>
-            </select>
+            <div class="combo" @click.outside="createItemOpen = false" @keydown.escape.window="createItemOpen = false">
+              <button type="button" @click="createItemOpen = !createItemOpen" :aria-expanded="createItemOpen.toString()"
+                class="combo-trigger">
+                <span x-text="voucherItems.find(i => String(i.id) === String(createItem)) ? voucherItems.find(i => String(i.id) === String(createItem)).name + ' — $' + Number(voucherItems.find(i => String(i.id) === String(createItem)).value).toFixed(2) : 'Custom amount…'"></span>
+                <svg class="combo-chevron" viewBox="0 0 24 24"><path d="m6 9 6 6 6-6"/></svg>
+              </button>
+              <div x-show="createItemOpen" x-transition.origin.top x-cloak class="combo-menu">
+                <button type="button" @click="createItem = ''; onCreateItemChange(); createItemOpen = false"
+                  :class="createItem === '' ? 'active' : ''"
+                  class="combo-option">Custom amount…</button>
+                <template x-for="i in voucherItems" :key="i.id">
+                  <button type="button" @click="createItem = i.id; onCreateItemChange(); createItemOpen = false"
+                    :class="String(createItem) === String(i.id) ? 'active' : ''"
+                    class="combo-option">
+                    <span x-text="i.name + ' — $' + Number(i.value).toFixed(2)"></span>
+                  </button>
+                </template>
+              </div>
+            </div>
           </div>
 
           <div>
@@ -432,9 +727,9 @@
         </div>
 
         <!-- ② Customer info -->
-        <div class="bg-white rounded-card hub-card border border-neutral-100 p-5 space-y-4">
+        <div class="bg-white rounded-card hub-card soft-surface border border-neutral-100 p-5 space-y-4">
           <div class="flex items-center gap-2.5 pb-3 border-b border-neutral-100">
-            <div class="w-5 h-5 rounded-full bg-uj/10 text-uj text-[0.6rem] font-bold flex items-center justify-center shrink-0">2</div>
+            <div class="section-icon"><svg viewBox="0 0 24 24"><path d="M12 12a4 4 0 1 0 0-8 4 4 0 0 0 0 8z"/><path d="M4.5 20a7.5 7.5 0 0 1 15 0"/></svg></div>
             <span class="text-xs font-semibold text-neutral-600 uppercase tracking-wider">Customer</span>
           </div>
 
@@ -465,9 +760,9 @@
         </div>
 
         <!-- ③ Gift information -->
-        <div class="bg-white rounded-card hub-card border border-neutral-100 p-5 space-y-4">
+        <div class="bg-white rounded-card hub-card soft-surface border border-neutral-100 p-5 space-y-4">
           <div class="flex items-center gap-2.5 pb-3 border-b border-neutral-100">
-            <div class="w-5 h-5 rounded-full bg-uj/10 text-uj text-[0.6rem] font-bold flex items-center justify-center shrink-0">3</div>
+            <div class="section-icon"><svg viewBox="0 0 24 24"><path d="M20 12v7H4v-7"/><path d="M3 8h18v4H3z"/><path d="M12 8v11"/><path d="M12 8H8.5a2 2 0 1 1 2-2c0 1.5 1.5 2 1.5 2z"/><path d="M12 8h3.5a2 2 0 1 0-2-2c0 1.5-1.5 2-1.5 2z"/></svg></div>
             <span class="text-xs font-semibold text-neutral-600 uppercase tracking-wider">Gift details</span>
             <span class="text-[0.62rem] text-neutral-400 normal-case tracking-normal ml-auto">optional</span>
           </div>
@@ -505,7 +800,10 @@
     <!-- ── Reports ───────────────────────────────────────────────────────── -->
     <div x-show="view==='report'">
       <div class="flex flex-wrap items-center gap-3 mb-5">
-        <h2 class="text-base font-semibold text-neutral-800">Reports</h2>
+        <h2 class="text-base font-semibold text-neutral-800 inline-flex items-center gap-2">
+          <span class="section-icon"><svg viewBox="0 0 24 24"><path d="M4.5 19.5h15"/><path d="M7 16v-5"/><path d="M12 16V6.5"/><path d="M17 16v-8"/></svg></span>
+          Reports
+        </h2>
         <div class="flex bg-white border border-neutral-200 rounded-xl overflow-hidden hub-card">
           <button @click="reportTab='today'; loadReport()"
             :class="reportTab==='today' ? 'bg-uj text-white font-semibold' : 'text-neutral-600 hover:bg-neutral-50'"
@@ -528,19 +826,23 @@
           <!-- Stat cards — hub-style accent gradient -->
           <div class="grid grid-cols-2 sm:grid-cols-4 gap-3">
             <div class="stat-card rounded-[16px] p-5">
+              <div class="stat-icon mb-3"><svg viewBox="0 0 24 24"><path d="M3.5 8.5a2 2 0 0 1 2-2h13a2 2 0 0 1 2 2v2.1a2.4 2.4 0 0 0 0 4.8v2.1a2 2 0 0 1-2 2h-13a2 2 0 0 1-2-2v-2.1a2.4 2.4 0 0 0 0-4.8V8.5z"/><path d="M12 9.25v5.5M9.25 12h5.5"/></svg></div>
               <div class="text-2xl font-bold text-uj tabular-nums tracking-tight" x-text="report.issued.length"></div>
               <div class="text-[0.67rem] font-semibold text-neutral-400 uppercase tracking-wider mt-1.5">Issued</div>
             </div>
             <div class="stat-card rounded-[16px] p-5">
+              <div class="stat-icon mb-3"><svg viewBox="0 0 24 24"><path d="M5 7.5h14a2 2 0 0 1 2 2v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-9.5a2 2 0 0 1 2-2h12"/><path d="M17 13h.01"/><path d="M12 9.5v7"/></svg></div>
               <div class="text-xl font-bold text-neutral-700 tabular-nums tracking-tight"
                 x-text="'$'+report.issued.reduce((s,v)=>s+Number(v.value||0),0).toFixed(2)"></div>
               <div class="text-[0.67rem] font-semibold text-neutral-400 uppercase tracking-wider mt-1.5">Total issued</div>
             </div>
             <div class="stat-card rounded-[16px] p-5">
+              <div class="stat-icon success mb-3"><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="7.5"/><path d="m8.75 12.25 2.1 2.1 4.6-4.85"/></svg></div>
               <div class="text-2xl font-bold text-emerald-600 tabular-nums tracking-tight" x-text="report.redeemed.length"></div>
               <div class="text-[0.67rem] font-semibold text-neutral-400 uppercase tracking-wider mt-1.5">Redeemed</div>
             </div>
             <div class="stat-card rounded-[16px] p-5">
+              <div class="stat-icon success mb-3"><svg viewBox="0 0 24 24"><path d="M5 7.5h14a2 2 0 0 1 2 2v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-9.5a2 2 0 0 1 2-2h12"/><path d="M17 13h.01"/><path d="m9 13 2 2 4-4"/></svg></div>
               <div class="text-xl font-bold text-neutral-700 tabular-nums tracking-tight"
                 x-text="'$'+report.redeemed.reduce((s,v)=>s+Number(v.last_redeemed_amount||0),0).toFixed(2)"></div>
               <div class="text-[0.67rem] font-semibold text-neutral-400 uppercase tracking-wider mt-1.5">Total redeemed</div>
@@ -550,7 +852,10 @@
           <!-- Issued table -->
           <div x-show="report.issued.length > 0"
             class="bg-white rounded-card hub-card border border-neutral-100 overflow-hidden">
-            <div class="px-4 py-3 border-b border-neutral-100 text-sm font-semibold text-neutral-700">Vouchers issued</div>
+            <div class="px-4 py-3 border-b border-neutral-100 text-sm font-semibold text-neutral-700 inline-flex items-center gap-2 w-full">
+              <span class="section-icon"><svg viewBox="0 0 24 24"><path d="M3.5 8.5a2 2 0 0 1 2-2h13a2 2 0 0 1 2 2v2.1a2.4 2.4 0 0 0 0 4.8v2.1a2 2 0 0 1-2 2h-13a2 2 0 0 1-2-2v-2.1a2.4 2.4 0 0 0 0-4.8V8.5z"/><path d="M12 9.25v5.5M9.25 12h5.5"/></svg></span>
+              Vouchers issued
+            </div>
             <table class="w-full">
               <thead>
                 <tr class="bg-neutral-50/70 border-b border-neutral-100">
@@ -611,7 +916,10 @@
           <!-- Redeemed table -->
           <div x-show="report.redeemed.length > 0"
             class="bg-white rounded-card hub-card border border-neutral-100 overflow-hidden">
-            <div class="px-4 py-3 border-b border-neutral-100 text-sm font-semibold text-neutral-700">Vouchers redeemed</div>
+            <div class="px-4 py-3 border-b border-neutral-100 text-sm font-semibold text-neutral-700 inline-flex items-center gap-2 w-full">
+              <span class="section-icon"><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="7.5"/><path d="m8.75 12.25 2.1 2.1 4.6-4.85"/></svg></span>
+              Vouchers redeemed
+            </div>
             <table class="w-full">
               <thead>
                 <tr class="bg-neutral-50/70 border-b border-neutral-100">
@@ -696,6 +1004,7 @@
       </div>
     </div>
 
+    </div>
   </main>
 
   <!-- ── Redeem modal ──────────────────────────────────────────────────────── -->
@@ -824,6 +1133,14 @@
       // Search
       q: '',
       statusFilter: '',
+      statusOpen: false,
+      statusOptions: [
+        { value: '', label: 'All statuses' },
+        { value: 'active', label: 'Active' },
+        { value: 'redeemed', label: 'Redeemed' },
+        { value: 'expired', label: 'Expired' },
+        { value: 'cancelled', label: 'Cancelled' },
+      ],
       results: [],
       searchLoading: false,
       searchError: '',
@@ -854,6 +1171,8 @@
       voucherItems: [],
       createType: '',
       createItem: '',
+      createTypeOpen: false,
+      createItemOpen: false,
       createName: '',
       createPhone: '',
       createEmail: '',
