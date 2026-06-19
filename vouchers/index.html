@@ -1,0 +1,1333 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Staff Portal — UJ Vouchers</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script>
+    tailwind.config = {
+      theme: {
+        extend: {
+          colors: {
+            uj: { DEFAULT: '#8b1c23', dark: '#6b181e', light: '#ab2930' }
+          },
+          fontFamily: {
+            sans: ['"Inter"', '"Segoe UI"', 'system-ui', '-apple-system', 'sans-serif'],
+          },
+          borderRadius: {
+            card: '18px',
+          }
+        }
+      }
+    }
+  </script>
+  <script defer src="https://cdn.jsdelivr.net/npm/alpinejs@3.x.x/dist/cdn.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/qrcode@1.5.3/build/qrcode.min.js"></script>
+  <script src="https://unpkg.com/html5-qrcode@2.3.8/html5-qrcode.min.js"></script>
+  <style>
+    [x-cloak] { display: none !important; }
+    /* Hub gradient — too complex for JIT */
+    .hub-header {
+      background:
+        radial-gradient(circle at 20% -20%, rgba(171, 49, 57, 0.32), transparent 55%),
+        linear-gradient(145deg, rgba(107, 24, 30, 0.95), rgba(139, 28, 35, 0.92));
+    }
+    /* Accent-tinted stat card */
+    .stat-card {
+      background: linear-gradient(135deg, rgba(139, 28, 35, 0.06), rgba(139, 28, 35, 0));
+      border: 1px solid rgba(139, 28, 35, 0.12);
+      box-shadow: 0 10px 28px -24px rgba(139, 28, 35, 0.7);
+    }
+    /* Hub card shadow */
+    .hub-card {
+      box-shadow: 0 12px 30px -24px rgba(15, 23, 42, 0.85);
+    }
+    ::-webkit-scrollbar { width: 6px; height: 6px; }
+    ::-webkit-scrollbar-track { background: transparent; }
+    ::-webkit-scrollbar-thumb { background: rgba(139, 28, 35, 0.2); border-radius: 3px; }
+  </style>
+</head>
+<body class="bg-neutral-100 text-neutral-900 min-h-screen antialiased font-sans"
+  x-data="staffApp()" x-init="init()" x-cloak>
+
+  <!-- ── Header ──────────────────────────────────────────────────────────── -->
+  <header class="hub-header sticky top-0 z-30 text-white">
+    <div class="max-w-[1100px] mx-auto px-6 h-16 flex items-center justify-between gap-3">
+
+      <!-- Page identity (Resend-style icon block) -->
+      <div class="flex items-center gap-3 shrink-0">
+        <div class="w-[38px] h-[38px] rounded-[9px] bg-white/[0.13] border border-white/20 flex items-center justify-center shrink-0">
+          <svg width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="rgba(255,255,255,0.92)" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M2 9a3 3 0 0 1 0 6v2a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2v-2a3 3 0 0 1 0-6V7a2 2 0 0 0-2-2H4a2 2 0 0 0-2 2v2z"/>
+            <line x1="9" y1="9" x2="9" y2="15" stroke-dasharray="1.5 1.5"/>
+          </svg>
+        </div>
+        <div>
+          <div class="text-[0.62rem] font-semibold uppercase tracking-[0.09em] text-white/60 leading-none mb-[3px]">Staff Portal</div>
+          <div class="text-[0.92rem] font-bold tracking-tight text-white leading-none">Vouchers</div>
+        </div>
+        <span x-show="!secret"
+          class="text-[0.67rem] font-semibold bg-yellow-400 text-yellow-900 px-2.5 py-0.5 rounded-full tracking-wide ml-1">
+          Not configured — see README
+        </span>
+      </div>
+
+      <!-- Nav -->
+      <nav class="flex items-center gap-0.5">
+        <button @click="view='search'; stopScannerIfActive()"
+          :class="view==='search' ? 'bg-white/[0.16] text-white font-semibold' : 'text-white/70 hover:text-white hover:bg-white/10'"
+          class="px-3 py-1.5 rounded-lg text-[0.84rem] font-medium transition-all">Search & Redeem</button>
+        <button @click="goCreate()"
+          :class="view==='create' ? 'bg-white/[0.16] text-white font-semibold' : 'text-white/70 hover:text-white hover:bg-white/10'"
+          class="px-3 py-1.5 rounded-lg text-[0.84rem] font-medium transition-all">+ Create</button>
+        <button @click="goReport()"
+          :class="view==='report' ? 'bg-white/[0.16] text-white font-semibold' : 'text-white/70 hover:text-white hover:bg-white/10'"
+          class="px-3 py-1.5 rounded-lg text-[0.84rem] font-medium transition-all">Reports</button>
+        <button @click="goScan()"
+          :class="view==='scan' ? 'bg-white/[0.16] text-white' : 'text-white/70 hover:text-white hover:bg-white/10'"
+          class="px-2.5 py-1.5 rounded-lg transition-all flex items-center" title="Scan QR">
+          <svg width="15" height="15" fill="none" stroke="currentColor" stroke-width="1.9" viewBox="0 0 24 24">
+            <path stroke-linecap="round" stroke-linejoin="round"
+              d="M12 4v1m6 11h2m-6 0h-2v4m0-11v3m0 0h.01M12 12h4.01M16 20h4M4 12h4m12 0h.01M5 8h2a1 1 0 001-1V5a1 1 0 00-1-1H5a1 1 0 00-1 1v2a1 1 0 001 1zm12 0h2a1 1 0 001-1V5a1 1 0 00-1-1h-2a1 1 0 00-1 1v2a1 1 0 001 1zM5 20h2a1 1 0 001-1v-2a1 1 0 00-1-1H5a1 1 0 00-1 1v2a1 1 0 001 1z"/>
+          </svg>
+        </button>
+      </nav>
+
+    </div>
+  </header>
+
+  <main class="max-w-[1100px] mx-auto w-full px-4 py-7">
+
+    <!-- ── Search ───────────────────────────────────────────────────────── -->
+    <div x-show="view==='search'">
+
+      <!-- Summary stats -->
+      <div class="mb-5">
+        <div x-show="dashStatsLoading" class="grid grid-cols-2 sm:grid-cols-5 gap-3">
+          <template x-for="i in 5">
+            <div class="stat-card rounded-[16px] p-4 animate-pulse"><div class="h-7 w-10 bg-neutral-200/80 rounded mb-2"></div><div class="h-2.5 w-16 bg-neutral-100 rounded"></div></div>
+          </template>
+        </div>
+        <div x-show="dashStats && !dashStatsLoading" class="grid grid-cols-2 sm:grid-cols-5 gap-3">
+          <div class="stat-card rounded-[16px] p-4">
+            <div class="text-2xl font-bold text-uj tabular-nums tracking-tight" x-text="dashStats?.active_count ?? 0"></div>
+            <div class="text-[0.67rem] font-semibold text-neutral-400 uppercase tracking-wider mt-1">Active vouchers</div>
+          </div>
+          <div class="stat-card rounded-[16px] p-4">
+            <div class="text-xl font-bold text-neutral-700 tabular-nums tracking-tight"
+              x-text="'$' + Number(dashStats?.active_total_value ?? 0).toFixed(0)"></div>
+            <div class="text-[0.67rem] font-semibold text-neutral-400 uppercase tracking-wider mt-1">Total active value</div>
+          </div>
+          <div class="stat-card rounded-[16px] p-4">
+            <div class="text-2xl font-bold tabular-nums tracking-tight"
+              :class="(dashStats?.expiring_soon_count ?? 0) > 0 ? 'text-amber-500' : 'text-neutral-400'"
+              x-text="dashStats?.expiring_soon_count ?? 0"></div>
+            <div class="text-[0.67rem] font-semibold text-neutral-400 uppercase tracking-wider mt-1">Expiring in 30 days</div>
+          </div>
+          <div class="stat-card rounded-[16px] p-4">
+            <div class="text-2xl font-bold text-neutral-700 tabular-nums tracking-tight" x-text="dashStats?.today_issued ?? 0"></div>
+            <div class="text-[0.67rem] font-semibold text-neutral-400 uppercase tracking-wider mt-1">Issued today</div>
+          </div>
+          <div class="stat-card rounded-[16px] p-4">
+            <div class="text-2xl font-bold text-emerald-600 tabular-nums tracking-tight" x-text="dashStats?.today_redeemed ?? 0"></div>
+            <div class="text-[0.67rem] font-semibold text-neutral-400 uppercase tracking-wider mt-1">Redeemed today</div>
+          </div>
+        </div>
+      </div>
+
+      <form @submit.prevent="search()" class="flex gap-2 flex-wrap mb-5">
+        <input type="search" x-model="q" placeholder="Name, email or voucher code…"
+          class="flex-1 min-w-[200px] border border-neutral-200 rounded-xl px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-uj/20 focus:border-uj bg-white placeholder-neutral-400" />
+        <select x-model="statusFilter"
+          class="border border-neutral-200 rounded-xl px-2.5 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-uj/20 focus:border-uj bg-white text-neutral-700">
+          <option value="">All statuses</option>
+          <option value="active">Active</option>
+          <option value="redeemed">Redeemed</option>
+          <option value="expired">Expired</option>
+          <option value="cancelled">Cancelled</option>
+        </select>
+        <button type="submit"
+          class="bg-uj hover:bg-uj-dark text-white px-4 py-2 rounded-xl text-sm font-semibold transition-colors">Search</button>
+      </form>
+
+      <div x-show="results.length >= 100 && !searchLoading"
+        class="bg-amber-50 border border-amber-200 text-amber-800 rounded-xl px-3.5 py-2.5 text-sm mb-4 flex items-center gap-2">
+        <svg class="w-4 h-4 shrink-0 text-amber-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+          <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 9v2m0 4h.01M10.29 3.86L1.82 18a2 2 0 001.71 3h16.94a2 2 0 001.71-3L13.71 3.86a2 2 0 00-3.42 0z"/>
+        </svg>
+        Showing the first <strong x-text="results.length"></strong> results — there may be more.
+        Narrow your search by name, email, or voucher code to find a specific voucher.
+      </div>
+
+      <div x-show="searchError"
+        class="bg-rose-50 border border-rose-200 text-rose-700 rounded-xl p-3 text-sm mb-4"
+        x-text="searchError"></div>
+
+      <div x-show="searchLoading"
+        class="text-center py-16 text-neutral-400 text-sm">Searching…</div>
+
+      <div x-show="!searchLoading && !results.length && !searchError"
+        class="text-center py-16 text-neutral-400 text-sm">
+        Enter a name, email, or voucher code and press Search.
+      </div>
+
+      <div x-show="!searchLoading && results.length > 0"
+        class="bg-white rounded-card hub-card border border-neutral-100 overflow-hidden">
+        <table class="w-full">
+          <thead>
+            <tr class="border-b border-neutral-100 bg-neutral-50/70">
+              <th @click="sortSearch('voucher_id')" class="text-left px-4 py-3 text-[0.67rem] font-semibold text-neutral-400 uppercase tracking-wider cursor-pointer hover:text-neutral-600 select-none">
+                Code <span x-show="searchSort.col==='voucher_id'" x-text="searchSort.dir==='asc'?'↑':'↓'" class="text-uj"></span>
+              </th>
+              <th @click="sortSearch('customer_name')" class="text-left px-4 py-3 text-[0.67rem] font-semibold text-neutral-400 uppercase tracking-wider cursor-pointer hover:text-neutral-600 select-none hidden sm:table-cell">
+                Customer <span x-show="searchSort.col==='customer_name'" x-text="searchSort.dir==='asc'?'↑':'↓'" class="text-uj"></span>
+              </th>
+              <th @click="sortSearch('balance')" class="text-right px-4 py-3 text-[0.67rem] font-semibold text-neutral-400 uppercase tracking-wider cursor-pointer hover:text-neutral-600 select-none">
+                Balance <span x-show="searchSort.col==='balance'" x-text="searchSort.dir==='asc'?'↑':'↓'" class="text-uj"></span>
+              </th>
+              <th @click="sortSearch('status')" class="text-center px-4 py-3 text-[0.67rem] font-semibold text-neutral-400 uppercase tracking-wider cursor-pointer hover:text-neutral-600 select-none">
+                Status <span x-show="searchSort.col==='status'" x-text="searchSort.dir==='asc'?'↑':'↓'" class="text-uj"></span>
+              </th>
+              <th @click="sortSearch('issued_date')" class="text-left px-4 py-3 text-[0.67rem] font-semibold text-neutral-400 uppercase tracking-wider cursor-pointer hover:text-neutral-600 select-none hidden lg:table-cell">
+                Issued <span x-show="searchSort.col==='issued_date'" x-text="searchSort.dir==='asc'?'↑':'↓'" class="text-uj"></span>
+              </th>
+            </tr>
+          </thead>
+          <tbody class="divide-y divide-neutral-50">
+            <template x-for="v in pagedResults()" :key="v.voucher_id">
+              <tr @click="openVoucher(v.voucher_id)"
+                class="hover:bg-uj/[0.025] cursor-pointer transition-colors group">
+                <td class="px-4 py-3 font-mono text-xs font-bold text-uj" x-text="v.voucher_id"></td>
+                <td class="px-4 py-3 hidden sm:table-cell">
+                  <div class="text-sm font-medium text-neutral-800" x-text="v.customer_name || '—'"></div>
+                  <div class="text-neutral-400 text-xs mt-0.5" x-text="v.customer_email || ''"></div>
+                </td>
+                <td class="px-4 py-3 text-right text-sm font-semibold text-neutral-800" x-text="fmtMoney(v.balance)"></td>
+                <td class="px-4 py-3 text-center">
+                  <span :class="statusClass(v.status)"
+                    class="inline-flex items-center px-2 py-0.5 rounded-full text-[0.67rem] font-semibold uppercase tracking-wide ring-1 ring-inset"
+                    x-text="v.status"></span>
+                </td>
+                <td class="px-4 py-3 text-neutral-400 text-xs hidden lg:table-cell" x-text="fmtDate(v.issued_date)"></td>
+              </tr>
+            </template>
+          </tbody>
+        </table>
+        <div class="flex items-center justify-between px-4 py-2.5 border-t border-neutral-50 bg-neutral-50/50">
+          <span class="text-xs text-neutral-400">
+            Showing
+            <span class="font-medium text-neutral-600" x-text="Math.min((searchPage-1)*PAGE_SIZE+1, results.length)"></span>–<span class="font-medium text-neutral-600" x-text="Math.min(searchPage*PAGE_SIZE, results.length)"></span>
+            of <span class="font-medium text-neutral-600" x-text="results.length"></span>
+          </span>
+          <div class="flex items-center gap-1">
+            <button @click="searchPage = Math.max(1, searchPage-1)" :disabled="searchPage <= 1"
+              class="w-7 h-7 flex items-center justify-center rounded-lg text-sm text-neutral-500 hover:bg-neutral-100 disabled:opacity-30 disabled:cursor-not-allowed transition-colors">←</button>
+            <span class="text-xs text-neutral-500 px-1" x-text="'Page ' + searchPage + ' of ' + searchTotalPages()"></span>
+            <button @click="searchPage = Math.min(searchTotalPages(), searchPage+1)" :disabled="searchPage >= searchTotalPages()"
+              class="w-7 h-7 flex items-center justify-center rounded-lg text-sm text-neutral-500 hover:bg-neutral-100 disabled:opacity-30 disabled:cursor-not-allowed transition-colors">→</button>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- ── Detail ────────────────────────────────────────────────────────── -->
+    <div x-show="view==='detail'">
+      <button @click="view='search'"
+        class="flex items-center gap-1.5 text-sm text-neutral-500 hover:text-neutral-800 mb-5 transition-colors">
+        <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+          <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.75" d="M15 19l-7-7 7-7"/>
+        </svg>
+        Back to search
+      </button>
+
+      <div x-show="detailLoading" class="text-center py-16 text-neutral-400 text-sm">Loading voucher…</div>
+      <div x-show="detailError && !detailLoading"
+        class="bg-rose-50 border border-rose-200 text-rose-700 rounded-xl p-4 text-sm" x-text="detailError"></div>
+
+      <div x-show="voucher && !detailLoading" class="grid md:grid-cols-3 gap-4">
+
+        <!-- Left: info + actions + history -->
+        <div class="md:col-span-2 space-y-3">
+
+          <!-- Header card -->
+          <div class="bg-white rounded-card hub-card border border-neutral-100 overflow-hidden">
+            <div class="h-[3px] bg-uj"></div>
+            <div class="p-5">
+              <div class="flex flex-wrap items-start justify-between gap-4 mb-5">
+                <div>
+                  <div class="flex items-center gap-2 mb-2.5">
+                    <span class="font-mono text-sm font-bold text-uj tracking-wide" x-text="voucher?.voucher_id"></span>
+                    <button @click="navigator.clipboard.writeText(voucher.voucher_id); showToast('Copied!')"
+                      class="text-neutral-300 hover:text-neutral-500 transition-colors" title="Copy code">
+                      <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                          d="M8 16H6a2 2 0 01-2-2V6a2 2 0 012-2h8a2 2 0 012 2v2m-6 12h8a2 2 0 002-2v-8a2 2 0 00-2-2h-8a2 2 0 00-2 2v8a2 2 0 002 2z"/>
+                      </svg>
+                    </button>
+                  </div>
+                  <div class="flex items-center gap-2 flex-wrap">
+                    <span :class="statusClass(voucher?.status)"
+                      class="inline-flex items-center px-2 py-0.5 rounded-full text-[0.67rem] font-semibold uppercase tracking-wide ring-1 ring-inset"
+                      x-text="voucher?.status"></span>
+                    <span x-show="voucher?.is_physical"
+                      class="inline-flex items-center px-2 py-0.5 rounded-full text-[0.67rem] font-semibold uppercase tracking-wide bg-violet-50 text-violet-700 ring-1 ring-inset ring-violet-700/20">Physical</span>
+                  </div>
+                </div>
+                <div class="text-right">
+                  <div class="text-3xl font-bold text-neutral-900 tracking-tight" x-text="fmtMoney(voucher?.balance)"></div>
+                  <div class="text-xs text-neutral-400 mt-0.5">balance of <span class="text-neutral-600 font-medium" x-text="fmtMoney(voucher?.value)"></span></div>
+                </div>
+              </div>
+
+              <dl class="grid grid-cols-2 gap-x-6 gap-y-3.5 text-sm pt-4 border-t border-neutral-100">
+                <div><dt class="text-[0.62rem] font-semibold text-neutral-400 uppercase tracking-wider mb-1">Customer</dt><dd class="font-medium text-neutral-800" x-text="voucher?.customer_name || '—'"></dd></div>
+                <div><dt class="text-[0.62rem] font-semibold text-neutral-400 uppercase tracking-wider mb-1">Email</dt><dd class="text-neutral-700" x-text="voucher?.customer_email || '—'"></dd></div>
+                <div><dt class="text-[0.62rem] font-semibold text-neutral-400 uppercase tracking-wider mb-1">Phone</dt><dd class="text-neutral-700" x-text="voucher?.customer_phone || '—'"></dd></div>
+                <div><dt class="text-[0.62rem] font-semibold text-neutral-400 uppercase tracking-wider mb-1">Type</dt><dd class="text-neutral-700" x-text="voucher?.voucher_type_id || '—'"></dd></div>
+                <div><dt class="text-[0.62rem] font-semibold text-neutral-400 uppercase tracking-wider mb-1">Issued</dt><dd class="text-neutral-700" x-text="fmtDate(voucher?.issued_date)"></dd></div>
+                <div><dt class="text-[0.62rem] font-semibold text-neutral-400 uppercase tracking-wider mb-1">Expires</dt><dd class="text-neutral-700" x-text="fmtDate(voucher?.expiry_date)"></dd></div>
+                <div x-show="voucher?.last_redeemed_date"><dt class="text-[0.62rem] font-semibold text-neutral-400 uppercase tracking-wider mb-1">Last redeemed</dt><dd class="text-neutral-700" x-text="fmtDateTime(voucher?.last_redeemed_date)"></dd></div>
+                <div x-show="voucher?.last_redeemed_by"><dt class="text-[0.62rem] font-semibold text-neutral-400 uppercase tracking-wider mb-1">Redeemed by</dt><dd class="text-neutral-700" x-text="voucher?.last_redeemed_by"></dd></div>
+                <div x-show="voucher?.clubworx_receipt"><dt class="text-[0.62rem] font-semibold text-neutral-400 uppercase tracking-wider mb-1">Clubworx receipt</dt><dd class="text-neutral-700" x-text="voucher?.clubworx_receipt"></dd></div>
+                <div x-show="voucher?.payment_reference"><dt class="text-[0.62rem] font-semibold text-neutral-400 uppercase tracking-wider mb-1">Payment ref</dt><dd class="text-xs break-all text-neutral-500 font-mono" x-text="voucher?.payment_reference"></dd></div>
+                <div x-show="voucher?.payment_platform"><dt class="text-[0.62rem] font-semibold text-neutral-400 uppercase tracking-wider mb-1">Platform</dt><dd class="capitalize text-neutral-700" x-text="voucher?.payment_platform"></dd></div>
+                <div x-show="voucher?.purchase_source"><dt class="text-[0.62rem] font-semibold text-neutral-400 uppercase tracking-wider mb-1">Source</dt><dd class="capitalize text-neutral-700" x-text="voucher?.purchase_source"></dd></div>
+                <div x-show="voucher?.reason" class="col-span-2"><dt class="text-[0.62rem] font-semibold text-neutral-400 uppercase tracking-wider mb-1">Reason</dt><dd class="text-neutral-700" x-text="voucher?.reason"></dd></div>
+                <div x-show="voucher?.gift_from" class="col-span-2"><dt class="text-[0.62rem] font-semibold text-neutral-400 uppercase tracking-wider mb-1">Gift from → to</dt><dd class="text-neutral-700" x-text="(voucher?.gift_from || '') + (voucher?.gift_to ? ' → ' + voucher.gift_to : '')"></dd></div>
+                <div x-show="voucher?.gift_message" class="col-span-2"><dt class="text-[0.62rem] font-semibold text-neutral-400 uppercase tracking-wider mb-1">Gift message</dt><dd class="italic text-neutral-600" x-text="voucher?.gift_message"></dd></div>
+                <div x-show="voucher?.redemption_notes" class="col-span-2"><dt class="text-[0.62rem] font-semibold text-neutral-400 uppercase tracking-wider mb-1">Redemption notes</dt><dd class="text-neutral-700" x-text="voucher?.redemption_notes"></dd></div>
+              </dl>
+            </div>
+          </div>
+
+          <!-- Actions -->
+          <div class="bg-white rounded-card hub-card border border-neutral-100 p-5">
+            <h3 class="text-[0.67rem] font-semibold text-neutral-400 uppercase tracking-widest mb-3">Actions</h3>
+            <div class="flex flex-wrap gap-2">
+              <button x-show="voucher?.status === 'active'" @click="openRedeem()"
+                class="bg-uj hover:bg-uj-dark text-white px-4 py-2 rounded-xl text-sm font-semibold transition-colors">
+                Redeem
+              </button>
+              <button x-show="voucher?.last_redeemed_amount" @click="undoRedemption()"
+                class="bg-white hover:bg-neutral-50 text-neutral-700 px-4 py-2 rounded-xl text-sm font-medium border border-neutral-200 hover:border-neutral-300 transition-colors">
+                Undo Redemption
+              </button>
+              <button x-show="!voucher?.is_physical && voucher?.customer_email" @click="resendEmail()"
+                class="bg-white hover:bg-neutral-50 text-neutral-700 px-4 py-2 rounded-xl text-sm font-medium border border-neutral-200 hover:border-neutral-300 transition-colors">
+                Resend Email
+              </button>
+            </div>
+            <p x-show="!voucher?.customer_email && !voucher?.is_physical"
+              class="text-xs text-neutral-400 mt-3">No email address on file — cannot resend.</p>
+          </div>
+
+          <!-- History -->
+          <div x-show="voucher?._history?.length"
+            class="bg-white rounded-card hub-card border border-neutral-100 p-5">
+            <h3 class="text-[0.67rem] font-semibold text-neutral-400 uppercase tracking-widest mb-3">Audit history</h3>
+            <div class="divide-y divide-neutral-50">
+              <template x-for="entry in (voucher?._history || [])" :key="entry.id">
+                <div class="flex gap-3 py-2.5 text-sm">
+                  <div class="text-neutral-400 text-xs w-36 shrink-0 pt-0.5 tabular-nums" x-text="fmtDateTime(entry.timestamp)"></div>
+                  <div>
+                    <span class="font-medium text-neutral-700" x-text="entry.action.replace(/_/g,' ')"></span>
+                    <span class="text-neutral-400 text-xs" x-text="entry.user_id ? ' · ' + entry.user_id : ''"></span>
+                    <span x-show="entry.data?.amount" class="text-neutral-400 text-xs"
+                      x-text="' · $' + Number(entry.data?.amount||0).toFixed(2)"></span>
+                    <span x-show="entry.data?.clubworx_receipt" class="text-neutral-400 text-xs"
+                      x-text="' · ' + entry.data?.clubworx_receipt"></span>
+                    <span x-show="entry.action === 'resend_email'" class="text-neutral-400 text-xs"
+                      x-text="entry.data?.to ? ' → ' + entry.data.to : ''"></span>
+                    <span x-show="entry.action === 'resend_email' && entry.data?.overridden"
+                      class="text-amber-500 text-xs ml-1">(override)</span>
+                  </div>
+                </div>
+              </template>
+            </div>
+          </div>
+
+        </div>
+
+        <!-- Right: QR -->
+        <div class="md:col-span-1">
+          <div class="bg-white rounded-card hub-card border border-neutral-100 p-5 text-center sticky top-[72px]">
+            <h3 class="text-[0.67rem] font-semibold text-neutral-400 uppercase tracking-widest mb-4">QR Code</h3>
+            <div class="bg-neutral-50 rounded-xl p-3 flex justify-center mb-3 overflow-hidden">
+              <canvas id="qr-canvas" class="rounded block max-w-full"></canvas>
+            </div>
+            <div class="font-mono text-[0.67rem] text-neutral-400 break-all leading-relaxed" x-text="voucher?.voucher_id"></div>
+            <p class="text-xs text-neutral-400 mt-1.5">Scan to verify</p>
+          </div>
+        </div>
+
+      </div>
+    </div>
+
+    <!-- ── Create physical voucher ───────────────────────────────────────── -->
+    <div x-show="view==='create'">
+      <h2 class="text-base font-semibold text-neutral-800 mb-5">Create Voucher</h2>
+
+      <!-- Success banner -->
+      <div x-show="createdVoucher" class="bg-emerald-50 border border-emerald-200 rounded-card p-5 mb-4">
+        <div class="flex items-center gap-2 mb-2.5">
+          <svg class="w-4 h-4 text-emerald-600 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"/>
+          </svg>
+          <span class="text-sm font-semibold text-emerald-800">Voucher created</span>
+        </div>
+        <div class="text-sm text-emerald-700 grid grid-cols-2 sm:grid-cols-4 gap-x-6 gap-y-1">
+          <div><span class="font-medium">Code:</span> <span class="font-mono ml-1" x-text="createdVoucher?.voucher_id"></span></div>
+          <div><span class="font-medium">Customer:</span> <span class="ml-1" x-text="createdVoucher?.customer_name"></span></div>
+          <div><span class="font-medium">Value:</span> <span class="ml-1" x-text="fmtMoney(createdVoucher?.value)"></span></div>
+          <div><span class="font-medium">Expires:</span> <span class="ml-1" x-text="fmtDate(createdVoucher?.expiry_date)"></span></div>
+        </div>
+        <button @click="openVoucher(createdVoucher.voucher_id)"
+          class="mt-3 text-sm text-emerald-800 underline hover:no-underline">View full details →</button>
+      </div>
+
+      <!-- Error banner -->
+      <div x-show="createError"
+        class="bg-rose-50 border border-rose-200 text-rose-700 rounded-xl p-3 text-sm mb-4"
+        x-text="createError"></div>
+
+      <!-- 3-column form grid -->
+      <div class="grid grid-cols-1 md:grid-cols-3 gap-4 items-start">
+
+        <!-- ① Voucher details -->
+        <div class="bg-white rounded-card hub-card border border-neutral-100 p-5 space-y-4">
+          <div class="flex items-center gap-2.5 pb-3 border-b border-neutral-100">
+            <div class="w-5 h-5 rounded-full bg-uj/10 text-uj text-[0.6rem] font-bold flex items-center justify-center shrink-0">1</div>
+            <span class="text-xs font-semibold text-neutral-600 uppercase tracking-wider">Voucher details</span>
+          </div>
+
+          <div>
+            <label class="block text-[0.67rem] font-semibold text-neutral-400 uppercase tracking-wider mb-1.5">
+              Type <span class="text-rose-400 normal-case tracking-normal font-normal">*</span>
+            </label>
+            <select x-model="createType" @change="onCreateTypeChange()"
+              class="w-full border border-neutral-200 rounded-xl px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-uj/20 focus:border-uj bg-white text-neutral-800">
+              <option value="">Select type…</option>
+              <template x-for="t in voucherTypes" :key="t.type_id">
+                <option :value="t.type_id" x-text="t.display_name"></option>
+              </template>
+            </select>
+          </div>
+
+          <div x-show="voucherItems.length > 0">
+            <label class="block text-[0.67rem] font-semibold text-neutral-400 uppercase tracking-wider mb-1.5">Item</label>
+            <select x-model="createItem" @change="onCreateItemChange()"
+              class="w-full border border-neutral-200 rounded-xl px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-uj/20 focus:border-uj bg-white text-neutral-800">
+              <option value="">Custom amount…</option>
+              <template x-for="i in voucherItems" :key="i.id">
+                <option :value="i.id" x-text="i.name + ' — $' + Number(i.value).toFixed(2)"></option>
+              </template>
+            </select>
+          </div>
+
+          <div>
+            <label class="block text-[0.67rem] font-semibold text-neutral-400 uppercase tracking-wider mb-1.5">
+              Value ($) <span class="text-rose-400 normal-case tracking-normal font-normal">*</span>
+            </label>
+            <input type="number" step="0.01" min="0.01" x-model="createValue" placeholder="0.00"
+              class="w-full border border-neutral-200 rounded-xl px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-uj/20 focus:border-uj" />
+          </div>
+
+          <div>
+            <label class="block text-[0.67rem] font-semibold text-neutral-400 uppercase tracking-wider mb-1.5">
+              Reason <span class="normal-case tracking-normal font-normal text-neutral-400">(internal)</span>
+            </label>
+            <input type="text" x-model="createReason" placeholder="e.g. Staff comp, Competition prize"
+              class="w-full border border-neutral-200 rounded-xl px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-uj/20 focus:border-uj" />
+          </div>
+        </div>
+
+        <!-- ② Customer info -->
+        <div class="bg-white rounded-card hub-card border border-neutral-100 p-5 space-y-4">
+          <div class="flex items-center gap-2.5 pb-3 border-b border-neutral-100">
+            <div class="w-5 h-5 rounded-full bg-uj/10 text-uj text-[0.6rem] font-bold flex items-center justify-center shrink-0">2</div>
+            <span class="text-xs font-semibold text-neutral-600 uppercase tracking-wider">Customer</span>
+          </div>
+
+          <div>
+            <label class="block text-[0.67rem] font-semibold text-neutral-400 uppercase tracking-wider mb-1.5">
+              Name <span class="text-rose-400 normal-case tracking-normal font-normal">*</span>
+            </label>
+            <input type="text" x-model="createName" placeholder="Full name"
+              class="w-full border border-neutral-200 rounded-xl px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-uj/20 focus:border-uj" />
+          </div>
+
+          <div>
+            <label class="block text-[0.67rem] font-semibold text-neutral-400 uppercase tracking-wider mb-1.5">Phone</label>
+            <input type="tel" x-model="createPhone" placeholder="Optional"
+              class="w-full border border-neutral-200 rounded-xl px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-uj/20 focus:border-uj" />
+          </div>
+
+          <div>
+            <label class="block text-[0.67rem] font-semibold text-neutral-400 uppercase tracking-wider mb-1.5">Email</label>
+            <input type="email" x-model="createEmail" placeholder="Optional"
+              class="w-full border border-neutral-200 rounded-xl px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-uj/20 focus:border-uj" />
+          </div>
+        </div>
+
+        <!-- ③ Gift information -->
+        <div class="bg-white rounded-card hub-card border border-neutral-100 p-5 space-y-4">
+          <div class="flex items-center gap-2.5 pb-3 border-b border-neutral-100">
+            <div class="w-5 h-5 rounded-full bg-uj/10 text-uj text-[0.6rem] font-bold flex items-center justify-center shrink-0">3</div>
+            <span class="text-xs font-semibold text-neutral-600 uppercase tracking-wider">Gift details</span>
+            <span class="text-[0.62rem] text-neutral-400 normal-case tracking-normal ml-auto">optional</span>
+          </div>
+
+          <div>
+            <label class="block text-[0.67rem] font-semibold text-neutral-400 uppercase tracking-wider mb-1.5">From</label>
+            <input type="text" x-model="createGiftFrom" placeholder="Sender name"
+              class="w-full border border-neutral-200 rounded-xl px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-uj/20 focus:border-uj" />
+          </div>
+
+          <div>
+            <label class="block text-[0.67rem] font-semibold text-neutral-400 uppercase tracking-wider mb-1.5">To</label>
+            <input type="text" x-model="createGiftTo" placeholder="Recipient name"
+              class="w-full border border-neutral-200 rounded-xl px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-uj/20 focus:border-uj" />
+          </div>
+
+          <div>
+            <label class="block text-[0.67rem] font-semibold text-neutral-400 uppercase tracking-wider mb-1.5">Message</label>
+            <textarea x-model="createGiftMessage" placeholder="Personal message for the recipient" rows="3"
+              class="w-full border border-neutral-200 rounded-xl px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-uj/20 focus:border-uj resize-none"></textarea>
+          </div>
+        </div>
+
+      </div>
+
+      <!-- Submit -->
+      <div class="mt-4">
+        <button @click="submitCreate()" :disabled="createLoading"
+          class="bg-uj hover:bg-uj-dark disabled:opacity-50 text-white font-semibold rounded-xl px-8 py-2.5 text-sm transition-colors">
+          <span x-text="createLoading ? 'Creating…' : 'Create voucher'"></span>
+        </button>
+      </div>
+    </div>
+
+    <!-- ── Reports ───────────────────────────────────────────────────────── -->
+    <div x-show="view==='report'">
+      <div class="flex flex-wrap items-center gap-3 mb-5">
+        <h2 class="text-base font-semibold text-neutral-800">Reports</h2>
+        <div class="flex bg-white border border-neutral-200 rounded-xl overflow-hidden hub-card">
+          <button @click="reportTab='today'; loadReport()"
+            :class="reportTab==='today' ? 'bg-uj text-white font-semibold' : 'text-neutral-600 hover:bg-neutral-50'"
+            class="px-3.5 py-1.5 text-[0.84rem] font-medium transition-colors">Today</button>
+          <button @click="reportTab='week'; loadReport()"
+            :class="reportTab==='week' ? 'bg-uj text-white font-semibold' : 'text-neutral-600 hover:bg-neutral-50'"
+            class="px-3.5 py-1.5 text-[0.84rem] font-medium border-l border-neutral-200 transition-colors">This week</button>
+          <button @click="reportTab='month'; loadReport()"
+            :class="reportTab==='month' ? 'bg-uj text-white font-semibold' : 'text-neutral-600 hover:bg-neutral-50'"
+            class="px-3.5 py-1.5 text-[0.84rem] font-medium border-l border-neutral-200 transition-colors">This month</button>
+        </div>
+      </div>
+
+      <div x-show="reportLoading" class="text-center py-16 text-neutral-400 text-sm">Loading report…</div>
+      <div x-show="reportError && !reportLoading"
+        class="bg-rose-50 border border-rose-200 text-rose-700 rounded-xl p-4 text-sm" x-text="reportError"></div>
+
+      <template x-if="report && !reportLoading">
+        <div class="space-y-4">
+          <!-- Stat cards — hub-style accent gradient -->
+          <div class="grid grid-cols-2 sm:grid-cols-4 gap-3">
+            <div class="stat-card rounded-[16px] p-5">
+              <div class="text-2xl font-bold text-uj tabular-nums tracking-tight" x-text="report.issued.length"></div>
+              <div class="text-[0.67rem] font-semibold text-neutral-400 uppercase tracking-wider mt-1.5">Issued</div>
+            </div>
+            <div class="stat-card rounded-[16px] p-5">
+              <div class="text-xl font-bold text-neutral-700 tabular-nums tracking-tight"
+                x-text="'$'+report.issued.reduce((s,v)=>s+Number(v.value||0),0).toFixed(2)"></div>
+              <div class="text-[0.67rem] font-semibold text-neutral-400 uppercase tracking-wider mt-1.5">Total issued</div>
+            </div>
+            <div class="stat-card rounded-[16px] p-5">
+              <div class="text-2xl font-bold text-emerald-600 tabular-nums tracking-tight" x-text="report.redeemed.length"></div>
+              <div class="text-[0.67rem] font-semibold text-neutral-400 uppercase tracking-wider mt-1.5">Redeemed</div>
+            </div>
+            <div class="stat-card rounded-[16px] p-5">
+              <div class="text-xl font-bold text-neutral-700 tabular-nums tracking-tight"
+                x-text="'$'+report.redeemed.reduce((s,v)=>s+Number(v.last_redeemed_amount||0),0).toFixed(2)"></div>
+              <div class="text-[0.67rem] font-semibold text-neutral-400 uppercase tracking-wider mt-1.5">Total redeemed</div>
+            </div>
+          </div>
+
+          <!-- Issued table -->
+          <div x-show="report.issued.length > 0"
+            class="bg-white rounded-card hub-card border border-neutral-100 overflow-hidden">
+            <div class="px-4 py-3 border-b border-neutral-100 text-sm font-semibold text-neutral-700">Vouchers issued</div>
+            <table class="w-full">
+              <thead>
+                <tr class="bg-neutral-50/70 border-b border-neutral-100">
+                  <th @click="sortReportIssued('voucher_id')" class="text-left px-4 py-2.5 text-[0.67rem] font-semibold text-neutral-400 uppercase tracking-wider cursor-pointer hover:text-neutral-600 select-none">
+                    Code <span x-show="reportIssuedSort.col==='voucher_id'" x-text="reportIssuedSort.dir==='asc'?'↑':'↓'" class="text-uj"></span>
+                  </th>
+                  <th @click="sortReportIssued('customer_name')" class="text-left px-4 py-2.5 text-[0.67rem] font-semibold text-neutral-400 uppercase tracking-wider cursor-pointer hover:text-neutral-600 select-none hidden sm:table-cell">
+                    Customer <span x-show="reportIssuedSort.col==='customer_name'" x-text="reportIssuedSort.dir==='asc'?'↑':'↓'" class="text-uj"></span>
+                  </th>
+                  <th @click="sortReportIssued('value')" class="text-right px-4 py-2.5 text-[0.67rem] font-semibold text-neutral-400 uppercase tracking-wider cursor-pointer hover:text-neutral-600 select-none">
+                    Value <span x-show="reportIssuedSort.col==='value'" x-text="reportIssuedSort.dir==='asc'?'↑':'↓'" class="text-uj"></span>
+                  </th>
+                  <th @click="sortReportIssued('status')" class="text-center px-4 py-2.5 text-[0.67rem] font-semibold text-neutral-400 uppercase tracking-wider cursor-pointer hover:text-neutral-600 select-none">
+                    Status <span x-show="reportIssuedSort.col==='status'" x-text="reportIssuedSort.dir==='asc'?'↑':'↓'" class="text-uj"></span>
+                  </th>
+                  <th @click="sortReportIssued('issued_date')" class="text-left px-4 py-2.5 text-[0.67rem] font-semibold text-neutral-400 uppercase tracking-wider cursor-pointer hover:text-neutral-600 select-none hidden md:table-cell">
+                    Time <span x-show="reportIssuedSort.col==='issued_date'" x-text="reportIssuedSort.dir==='asc'?'↑':'↓'" class="text-uj"></span>
+                  </th>
+                </tr>
+              </thead>
+              <tbody class="divide-y divide-neutral-50">
+                <template x-for="v in pagedReportIssued()" :key="v.voucher_id">
+                  <tr @click="openVoucher(v.voucher_id)" class="hover:bg-uj/[0.025] cursor-pointer transition-colors">
+                    <td class="px-4 py-3 font-mono text-xs font-bold text-uj" x-text="v.voucher_id"></td>
+                    <td class="px-4 py-3 hidden sm:table-cell">
+                      <div class="text-sm text-neutral-800" x-text="v.customer_name||'—'"></div>
+                      <div class="text-xs text-neutral-400" x-text="v.customer_email||''"></div>
+                    </td>
+                    <td class="px-4 py-3 text-right text-sm font-semibold text-neutral-800" x-text="fmtMoney(v.value)"></td>
+                    <td class="px-4 py-3 text-center">
+                      <span :class="statusClass(v.status)"
+                        class="inline-flex items-center px-2 py-0.5 rounded-full text-[0.67rem] font-semibold uppercase tracking-wide ring-1 ring-inset"
+                        x-text="v.status"></span>
+                    </td>
+                    <td class="px-4 py-3 text-xs text-neutral-400 tabular-nums hidden md:table-cell" x-text="fmtDateTime(v.issued_date)"></td>
+                  </tr>
+                </template>
+              </tbody>
+            </table>
+            <div class="flex items-center justify-between px-4 py-2.5 border-t border-neutral-50 bg-neutral-50/50">
+              <span class="text-xs text-neutral-400">
+                Showing
+                <span class="font-medium text-neutral-600" x-text="Math.min((reportIssuedPage-1)*PAGE_SIZE+1, report.issued.length)"></span>–<span class="font-medium text-neutral-600" x-text="Math.min(reportIssuedPage*PAGE_SIZE, report.issued.length)"></span>
+                of <span class="font-medium text-neutral-600" x-text="report.issued.length"></span>
+              </span>
+              <div class="flex items-center gap-1">
+                <button @click="reportIssuedPage = Math.max(1, reportIssuedPage-1)" :disabled="reportIssuedPage <= 1"
+                  class="w-7 h-7 flex items-center justify-center rounded-lg text-sm text-neutral-500 hover:bg-neutral-100 disabled:opacity-30 disabled:cursor-not-allowed transition-colors">←</button>
+                <span class="text-xs text-neutral-500 px-1" x-text="'Page ' + reportIssuedPage + ' of ' + reportIssuedTotalPages()"></span>
+                <button @click="reportIssuedPage = Math.min(reportIssuedTotalPages(), reportIssuedPage+1)" :disabled="reportIssuedPage >= reportIssuedTotalPages()"
+                  class="w-7 h-7 flex items-center justify-center rounded-lg text-sm text-neutral-500 hover:bg-neutral-100 disabled:opacity-30 disabled:cursor-not-allowed transition-colors">→</button>
+              </div>
+            </div>
+          </div>
+          <div x-show="!report.issued.length"
+            class="text-sm text-neutral-400 text-center py-4">No vouchers issued in this period.</div>
+
+          <!-- Redeemed table -->
+          <div x-show="report.redeemed.length > 0"
+            class="bg-white rounded-card hub-card border border-neutral-100 overflow-hidden">
+            <div class="px-4 py-3 border-b border-neutral-100 text-sm font-semibold text-neutral-700">Vouchers redeemed</div>
+            <table class="w-full">
+              <thead>
+                <tr class="bg-neutral-50/70 border-b border-neutral-100">
+                  <th @click="sortReportRedeemed('voucher_id')" class="text-left px-4 py-2.5 text-[0.67rem] font-semibold text-neutral-400 uppercase tracking-wider cursor-pointer hover:text-neutral-600 select-none">
+                    Code <span x-show="reportRedeemedSort.col==='voucher_id'" x-text="reportRedeemedSort.dir==='asc'?'↑':'↓'" class="text-uj"></span>
+                  </th>
+                  <th @click="sortReportRedeemed('customer_name')" class="text-left px-4 py-2.5 text-[0.67rem] font-semibold text-neutral-400 uppercase tracking-wider cursor-pointer hover:text-neutral-600 select-none hidden sm:table-cell">
+                    Customer <span x-show="reportRedeemedSort.col==='customer_name'" x-text="reportRedeemedSort.dir==='asc'?'↑':'↓'" class="text-uj"></span>
+                  </th>
+                  <th @click="sortReportRedeemed('last_redeemed_amount')" class="text-right px-4 py-2.5 text-[0.67rem] font-semibold text-neutral-400 uppercase tracking-wider cursor-pointer hover:text-neutral-600 select-none">
+                    Amount <span x-show="reportRedeemedSort.col==='last_redeemed_amount'" x-text="reportRedeemedSort.dir==='asc'?'↑':'↓'" class="text-uj"></span>
+                  </th>
+                  <th @click="sortReportRedeemed('balance')" class="text-right px-4 py-2.5 text-[0.67rem] font-semibold text-neutral-400 uppercase tracking-wider cursor-pointer hover:text-neutral-600 select-none">
+                    Remaining <span x-show="reportRedeemedSort.col==='balance'" x-text="reportRedeemedSort.dir==='asc'?'↑':'↓'" class="text-uj"></span>
+                  </th>
+                  <th @click="sortReportRedeemed('last_redeemed_date')" class="text-left px-4 py-2.5 text-[0.67rem] font-semibold text-neutral-400 uppercase tracking-wider cursor-pointer hover:text-neutral-600 select-none hidden md:table-cell">
+                    Time <span x-show="reportRedeemedSort.col==='last_redeemed_date'" x-text="reportRedeemedSort.dir==='asc'?'↑':'↓'" class="text-uj"></span>
+                  </th>
+                </tr>
+              </thead>
+              <tbody class="divide-y divide-neutral-50">
+                <template x-for="v in pagedReportRedeemed()" :key="v.voucher_id">
+                  <tr @click="openVoucher(v.voucher_id)" class="hover:bg-uj/[0.025] cursor-pointer transition-colors">
+                    <td class="px-4 py-3 font-mono text-xs font-bold text-uj" x-text="v.voucher_id"></td>
+                    <td class="px-4 py-3 hidden sm:table-cell text-sm text-neutral-700" x-text="v.customer_name||'—'"></td>
+                    <td class="px-4 py-3 text-right text-sm font-semibold text-emerald-700 tabular-nums" x-text="fmtMoney(v.last_redeemed_amount)"></td>
+                    <td class="px-4 py-3 text-right text-sm text-neutral-600 tabular-nums" x-text="fmtMoney(v.balance)"></td>
+                    <td class="px-4 py-3 text-xs text-neutral-400 tabular-nums hidden md:table-cell" x-text="fmtDateTime(v.last_redeemed_date)"></td>
+                  </tr>
+                </template>
+              </tbody>
+            </table>
+            <div class="flex items-center justify-between px-4 py-2.5 border-t border-neutral-50 bg-neutral-50/50">
+              <span class="text-xs text-neutral-400">
+                Showing
+                <span class="font-medium text-neutral-600" x-text="Math.min((reportRedeemedPage-1)*PAGE_SIZE+1, report.redeemed.length)"></span>–<span class="font-medium text-neutral-600" x-text="Math.min(reportRedeemedPage*PAGE_SIZE, report.redeemed.length)"></span>
+                of <span class="font-medium text-neutral-600" x-text="report.redeemed.length"></span>
+              </span>
+              <div class="flex items-center gap-1">
+                <button @click="reportRedeemedPage = Math.max(1, reportRedeemedPage-1)" :disabled="reportRedeemedPage <= 1"
+                  class="w-7 h-7 flex items-center justify-center rounded-lg text-sm text-neutral-500 hover:bg-neutral-100 disabled:opacity-30 disabled:cursor-not-allowed transition-colors">←</button>
+                <span class="text-xs text-neutral-500 px-1" x-text="'Page ' + reportRedeemedPage + ' of ' + reportRedeemedTotalPages()"></span>
+                <button @click="reportRedeemedPage = Math.min(reportRedeemedTotalPages(), reportRedeemedPage+1)" :disabled="reportRedeemedPage >= reportRedeemedTotalPages()"
+                  class="w-7 h-7 flex items-center justify-center rounded-lg text-sm text-neutral-500 hover:bg-neutral-100 disabled:opacity-30 disabled:cursor-not-allowed transition-colors">→</button>
+              </div>
+            </div>
+          </div>
+          <div x-show="!report.redeemed.length"
+            class="text-sm text-neutral-400 text-center py-4">No redemptions in this period.</div>
+        </div>
+      </template>
+    </div>
+
+    <!-- ── QR scan ────────────────────────────────────────────────────────── -->
+    <div x-show="view==='scan'">
+      <div class="flex items-center gap-3 mb-5">
+        <button @click="stopScannerIfActive(); view='search'"
+          class="flex items-center gap-1.5 text-sm text-neutral-500 hover:text-neutral-800 transition-colors">
+          <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.75" d="M15 19l-7-7 7-7"/>
+          </svg>
+          Back
+        </button>
+        <h2 class="text-base font-semibold text-neutral-800">Scan Voucher</h2>
+      </div>
+
+      <div class="max-w-sm mx-auto space-y-3">
+        <div class="bg-white rounded-card hub-card border border-neutral-100 p-4">
+          <div id="qr-reader" class="rounded-xl overflow-hidden w-full"></div>
+          <p class="text-xs text-neutral-400 mt-2 text-center">Point camera at the voucher QR code</p>
+        </div>
+
+        <div class="bg-white rounded-card hub-card border border-neutral-100 p-4">
+          <label class="block text-[0.67rem] font-semibold text-neutral-400 uppercase tracking-wider mb-2">Or enter code manually</label>
+          <form @submit.prevent="lookupManual()" class="flex gap-2">
+            <input type="text" x-model="manualCode" placeholder="UJ-XXXX-XXXX"
+              class="flex-1 border border-neutral-200 rounded-xl px-3 py-2 text-sm font-mono uppercase focus:outline-none focus:ring-2 focus:ring-uj/20 focus:border-uj" />
+            <button type="submit"
+              class="bg-uj hover:bg-uj-dark text-white px-4 py-2 rounded-xl text-sm font-semibold transition-colors">Go</button>
+          </form>
+        </div>
+      </div>
+    </div>
+
+  </main>
+
+  <!-- ── Redeem modal ──────────────────────────────────────────────────────── -->
+  <div x-show="redeemOpen" x-cloak class="fixed inset-0 z-50 flex items-center justify-center p-4"
+    @keydown.escape.window="redeemOpen = false">
+    <div class="absolute inset-0 bg-black/40 backdrop-blur-sm" @click="redeemOpen = false"></div>
+    <div class="relative bg-white rounded-card shadow-2xl shadow-neutral-900/15 w-full max-w-md p-6 border border-neutral-100">
+      <div class="flex items-center justify-between mb-4">
+        <h3 class="text-base font-semibold text-neutral-900">Redeem voucher</h3>
+        <div class="flex items-baseline gap-1.5">
+          <span class="text-xs text-neutral-400">Balance:</span>
+          <span class="text-base font-bold text-neutral-800" x-text="fmtMoney(voucher?.balance)"></span>
+        </div>
+      </div>
+
+      <div x-show="redeemError"
+        class="bg-rose-50 border border-rose-200 text-rose-700 rounded-xl p-3 text-sm mb-4"
+        x-text="redeemError"></div>
+
+      <div class="space-y-4">
+        <div>
+          <label class="block text-[0.67rem] font-semibold text-neutral-400 uppercase tracking-wider mb-1.5">
+            Amount ($) <span class="text-rose-400 normal-case tracking-normal font-normal">*</span>
+          </label>
+          <input type="number" step="0.01" min="0.01" :max="voucher?.balance"
+            x-model="redeemAmount" placeholder="0.00"
+            class="w-full border border-neutral-200 rounded-xl px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-uj/20 focus:border-uj" />
+          <button @click="redeemAmount = String(voucher?.balance)"
+            class="text-xs text-uj hover:underline mt-1.5">Use full balance</button>
+        </div>
+        <div>
+          <label class="block text-[0.67rem] font-semibold text-neutral-400 uppercase tracking-wider mb-1.5">Clubworx receipt #</label>
+          <input type="text" x-model="redeemReceipt" placeholder="Optional"
+            class="w-full border border-neutral-200 rounded-xl px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-uj/20 focus:border-uj" />
+        </div>
+        <div>
+          <label class="block text-[0.67rem] font-semibold text-neutral-400 uppercase tracking-wider mb-1.5">Notes</label>
+          <input type="text" x-model="redeemNotes" placeholder="Optional"
+            class="w-full border border-neutral-200 rounded-xl px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-uj/20 focus:border-uj" />
+        </div>
+      </div>
+
+      <div class="flex gap-2.5 mt-6">
+        <button @click="redeemOpen = false"
+          class="flex-1 border border-neutral-200 hover:bg-neutral-50 text-neutral-700 font-medium rounded-xl py-2.5 text-sm transition-colors">
+          Cancel
+        </button>
+        <button @click="submitRedeem()" :disabled="redeemLoading"
+          class="flex-1 bg-uj hover:bg-uj-dark disabled:opacity-50 text-white font-semibold rounded-xl py-2.5 text-sm transition-colors">
+          <span x-text="redeemLoading ? 'Processing…' : 'Confirm redeem'"></span>
+        </button>
+      </div>
+    </div>
+  </div>
+
+  <!-- ── Resend email modal ───────────────────────────────────────────────── -->
+  <div x-show="resendOpen" x-cloak class="fixed inset-0 z-50 flex items-center justify-center p-4"
+    @keydown.escape.window="resendOpen = false">
+    <div class="absolute inset-0 bg-black/40 backdrop-blur-sm" @click="resendOpen = false"></div>
+    <div class="relative bg-white rounded-card shadow-2xl shadow-neutral-900/15 w-full max-w-md p-6 border border-neutral-100">
+      <div class="flex items-center justify-between mb-1">
+        <h3 class="text-base font-semibold text-neutral-900">Resend voucher email</h3>
+      </div>
+      <p class="text-xs text-neutral-400 mb-4" x-text="voucher?.voucher_id + ' · ' + (voucher?.voucher_type_id || '')"></p>
+
+      <div x-show="resendError"
+        class="bg-rose-50 border border-rose-200 text-rose-700 rounded-xl p-3 text-sm mb-4"
+        x-text="resendError"></div>
+
+      <div class="space-y-4">
+        <div>
+          <label class="block text-[0.67rem] font-semibold text-neutral-400 uppercase tracking-wider mb-1">Stored email</label>
+          <p class="text-sm text-neutral-500 font-mono" x-text="voucher?.customer_email || '—'"></p>
+        </div>
+        <div>
+          <label class="block text-[0.67rem] font-semibold text-neutral-400 uppercase tracking-wider mb-1.5">
+            Send to <span class="text-rose-400 normal-case tracking-normal font-normal">*</span>
+          </label>
+          <input type="email" x-model="resendEmailInput" placeholder="recipient@example.com"
+            class="w-full border border-neutral-200 rounded-xl px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-uj/20 focus:border-uj" />
+          <p x-show="resendEmailInput.trim() && resendEmailInput.trim() !== voucher?.customer_email"
+            class="text-xs text-amber-600 mt-1.5">
+            This differs from the stored address — email will be sent to the address above only. The voucher record will not be updated.
+          </p>
+        </div>
+      </div>
+
+      <div class="flex gap-2.5 mt-6">
+        <button @click="resendOpen = false"
+          class="flex-1 border border-neutral-200 hover:bg-neutral-50 text-neutral-700 font-medium rounded-xl py-2.5 text-sm transition-colors">
+          Cancel
+        </button>
+        <button @click="submitResend()" :disabled="resendLoading"
+          class="flex-1 bg-uj hover:bg-uj-dark disabled:opacity-50 text-white font-semibold rounded-xl py-2.5 text-sm transition-colors">
+          <span x-text="resendLoading ? 'Sending…' : 'Send email'"></span>
+        </button>
+      </div>
+    </div>
+  </div>
+
+  <!-- ── Toast ────────────────────────────────────────────────────────────── -->
+  <div x-show="toast" x-cloak
+    x-transition:enter="transition ease-out duration-200"
+    x-transition:enter-start="opacity-0 translate-y-2"
+    x-transition:enter-end="opacity-100 translate-y-0"
+    x-transition:leave="transition ease-in duration-150"
+    x-transition:leave-end="opacity-0"
+    class="fixed bottom-6 left-1/2 -translate-x-1/2 z-50 pointer-events-none">
+    <div :class="toast?.type==='error' ? 'bg-rose-600' : 'bg-neutral-900'"
+      class="text-white text-[0.82rem] font-medium px-4 py-2.5 rounded-full shadow-lg whitespace-nowrap"
+      x-text="toast?.msg"></div>
+  </div>
+
+  <script>
+  function staffApp() {
+    const WORKER = 'https://uj-payments.urbanjungle.workers.dev';
+    return {
+      WORKER,
+
+      // Auth
+      secret: '',
+
+      // Navigation
+      view: 'search',
+
+      // Search
+      q: '',
+      statusFilter: '',
+      results: [],
+      searchLoading: false,
+      searchError: '',
+
+      // Detail
+      voucher: null,
+      detailLoading: false,
+      detailError: '',
+
+      // Redeem modal
+      redeemOpen: false,
+      redeemAmount: '',
+      redeemReceipt: '',
+      redeemNotes: '',
+      redeemLoading: false,
+      redeemError: '',
+
+      // Resend email modal
+      resendOpen: false,
+      resendEmailInput: '',
+      resendLoading: false,
+      resendError: '',
+
+      // Create physical
+      voucherTypes: [],
+      voucherItems: [],
+      createType: '',
+      createItem: '',
+      createName: '',
+      createPhone: '',
+      createEmail: '',
+      createValue: '',
+      createReason: '',
+      createGiftFrom: '',
+      createGiftTo: '',
+      createGiftMessage: '',
+      createLoading: false,
+      createError: '',
+      createdVoucher: null,
+
+      // Dashboard stats
+      dashStats: null,
+      dashStatsLoading: false,
+
+      // Reports
+      reportTab: 'today',
+      report: null,
+      reportLoading: false,
+      reportError: '',
+
+      // Pagination & sorting
+      PAGE_SIZE: 20,
+      searchSort: { col: 'issued_date', dir: 'desc' },
+      searchPage: 1,
+      reportIssuedSort: { col: 'issued_date', dir: 'desc' },
+      reportIssuedPage: 1,
+      reportRedeemedSort: { col: 'last_redeemed_date', dir: 'desc' },
+      reportRedeemedPage: 1,
+
+      // Scanner
+      scanner: null,
+      manualCode: '',
+
+      // Toast
+      toast: null,
+      _toastTimer: null,
+
+      // ── Lifecycle ────────────────────────────────────────────────────────
+      async init() {
+        // URL hash seeds the secret on first visit: /vouchers/#<secret>
+        const hash = window.location.hash.slice(1);
+        if (hash) {
+          localStorage.setItem('uj_staff_secret', hash);
+          history.replaceState(null, '', window.location.pathname + window.location.search);
+        }
+        this.secret = localStorage.getItem('uj_staff_secret') || '';
+        if (this.secret) {
+          await this.search();
+          this.loadDashStats(); // fire and forget — don't block the search
+        }
+      },
+
+      logout() {
+        this.stopScannerIfActive();
+        localStorage.removeItem('uj_staff_secret');
+        this.secret = '';
+        this.results = [];
+        this.voucher = null;
+        this.report = null;
+      },
+
+      // ── Core API helper ──────────────────────────────────────────────────
+      async api(path, options = {}) {
+        const res = await fetch(this.WORKER + path, {
+          ...options,
+          headers: {
+            'Content-Type': 'application/json',
+            'X-Staff-Secret': this.secret,
+            ...(options.headers || {}),
+          },
+        });
+        const data = await res.json().catch(() => ({}));
+        if (!res.ok) {
+          const err = Object.assign(new Error(data.error || 'HTTP ' + res.status), { status: res.status });
+          throw err;
+        }
+        return data;
+      },
+
+      // ── Toast ────────────────────────────────────────────────────────────
+      showToast(msg, type = 'success') {
+        this.toast = { msg, type };
+        clearTimeout(this._toastTimer);
+        this._toastTimer = setTimeout(() => { this.toast = null; }, 3500);
+      },
+
+      // ── Search ───────────────────────────────────────────────────────────
+      async search() {
+        this.searchLoading = true;
+        this.searchError = '';
+        try {
+          const p = new URLSearchParams();
+          if (this.q) p.set('q', this.q);
+          if (this.statusFilter) p.set('status', this.statusFilter);
+          this.results = await this.api('/v1/vouchers/search?' + p.toString());
+          this.searchPage = 1;
+          this.view = 'search';
+        } catch (e) {
+          this.searchError = e.message;
+          if (e.status === 401) {
+            this.secret = '';
+            localStorage.removeItem('uj_staff_secret');
+          }
+        } finally {
+          this.searchLoading = false;
+        }
+      },
+
+      // ── Detail ───────────────────────────────────────────────────────────
+      async openVoucher(code) {
+        this.stopScannerIfActive();
+        this.view = 'detail';
+        this.voucher = null;
+        this.detailError = '';
+        this.detailLoading = true;
+        try {
+          this.voucher = await this.api('/v1/vouchers/' + encodeURIComponent(code));
+        } catch (e) {
+          this.detailError = e.message;
+        } finally {
+          this.detailLoading = false;
+        }
+        if (this.voucher) this.$nextTick(() => this.renderQr());
+      },
+
+      renderQr() {
+        const el = document.getElementById('qr-canvas');
+        if (!el || !this.voucher || typeof QRCode === 'undefined') return;
+        QRCode.toCanvas(el, this.voucher.voucher_id, { width: 164, margin: 1 }, () => {});
+      },
+
+      // ── Redeem ───────────────────────────────────────────────────────────
+      openRedeem() {
+        this.redeemAmount = '';
+        this.redeemReceipt = '';
+        this.redeemNotes = '';
+        this.redeemError = '';
+        this.redeemOpen = true;
+      },
+
+      async submitRedeem() {
+        const amount = Number(this.redeemAmount);
+        if (!amount || amount <= 0) { this.redeemError = 'Enter a valid amount'; return; }
+        if (amount > this.voucher.balance) {
+          this.redeemError = 'Amount exceeds balance of ' + this.fmtMoney(this.voucher.balance);
+          return;
+        }
+        this.redeemLoading = true;
+        this.redeemError = '';
+        try {
+          await this.api('/v1/vouchers/' + encodeURIComponent(this.voucher.voucher_id) + '/redeem', {
+            method: 'POST',
+            body: JSON.stringify({
+              amount,
+              redeemed_by: 'staff',
+              clubworx_receipt: this.redeemReceipt,
+              notes: this.redeemNotes,
+            }),
+          });
+          this.redeemOpen = false;
+          this.showToast('Redeemed ' + this.fmtMoney(amount));
+          await this.openVoucher(this.voucher.voucher_id);
+        } catch (e) {
+          this.redeemError = e.message;
+        } finally {
+          this.redeemLoading = false;
+        }
+      },
+
+      async undoRedemption() {
+        if (!confirm('Undo the last redemption on this voucher?')) return;
+        try {
+          await this.api('/v1/vouchers/' + encodeURIComponent(this.voucher.voucher_id) + '/undo-redemption', {
+            method: 'POST',
+            body: JSON.stringify({ undone_by: 'staff' }),
+          });
+          this.showToast('Redemption undone');
+          await this.openVoucher(this.voucher.voucher_id);
+        } catch (e) {
+          this.showToast(e.message, 'error');
+        }
+      },
+
+      resendEmail() {
+        this.resendEmailInput = this.voucher.customer_email || '';
+        this.resendError = '';
+        this.resendOpen = true;
+      },
+
+      async submitResend() {
+        const email = this.resendEmailInput.trim();
+        if (!email || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
+          this.resendError = 'Please enter a valid email address';
+          return;
+        }
+        this.resendLoading = true;
+        this.resendError = '';
+        const isOverride = email !== this.voucher.customer_email;
+        const body = { resent_by: 'staff' };
+        if (isOverride) body.override_email = email;
+        try {
+          await this.api('/v1/vouchers/' + encodeURIComponent(this.voucher.voucher_id) + '/resend-email', {
+            method: 'POST',
+            body: JSON.stringify(body),
+          });
+          this.resendOpen = false;
+          this.showToast('Email sent to ' + email);
+          await this.openVoucher(this.voucher.voucher_id);
+        } catch (e) {
+          this.resendError = e.message;
+        } finally {
+          this.resendLoading = false;
+        }
+      },
+
+      // ── Create physical ──────────────────────────────────────────────────
+      async goCreate() {
+        this.stopScannerIfActive();
+        this.view = 'create';
+        this.createdVoucher = null;
+        this.createError = '';
+        this.createName = '';
+        this.createPhone = '';
+        this.createEmail = '';
+        this.createValue = '';
+        this.createReason = '';
+        this.createGiftFrom = '';
+        this.createGiftTo = '';
+        this.createGiftMessage = '';
+        this.createItem = '';
+        if (!this.voucherTypes.length) {
+          try {
+            this.voucherTypes = await this.api('/v1/voucher-types');
+          } catch (e) {
+            this.createError = e.message;
+            return;
+          }
+        }
+        if (!this.createType) {
+          const phys = this.voucherTypes.find(t => t.is_physical);
+          if (phys) {
+            this.createType = phys.type_id;
+            await this.onCreateTypeChange();
+          }
+        }
+      },
+
+      async onCreateTypeChange() {
+        this.createItem = '';
+        this.createValue = '';
+        this.voucherItems = [];
+        if (!this.createType) return;
+        try {
+          this.voucherItems = await this.api(
+            '/v1/voucher-types/' + encodeURIComponent(this.createType) + '/items'
+          );
+          if (this.voucherItems.length === 1) {
+            this.createItem = this.voucherItems[0].id;
+            this.createValue = String(this.voucherItems[0].value);
+          }
+        } catch { /* silent */ }
+      },
+
+      onCreateItemChange() {
+        const item = this.voucherItems.find(i => i.id === this.createItem);
+        if (item) this.createValue = String(item.value);
+        else this.createValue = '';
+      },
+
+      async submitCreate() {
+        if (!this.createName.trim()) { this.createError = 'Customer name is required'; return; }
+        if (!this.createType) { this.createError = 'Select a voucher type'; return; }
+        if (!this.createItem && !this.createValue) { this.createError = 'Select an item or enter a value'; return; }
+        this.createLoading = true;
+        this.createError = '';
+        try {
+          this.createdVoucher = await this.api('/v1/vouchers', {
+            method: 'POST',
+            body: JSON.stringify({
+              voucher_type_id: this.createType,
+              voucher_item_id: this.createItem || null,
+              customer_name: this.createName.trim(),
+              customer_phone: this.createPhone.trim() || null,
+              customer_email: this.createEmail.trim() || null,
+              value: this.createValue ? Number(this.createValue) : null,
+              reason: this.createReason.trim() || null,
+              gift_from: this.createGiftFrom.trim() || null,
+              gift_to: this.createGiftTo.trim() || null,
+              gift_message: this.createGiftMessage.trim() || null,
+              issued_by: 'staff',
+            }),
+          });
+          this.showToast(this.createdVoucher.voucher_id + ' created');
+          this.createName = '';
+          this.createPhone = '';
+          this.createEmail = '';
+          this.createReason = '';
+          this.createGiftFrom = '';
+          this.createGiftTo = '';
+          this.createGiftMessage = '';
+        } catch (e) {
+          this.createError = e.message;
+        } finally {
+          this.createLoading = false;
+        }
+      },
+
+      // ── Reports ──────────────────────────────────────────────────────────
+      async goReport() {
+        this.stopScannerIfActive();
+        this.view = 'report';
+        await this.loadReport();
+      },
+
+      async loadReport() {
+        this.reportLoading = true;
+        this.reportError = '';
+        this.report = null;
+        try {
+          this.report = await this.api('/v1/vouchers/report?type=' + this.reportTab);
+          this.reportIssuedPage = 1;
+          this.reportRedeemedPage = 1;
+        } catch (e) {
+          this.reportError = e.message;
+        } finally {
+          this.reportLoading = false;
+        }
+      },
+
+      async loadDashStats() {
+        this.dashStatsLoading = true;
+        try {
+          this.dashStats = await this.api('/v1/vouchers/stats');
+        } catch (e) {
+          // Non-critical — fail silently
+        } finally {
+          this.dashStatsLoading = false;
+        }
+      },
+
+      // ── Sort & pagination ────────────────────────────────────────────────
+      _sortArr(arr, col, dir) {
+        const numericCols = ['balance', 'value', 'last_redeemed_amount'];
+        return [...arr].sort((a, b) => {
+          const av = a[col] ?? '';
+          const bv = b[col] ?? '';
+          if (numericCols.includes(col)) {
+            return dir === 'asc' ? (Number(av)||0) - (Number(bv)||0) : (Number(bv)||0) - (Number(av)||0);
+          }
+          const cmp = String(av).localeCompare(String(bv), undefined, { sensitivity: 'base' });
+          return dir === 'asc' ? cmp : -cmp;
+        });
+      },
+
+      _paginate(arr, page, size) {
+        return arr.slice((page - 1) * size, page * size);
+      },
+
+      // Search
+      sortSearch(col) {
+        if (this.searchSort.col === col) {
+          this.searchSort.dir = this.searchSort.dir === 'asc' ? 'desc' : 'asc';
+        } else {
+          this.searchSort = { col, dir: 'asc' };
+        }
+        this.searchPage = 1;
+      },
+      pagedResults() {
+        return this._paginate(this._sortArr(this.results, this.searchSort.col, this.searchSort.dir), this.searchPage, this.PAGE_SIZE);
+      },
+      searchTotalPages() {
+        return Math.max(1, Math.ceil(this.results.length / this.PAGE_SIZE));
+      },
+
+      // Report — issued
+      sortReportIssued(col) {
+        if (this.reportIssuedSort.col === col) {
+          this.reportIssuedSort.dir = this.reportIssuedSort.dir === 'asc' ? 'desc' : 'asc';
+        } else {
+          this.reportIssuedSort = { col, dir: 'asc' };
+        }
+        this.reportIssuedPage = 1;
+      },
+      pagedReportIssued() {
+        if (!this.report) return [];
+        return this._paginate(this._sortArr(this.report.issued, this.reportIssuedSort.col, this.reportIssuedSort.dir), this.reportIssuedPage, this.PAGE_SIZE);
+      },
+      reportIssuedTotalPages() {
+        return Math.max(1, Math.ceil((this.report?.issued?.length || 0) / this.PAGE_SIZE));
+      },
+
+      // Report — redeemed
+      sortReportRedeemed(col) {
+        if (this.reportRedeemedSort.col === col) {
+          this.reportRedeemedSort.dir = this.reportRedeemedSort.dir === 'asc' ? 'desc' : 'asc';
+        } else {
+          this.reportRedeemedSort = { col, dir: 'asc' };
+        }
+        this.reportRedeemedPage = 1;
+      },
+      pagedReportRedeemed() {
+        if (!this.report) return [];
+        return this._paginate(this._sortArr(this.report.redeemed, this.reportRedeemedSort.col, this.reportRedeemedSort.dir), this.reportRedeemedPage, this.PAGE_SIZE);
+      },
+      reportRedeemedTotalPages() {
+        return Math.max(1, Math.ceil((this.report?.redeemed?.length || 0) / this.PAGE_SIZE));
+      },
+
+      // ── QR scanner ───────────────────────────────────────────────────────
+      goScan() {
+        this.view = 'scan';
+        this.manualCode = '';
+        this.$nextTick(() => this.startScanner());
+      },
+
+      startScanner() {
+        if (typeof Html5Qrcode === 'undefined') return;
+        this.stopScannerIfActive();
+        this.scanner = new Html5Qrcode('qr-reader');
+        this.scanner.start(
+          { facingMode: 'environment' },
+          { fps: 10, qrbox: { width: 250, height: 250 } },
+          (text) => { this.openVoucher(text.trim()); },
+          () => {}
+        ).catch(() => {});
+      },
+
+      stopScannerIfActive() {
+        if (this.scanner) {
+          this.scanner.stop().catch(() => {});
+          this.scanner = null;
+        }
+      },
+
+      lookupManual() {
+        const code = (this.manualCode || '').trim().toUpperCase();
+        if (!code) return;
+        this.stopScannerIfActive();
+        this.openVoucher(code);
+      },
+
+      // ── Helpers ──────────────────────────────────────────────────────────
+      fmtDate(s) {
+        if (!s) return '—';
+        try { return new Date(s).toLocaleDateString('en-AU', { day:'2-digit', month:'short', year:'numeric' }); }
+        catch { return s; }
+      },
+
+      fmtDateTime(s) {
+        if (!s) return '—';
+        try { return new Date(s).toLocaleString('en-AU', { day:'2-digit', month:'short', year:'numeric', hour:'2-digit', minute:'2-digit' }); }
+        catch { return s; }
+      },
+
+      fmtMoney(v) {
+        return v == null ? '—' : '$' + Number(v).toFixed(2);
+      },
+
+      statusClass(s) {
+        return ({
+          active:    'bg-emerald-50 text-emerald-800 ring-emerald-600/20',
+          redeemed:  'bg-neutral-100 text-neutral-500 ring-neutral-500/20',
+          expired:   'bg-amber-50 text-amber-700 ring-amber-600/20',
+          cancelled: 'bg-rose-50 text-rose-700 ring-rose-600/20',
+        })[s] || 'bg-neutral-100 text-neutral-500 ring-neutral-500/20';
+      },
+    };
+  }
+  </script>
+</body>
+</html>
