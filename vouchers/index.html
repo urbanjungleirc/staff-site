@@ -247,8 +247,8 @@
 
       <div x-show="voucher && !detailLoading" class="grid md:grid-cols-3 gap-4">
 
-        <!-- Left: info + actions + history -->
-        <div class="md:col-span-2 space-y-3">
+        <!-- Left: info -->
+        <div class="md:col-span-2">
 
           <!-- Header card -->
           <div class="bg-white rounded-card hub-card border border-neutral-100 overflow-hidden">
@@ -301,8 +301,13 @@
             </div>
           </div>
 
+        </div>
+
+        <!-- Right: actions + history -->
+        <div class="md:col-span-1 space-y-3">
+
           <!-- Actions -->
-          <div class="bg-white rounded-card hub-card border border-neutral-100 p-5">
+          <div class="bg-white rounded-card hub-card border border-neutral-100 p-5 sticky top-[72px]">
             <h3 class="text-[0.67rem] font-semibold text-neutral-400 uppercase tracking-widest mb-3">Actions</h3>
             <div class="flex flex-wrap gap-2">
               <button x-show="voucher?.status === 'active'" @click="openRedeem()"
@@ -347,18 +352,6 @@
             </div>
           </div>
 
-        </div>
-
-        <!-- Right: QR -->
-        <div class="md:col-span-1">
-          <div class="bg-white rounded-card hub-card border border-neutral-100 p-5 text-center sticky top-[72px]">
-            <h3 class="text-[0.67rem] font-semibold text-neutral-400 uppercase tracking-widest mb-4">QR Code</h3>
-            <div class="bg-neutral-50 rounded-xl p-3 flex justify-center mb-3 overflow-hidden">
-              <img :src="qrDataUrl" x-show="qrDataUrl" class="rounded block max-w-full" width="164" height="164" alt="QR code">
-            </div>
-            <div class="font-mono text-[0.67rem] text-neutral-400 break-all leading-relaxed" x-text="voucher?.voucher_id"></div>
-            <p class="text-xs text-neutral-400 mt-1.5">Scan to verify</p>
-          </div>
         </div>
 
       </div>
