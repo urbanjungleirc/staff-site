@@ -331,21 +331,17 @@
           <div x-show="voucher?._history?.length"
             class="bg-white rounded-card hub-card border border-neutral-100 p-5">
             <h3 class="text-[0.67rem] font-semibold text-neutral-400 uppercase tracking-widest mb-3">Audit history</h3>
-            <div class="divide-y divide-neutral-50">
+            <div class="divide-y divide-neutral-100">
               <template x-for="entry in (voucher?._history || [])" :key="entry.id">
-                <div class="flex gap-3 py-2.5 text-sm">
-                  <div class="text-neutral-400 text-xs w-36 shrink-0 pt-0.5 tabular-nums" x-text="fmtDateTime(entry.timestamp)"></div>
-                  <div>
-                    <span class="font-medium text-neutral-700" x-text="entry.action.replace(/_/g,' ')"></span>
-                    <span class="text-neutral-400 text-xs" x-text="entry.user_id ? ' · ' + entry.user_id : ''"></span>
-                    <span x-show="entry.data?.amount" class="text-neutral-400 text-xs"
-                      x-text="' · $' + Number(entry.data?.amount||0).toFixed(2)"></span>
-                    <span x-show="entry.data?.clubworx_receipt" class="text-neutral-400 text-xs"
-                      x-text="' · ' + entry.data?.clubworx_receipt"></span>
-                    <span x-show="entry.action === 'resend_email'" class="text-neutral-400 text-xs"
-                      x-text="entry.data?.to ? ' → ' + entry.data.to : ''"></span>
-                    <span x-show="entry.action === 'resend_email' && entry.data?.overridden"
-                      class="text-amber-500 text-xs ml-1">(override)</span>
+                <div class="py-3">
+                  <div class="text-[0.67rem] text-neutral-400 tabular-nums mb-1" x-text="fmtDateTime(entry.timestamp)"></div>
+                  <div class="text-sm font-medium text-neutral-700 capitalize" x-text="entry.action.replace(/_/g,' ')"></div>
+                  <div class="flex flex-wrap gap-x-1.5 text-xs text-neutral-400 mt-1">
+                    <span x-show="entry.user_id" x-text="entry.user_id"></span>
+                    <span x-show="entry.data?.amount" x-text="'$' + Number(entry.data?.amount||0).toFixed(2)"></span>
+                    <span x-show="entry.data?.clubworx_receipt" x-text="entry.data?.clubworx_receipt"></span>
+                    <span x-show="entry.action === 'resend_email' && entry.data?.to" x-text="'→ ' + (entry.data?.to || '')"></span>
+                    <span x-show="entry.action === 'resend_email' && entry.data?.overridden" class="text-amber-500">(override)</span>
                   </div>
                 </div>
               </template>
