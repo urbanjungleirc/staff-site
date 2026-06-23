@@ -1201,9 +1201,9 @@
         class="bg-rose-50 border border-rose-200 text-rose-700 rounded-xl p-3 text-sm mb-4"
         x-text="typeEditorError"></div>
 
-      <!-- PLAN-PREVIEW-SLOT: Task 4 inserts the live-preview pane wrapper here -->
-
-      <div class="grid gap-5">
+      <div class="grid md:grid-cols-2 gap-5">
+        <div class="order-2 md:order-1" @input="refreshPreview()">
+          <div class="grid gap-5">
 
         <!-- Basics -->
         <fieldset class="grid gap-3">
@@ -1383,6 +1383,15 @@
               class="w-full border border-neutral-200 rounded-xl px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-uj/20 focus:border-uj"></textarea>
           </div>
         </fieldset>
+          </div>
+        </div>
+        <div class="order-1 md:order-2">
+          <label class="block text-[0.67rem] font-semibold text-neutral-400 uppercase tracking-wider mb-1.5">Live email preview</label>
+          <div class="relative border border-neutral-200 rounded-xl overflow-hidden bg-neutral-50" style="height:60vh;">
+            <div x-show="previewLoading" class="absolute top-2 right-2 text-xs text-neutral-400 bg-white/80 rounded px-2 py-0.5">Rendering…</div>
+            <iframe :srcdoc="previewHtml" sandbox class="w-full h-full bg-white" title="Email preview"></iframe>
+          </div>
+        </div>
       </div>
 
       <div class="flex gap-2.5 mt-6">
@@ -1478,6 +1487,9 @@
       typeEditorSaving: false,
       typeEditorError: '',
       typeForm: {},
+      previewHtml: '',
+      previewLoading: false,
+      _previewTimer: null,
       createName: '',
       createPhone: '',
       createEmail: '',
@@ -2015,6 +2027,30 @@
           this.typeForm = this.blankTypeForm();
         }
         this.typeEditorOpen = true;
+        this.refreshPreview();
+      },
+
+      refreshPreview() {
+        if (this._previewTimer) clearTimeout(this._previewTimer);
+        this._previewTimer = setTimeout(() => this._doPreview(), 500);
+      },
+
+      async _doPreview() {
+        this.previewLoading = true;
+        try {
+          const res = await fetch(this.WORKER + '/v1/staff/voucher-types/preview', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json', 'X-Staff-Secret': this.secret },
+            body: JSON.stringify(this.typeForm),
+          });
+          this.previewHtml = res.ok
+            ? await res.text()
+            : '<p style="font-family:sans-serif;color:#b91c1c;padding:1rem">Preview failed (' + res.status + ')</p>';
+        } catch (e) {
+          this.previewHtml = '<p style="font-family:sans-serif;color:#b91c1c;padding:1rem">Preview error</p>';
+        } finally {
+          this.previewLoading = false;
+        }
       },
 
       closeTypeEditor() {
