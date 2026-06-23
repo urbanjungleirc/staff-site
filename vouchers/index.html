@@ -1407,6 +1407,83 @@
     </div>
   </div>
 
+      <!-- ── Items sub-editor modal ─────────────────────────────────────── -->
+      <div x-show="itemsEditorOpen" x-cloak class="fixed inset-0 z-50 flex items-center justify-center p-4"
+        @keydown.escape.window="closeItemsEditor()">
+        <div class="absolute inset-0 bg-black/40 backdrop-blur-sm" @click="closeItemsEditor()"></div>
+        <div class="relative bg-white rounded-card shadow-2xl shadow-neutral-900/15 w-full max-w-2xl max-h-[90vh] overflow-y-auto p-6 border border-neutral-100">
+          <div class="flex items-center justify-between mb-4">
+            <h3 class="text-base font-semibold text-neutral-900" x-text="'Items — ' + (itemsEditorType?.display_name || '')"></h3>
+            <button @click="closeItemsEditor()" class="text-neutral-400 hover:text-neutral-700 text-xl leading-none">&times;</button>
+          </div>
+
+          <div x-show="itemsError" class="bg-rose-50 border border-rose-200 text-rose-700 rounded-xl p-3 text-sm mb-4" x-text="itemsError"></div>
+          <div x-show="itemsLoading" class="text-sm text-neutral-400">Loading items…</div>
+
+          <!-- Items list -->
+          <div class="grid gap-2 mb-4" x-show="!itemFormOpen">
+            <template x-for="it in items" :key="it.id">
+              <div class="border border-neutral-200 rounded-xl p-3 flex items-center justify-between gap-3">
+                <div class="min-w-0">
+                  <div class="flex items-center gap-2">
+                    <span class="font-medium text-neutral-900 truncate" x-text="it.name"></span>
+                    <span x-show="!it.is_active" class="text-[0.6rem] font-semibold uppercase tracking-wider text-neutral-500 bg-neutral-100 rounded-full px-2 py-0.5">Inactive</span>
+                  </div>
+                  <div class="text-xs text-neutral-400 mt-0.5" x-text="priceHint(it)"></div>
+                </div>
+                <button @click="openItemForm(it)" class="text-sm text-neutral-600 hover:text-uj border border-neutral-200 hover:border-uj/40 rounded-lg px-3 py-1.5 transition-colors">Edit</button>
+              </div>
+            </template>
+            <button @click="openItemForm(null)" class="mt-1 bg-uj hover:bg-uj-dark text-white font-semibold rounded-xl px-4 py-2 text-sm transition-colors">Add item</button>
+          </div>
+
+          <!-- Item form -->
+          <div x-show="itemFormOpen" class="grid gap-4">
+            <div>
+              <label class="block text-[0.67rem] font-semibold text-neutral-400 uppercase tracking-wider mb-1.5">Name *</label>
+              <input type="text" x-model="itemForm.name" class="w-full border border-neutral-200 rounded-xl px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-uj/20 focus:border-uj" />
+            </div>
+            <div class="grid grid-cols-3 gap-3">
+              <div>
+                <label class="block text-[0.67rem] font-semibold text-neutral-400 uppercase tracking-wider mb-1.5">Value *</label>
+                <input type="number" step="0.01" x-model="itemForm.value" class="w-full border border-neutral-200 rounded-xl px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-uj/20 focus:border-uj" />
+              </div>
+              <div>
+                <label class="block text-[0.67rem] font-semibold text-neutral-400 uppercase tracking-wider mb-1.5">Price</label>
+                <input type="number" step="0.01" x-model="itemForm.price" placeholder="= value" class="w-full border border-neutral-200 rounded-xl px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-uj/20 focus:border-uj" />
+              </div>
+              <div>
+                <label class="block text-[0.67rem] font-semibold text-neutral-400 uppercase tracking-wider mb-1.5">Was price</label>
+                <input type="number" step="0.01" x-model="itemForm.was_price" class="w-full border border-neutral-200 rounded-xl px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-uj/20 focus:border-uj" />
+              </div>
+            </div>
+            <div>
+              <label class="block text-[0.67rem] font-semibold text-neutral-400 uppercase tracking-wider mb-1.5">Description</label>
+              <textarea x-model="itemForm.description" rows="2" class="w-full border border-neutral-200 rounded-xl px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-uj/20 focus:border-uj resize-none"></textarea>
+            </div>
+            <div class="grid grid-cols-2 gap-3">
+              <div>
+                <label class="block text-[0.67rem] font-semibold text-neutral-400 uppercase tracking-wider mb-1.5">Display order</label>
+                <input type="number" x-model="itemForm.display_order" class="w-full border border-neutral-200 rounded-xl px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-uj/20 focus:border-uj" />
+              </div>
+              <div class="flex items-end pb-2">
+                <label class="flex items-center gap-2 text-sm text-neutral-700 cursor-pointer">
+                  <input type="checkbox" x-model="itemForm.is_active" class="rounded" />
+                  Active
+                </label>
+              </div>
+            </div>
+            <p class="text-xs text-neutral-400" x-text="priceHint(itemForm)"></p>
+            <div class="flex gap-2.5 mt-2">
+              <button @click="itemFormOpen=false" class="flex-1 border border-neutral-200 hover:bg-neutral-50 text-neutral-700 font-medium rounded-xl py-2.5 text-sm transition-colors">Back</button>
+              <button @click="saveItem()" :disabled="itemSaving" class="flex-1 bg-uj hover:bg-uj-dark disabled:opacity-50 text-white font-semibold rounded-xl py-2.5 text-sm transition-colors">
+                <span x-text="itemSaving ? 'Saving…' : 'Save item'"></span>
+              </button>
+            </div>
+          </div>
+        </div>
+      </div>
+
   <!-- ── Toast ────────────────────────────────────────────────────────────── -->
   <div x-show="toast" x-cloak
     x-transition:enter="transition ease-out duration-200"
@@ -1489,6 +1566,14 @@
       typeForm: {},
       previewHtml: '',
       previewLoading: false,
+      itemsEditorOpen: false,
+      itemsEditorType: null,
+      items: [],
+      itemsLoading: false,
+      itemsError: '',
+      itemFormOpen: false,
+      itemForm: {},
+      itemSaving: false,
       _previewTimer: null,
       createName: '',
       createPhone: '',
@@ -2103,7 +2188,84 @@
         }
       },
 
-      openItemsEditor(t = null) { /* Task 5 */ },
+      async openItemsEditor(t) {
+        this.itemsEditorType = t;
+        this.itemsEditorOpen = true;
+        this.itemFormOpen = false;
+        await this.loadItems();
+      },
+
+      closeItemsEditor() { this.itemsEditorOpen = false; },
+
+      async loadItems() {
+        this.itemsLoading = true;
+        this.itemsError = '';
+        try {
+          this.items = await this.api('/v1/staff/voucher-types/' + encodeURIComponent(this.itemsEditorType.type_id) + '/items');
+        } catch (e) {
+          this.itemsError = e.message || 'Failed to load items';
+        } finally {
+          this.itemsLoading = false;
+        }
+      },
+
+      priceHint(it) {
+        const value = Number(it.value);
+        const price = (it.price === '' || it.price === null || it.price === undefined) ? value : Number(it.price);
+        const wasP = (it.was_price === '' || it.was_price === null || it.was_price === undefined) ? null : Number(it.was_price);
+        let s = 'now $' + (isNaN(price) ? '?' : price.toFixed(2));
+        if (wasP && wasP > price) s += ' · before $' + wasP.toFixed(2);
+        if (!isNaN(value) && value > price) s += ' · worth $' + value.toFixed(2);
+        return s;
+      },
+
+      openItemForm(item = null) {
+        if (item) {
+          this.itemForm = { ...item };
+          for (const k of ['description']) if (this.itemForm[k] == null) this.itemForm[k] = '';
+          for (const k of ['price','was_price']) if (this.itemForm[k] == null) this.itemForm[k] = '';
+        } else {
+          this.itemForm = {
+            id: crypto.randomUUID(),
+            voucher_type: this.itemsEditorType.type_id,
+            name: '', value: '', price: '', was_price: '',
+            description: '', display_order: 0, is_active: true,
+          };
+        }
+        this.itemFormOpen = true;
+      },
+
+      async saveItem() {
+        const f = this.itemForm;
+        if (!f.name || !f.name.trim()) { this.itemsError = 'Item name is required'; return; }
+        if (f.value === '' || f.value === null || isNaN(Number(f.value))) { this.itemsError = 'Item value is required'; return; }
+
+        const numOrNull = (v) => (v === '' || v === null || v === undefined ? null : Number(v));
+        const payload = {
+          id: f.id,                                  // client-generated for new items (text PK, no DB default)
+          voucher_type: f.voucher_type || this.itemsEditorType.type_id,
+          name: f.name.trim(),
+          value: Number(f.value),
+          price: numOrNull(f.price),
+          was_price: numOrNull(f.was_price),
+          description: (f.description === '' ? null : f.description),
+          display_order: Number(f.display_order) || 0,
+          is_active: !!f.is_active,
+        };
+
+        this.itemSaving = true;
+        this.itemsError = '';
+        try {
+          await this.api('/v1/staff/voucher-items', { method: 'POST', body: JSON.stringify(payload) });
+          this.showToast('Item saved');
+          this.itemFormOpen = false;
+          await this.loadItems();
+        } catch (e) {
+          this.itemsError = e.message || 'Failed to save item';
+        } finally {
+          this.itemSaving = false;
+        }
+      },
     };
   }
   </script>
