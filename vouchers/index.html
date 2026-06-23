@@ -335,6 +335,12 @@
           <span class="nav-icon"><svg viewBox="0 0 24 24"><path d="M4.5 19.5h15"/><path d="M7 16v-5"/><path d="M12 16V6.5"/><path d="M17 16v-8"/></svg></span>
           Reports
         </button>
+        <button @click="goVoucherTypes()"
+            :class="view==='voucherTypes' ? 'bg-white/[0.16] text-white font-semibold' : 'text-white/70 hover:text-white hover:bg-white/10'"
+            class="px-3 py-2 rounded-xl text-[0.84rem] font-medium transition-all inline-flex items-center gap-1.5">
+            <span class="nav-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="4" width="18" height="16" rx="2"/><path d="M3 10h18M8 4v16"/></svg></span>
+            Voucher Types
+          </button>
         <button disabled
           class="px-3 py-2 rounded-xl transition-all flex items-center gap-1.5 text-[0.84rem] font-medium text-white/35 cursor-not-allowed" title="Scan coming later">
           <svg width="15" height="15" fill="none" stroke="currentColor" stroke-width="1.9" viewBox="0 0 24 24">
@@ -1016,6 +1022,60 @@
       </div>
     </div>
 
+      <!-- ── Voucher Types (admin) ──────────────────────────────────────── -->
+      <div x-show="view==='voucherTypes'" class="space-y-4">
+        <div class="flex items-center justify-between">
+          <h2 class="text-lg font-semibold text-neutral-900">Voucher Types</h2>
+          <button @click="openTypeEditor(null)"
+            class="bg-uj hover:bg-uj-dark text-white font-semibold rounded-xl px-4 py-2 text-sm transition-colors">
+            New type
+          </button>
+        </div>
+
+        <div x-show="voucherTypesError"
+          class="bg-rose-50 border border-rose-200 text-rose-700 rounded-xl p-3 text-sm"
+          x-text="voucherTypesError"></div>
+
+        <div x-show="voucherTypesLoading" class="text-sm text-neutral-400">Loading types…</div>
+
+        <div x-show="!voucherTypesLoading && !voucherTypes.length && !voucherTypesError"
+          class="text-sm text-neutral-400">No voucher types yet.</div>
+
+        <div class="grid gap-2.5">
+          <template x-for="t in voucherTypes" :key="t.type_id">
+            <div class="bg-white border border-neutral-200 rounded-xl p-4 flex items-center justify-between gap-4">
+              <div class="min-w-0">
+                <div class="flex items-center gap-2">
+                  <span class="font-semibold text-neutral-900 truncate" x-text="t.display_name"></span>
+                  <span x-show="!t.is_active"
+                    class="text-[0.65rem] font-semibold uppercase tracking-wider text-neutral-500 bg-neutral-100 rounded-full px-2 py-0.5">Inactive</span>
+                </div>
+                <div class="text-xs text-neutral-400 mt-0.5">
+                  <span x-text="t.type_id"></span>
+                  <span class="mx-1.5">·</span>
+                  <span x-text="t.availability"></span>
+                  <span class="mx-1.5">·</span>
+                  <span>sort <span x-text="t.sort_order"></span></span>
+                </div>
+              </div>
+              <div class="flex items-center gap-2 shrink-0">
+                <button @click="openItemsEditor(t)"
+                  class="text-sm text-neutral-600 hover:text-uj border border-neutral-200 hover:border-uj/40 rounded-lg px-3 py-1.5 transition-colors">
+                  Items
+                </button>
+                <button @click="toggleTypeActive(t)"
+                  class="text-sm text-neutral-600 hover:text-uj border border-neutral-200 hover:border-uj/40 rounded-lg px-3 py-1.5 transition-colors"
+                  x-text="t.is_active ? 'Deactivate' : 'Activate'"></button>
+                <button @click="openTypeEditor(t)"
+                  class="bg-uj hover:bg-uj-dark text-white font-semibold rounded-lg px-3 py-1.5 text-sm transition-colors">
+                  Edit
+                </button>
+              </div>
+            </div>
+          </template>
+        </div>
+      </div>
+
     </div>
   </main>
 
@@ -1190,6 +1250,10 @@
       // Create physical
       voucherTypes: [],
       voucherItems: [],
+
+      // ── Voucher Types (admin) ──────────────────────────────────────────
+      voucherTypesLoading: false,
+      voucherTypesError: '',
       createType: '',
       createItem: '',
       createTypeOpen: false,
@@ -1665,6 +1729,42 @@
           cancelled: 'bg-rose-50 text-rose-700 ring-rose-600/20',
         })[s] || 'bg-neutral-100 text-neutral-500 ring-neutral-500/20';
       },
+
+      // ── Voucher Types (admin) ──────────────────────────────────────────
+      async goVoucherTypes() {
+        this.stopScannerIfActive();
+        this.view = 'voucherTypes';
+        await this.loadVoucherTypes();
+      },
+
+      async loadVoucherTypes() {
+        this.voucherTypesLoading = true;
+        this.voucherTypesError = '';
+        try {
+          this.voucherTypes = await this.api('/v1/staff/voucher-types');
+        } catch (e) {
+          this.voucherTypesError = e.message || 'Failed to load voucher types';
+        } finally {
+          this.voucherTypesLoading = false;
+        }
+      },
+
+      async toggleTypeActive(t) {
+        try {
+          await this.api('/v1/staff/voucher-types', {
+            method: 'POST',
+            body: JSON.stringify({ type_id: t.type_id, is_active: !t.is_active }),
+          });
+          this.showToast(t.is_active ? 'Type deactivated' : 'Type activated');
+          await this.loadVoucherTypes();
+        } catch (e) {
+          this.showToast(e.message || 'Failed to update type', 'error');
+        }
+      },
+
+      // Filled in by later tasks (stubs so the list markup is wired):
+      openTypeEditor(t = null) { /* Task 3 */ },
+      openItemsEditor(t = null) { /* Task 5 */ },
     };
   }
   </script>
