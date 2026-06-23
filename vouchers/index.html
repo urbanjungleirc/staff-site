@@ -548,6 +548,18 @@
                 </div>
               </div>
 
+              <!-- Staff-facing redemption warning (e.g. account-credit vouchers). Shown only when the voucher type defines one. -->
+              <div x-show="voucher?._redemption_warning"
+                class="mt-4 bg-amber-50 border border-amber-200 text-amber-800 rounded-xl px-3.5 py-3 text-sm flex items-start gap-2.5">
+                <svg class="w-4 h-4 shrink-0 text-amber-500 mt-0.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 9v2m0 4h.01M10.29 3.86L1.82 18a2 2 0 001.71 3h16.94a2 2 0 001.71-3L13.71 3.86a2 2 0 00-3.42 0z"/>
+                </svg>
+                <div>
+                  <span class="font-semibold">Redemption warning</span>
+                  <span class="block mt-0.5" x-text="voucher?._redemption_warning"></span>
+                </div>
+              </div>
+
               <dl class="detail-grid grid grid-cols-2 gap-x-6 gap-y-3.5 text-sm pt-4 border-t border-neutral-100">
                 <div><dt class="text-[0.62rem] font-semibold text-neutral-400 uppercase tracking-wider mb-1">Customer</dt><dd class="font-medium text-neutral-800" x-text="voucher?.customer_name || '—'"></dd></div>
                 <div><dt class="text-[0.62rem] font-semibold text-neutral-400 uppercase tracking-wider mb-1">Email</dt><dd class="text-neutral-700" x-text="voucher?.customer_email || '—'"></dd></div>
@@ -1023,6 +1035,15 @@
       <div x-show="redeemError"
         class="bg-rose-50 border border-rose-200 text-rose-700 rounded-xl p-3 text-sm mb-4"
         x-text="redeemError"></div>
+
+      <!-- Repeat the type's redemption warning in the redeem modal so staff see it before confirming. -->
+      <div x-show="voucher?._redemption_warning"
+        class="bg-amber-50 border border-amber-200 text-amber-800 rounded-xl p-3 text-sm mb-4 flex items-start gap-2.5">
+        <svg class="w-4 h-4 shrink-0 text-amber-500 mt-0.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+          <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 9v2m0 4h.01M10.29 3.86L1.82 18a2 2 0 001.71 3h16.94a2 2 0 001.71-3L13.71 3.86a2 2 0 00-3.42 0z"/>
+        </svg>
+        <span x-text="voucher?._redemption_warning"></span>
+      </div>
 
       <div class="space-y-4">
         <div>
