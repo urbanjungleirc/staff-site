@@ -1186,6 +1186,218 @@
     </div>
   </div>
 
+  <!-- ── Voucher Type editor modal ──────────────────────────────────────── -->
+  <div x-show="typeEditorOpen" x-cloak class="fixed inset-0 z-50 flex items-center justify-center p-4"
+    @keydown.escape.window="closeTypeEditor()">
+    <div class="absolute inset-0 bg-black/40 backdrop-blur-sm" @click="closeTypeEditor()"></div>
+    <div class="relative bg-white rounded-card shadow-2xl shadow-neutral-900/15 w-full max-w-3xl max-h-[90vh] overflow-y-auto p-6 border border-neutral-100">
+      <div class="flex items-center justify-between mb-4">
+        <h3 class="text-base font-semibold text-neutral-900"
+          x-text="editingExisting ? ('Edit ' + typeForm.display_name) : 'New voucher type'"></h3>
+        <button @click="closeTypeEditor()" class="text-neutral-400 hover:text-neutral-700 text-xl leading-none">&times;</button>
+      </div>
+
+      <div x-show="typeEditorError"
+        class="bg-rose-50 border border-rose-200 text-rose-700 rounded-xl p-3 text-sm mb-4"
+        x-text="typeEditorError"></div>
+
+      <!-- PLAN-PREVIEW-SLOT: Task 4 inserts the live-preview pane wrapper here -->
+
+      <div class="grid gap-5">
+
+        <!-- Basics -->
+        <fieldset class="grid gap-3">
+          <legend class="text-[0.67rem] font-semibold text-neutral-400 uppercase tracking-wider">Basics</legend>
+
+          <!-- Type ID (immutable once created) -->
+          <div>
+            <label class="block text-[0.67rem] font-semibold text-neutral-400 uppercase tracking-wider mb-1.5">
+              Type ID <span class="text-rose-400 normal-case tracking-normal font-normal">*</span>
+            </label>
+            <input type="text" x-model="typeForm.type_id" :readonly="editingExisting"
+              placeholder="lowercase_with_underscores"
+              :class="editingExisting ? 'bg-neutral-100 text-neutral-500' : ''"
+              class="w-full border border-neutral-200 rounded-xl px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-uj/20 focus:border-uj" />
+          </div>
+
+          <!-- Display name -->
+          <div>
+            <label class="block text-[0.67rem] font-semibold text-neutral-400 uppercase tracking-wider mb-1.5">
+              Display name <span class="text-rose-400 normal-case tracking-normal font-normal">*</span>
+            </label>
+            <input type="text" x-model="typeForm.display_name"
+              class="w-full border border-neutral-200 rounded-xl px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-uj/20 focus:border-uj" />
+          </div>
+
+          <!-- Description -->
+          <div>
+            <label class="block text-[0.67rem] font-semibold text-neutral-400 uppercase tracking-wider mb-1.5">Description</label>
+            <textarea x-model="typeForm.description" rows="2"
+              class="w-full border border-neutral-200 rounded-xl px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-uj/20 focus:border-uj"></textarea>
+          </div>
+
+          <!-- Availability -->
+          <div>
+            <label class="block text-[0.67rem] font-semibold text-neutral-400 uppercase tracking-wider mb-1.5">Availability</label>
+            <select x-model="typeForm.availability"
+              class="w-full border border-neutral-200 rounded-xl px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-uj/20 focus:border-uj bg-white">
+              <option value="both">both</option>
+              <option value="online">online</option>
+              <option value="staff_only">staff_only</option>
+            </select>
+          </div>
+
+          <!-- Expiry months -->
+          <div>
+            <label class="block text-[0.67rem] font-semibold text-neutral-400 uppercase tracking-wider mb-1.5">Expiry months</label>
+            <input type="number" x-model="typeForm.expiry_months" placeholder="blank = no expiry"
+              class="w-full border border-neutral-200 rounded-xl px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-uj/20 focus:border-uj" />
+          </div>
+
+          <!-- Max per customer -->
+          <div>
+            <label class="block text-[0.67rem] font-semibold text-neutral-400 uppercase tracking-wider mb-1.5">Max per customer</label>
+            <input type="number" x-model="typeForm.max_per_customer" placeholder="blank = unlimited"
+              class="w-full border border-neutral-200 rounded-xl px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-uj/20 focus:border-uj" />
+          </div>
+
+          <!-- Limit period -->
+          <div>
+            <label class="block text-[0.67rem] font-semibold text-neutral-400 uppercase tracking-wider mb-1.5">Limit period</label>
+            <select x-model="typeForm.limit_period"
+              class="w-full border border-neutral-200 rounded-xl px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-uj/20 focus:border-uj bg-white">
+              <option value="">none</option>
+              <option value="lifetime">lifetime</option>
+              <option value="annual">annual</option>
+            </select>
+          </div>
+
+          <!-- Promo ID -->
+          <div>
+            <label class="block text-[0.67rem] font-semibold text-neutral-400 uppercase tracking-wider mb-1.5">Promo ID</label>
+            <input type="text" x-model="typeForm.promo_id" placeholder="blank = none"
+              class="w-full border border-neutral-200 rounded-xl px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-uj/20 focus:border-uj" />
+          </div>
+
+          <!-- Sort order -->
+          <div>
+            <label class="block text-[0.67rem] font-semibold text-neutral-400 uppercase tracking-wider mb-1.5">Sort order</label>
+            <input type="number" x-model="typeForm.sort_order"
+              class="w-full border border-neutral-200 rounded-xl px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-uj/20 focus:border-uj" />
+          </div>
+
+          <!-- Physical voucher -->
+          <label class="flex items-center gap-2.5 text-sm text-neutral-700">
+            <input type="checkbox" x-model="typeForm.is_physical"
+              class="rounded border-neutral-300 text-uj focus:ring-uj/20" />
+            Physical voucher
+          </label>
+
+          <!-- Active -->
+          <label class="flex items-center gap-2.5 text-sm text-neutral-700">
+            <input type="checkbox" x-model="typeForm.is_active"
+              class="rounded border-neutral-300 text-uj focus:ring-uj/20" />
+            Active
+          </label>
+        </fieldset>
+
+        <!-- Email content -->
+        <fieldset class="grid gap-3">
+          <legend class="text-[0.67rem] font-semibold text-neutral-400 uppercase tracking-wider">Email content</legend>
+
+          <!-- Email subject -->
+          <div>
+            <label class="block text-[0.67rem] font-semibold text-neutral-400 uppercase tracking-wider mb-1.5">Email subject</label>
+            <input type="text" x-model="typeForm.email_subject"
+              class="w-full border border-neutral-200 rounded-xl px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-uj/20 focus:border-uj" />
+          </div>
+
+          <!-- Email body (Markdown) -->
+          <div>
+            <label class="block text-[0.67rem] font-semibold text-neutral-400 uppercase tracking-wider mb-1.5">Email body (Markdown)</label>
+            <textarea x-model="typeForm.email_body" rows="6"
+              class="w-full border border-neutral-200 rounded-xl px-3 py-2 text-sm font-mono focus:outline-none focus:ring-2 focus:ring-uj/20 focus:border-uj"></textarea>
+          </div>
+
+          <!-- Terms & conditions (Markdown) -->
+          <div>
+            <label class="block text-[0.67rem] font-semibold text-neutral-400 uppercase tracking-wider mb-1.5">Terms &amp; conditions (Markdown)</label>
+            <textarea x-model="typeForm.terms_conditions" rows="4"
+              class="w-full border border-neutral-200 rounded-xl px-3 py-2 text-sm font-mono focus:outline-none focus:ring-2 focus:ring-uj/20 focus:border-uj"></textarea>
+          </div>
+
+          <!-- Usage info (Markdown) -->
+          <div>
+            <label class="block text-[0.67rem] font-semibold text-neutral-400 uppercase tracking-wider mb-1.5">Usage info (Markdown)</label>
+            <textarea x-model="typeForm.usage_info" rows="3"
+              class="w-full border border-neutral-200 rounded-xl px-3 py-2 text-sm font-mono focus:outline-none focus:ring-2 focus:ring-uj/20 focus:border-uj"></textarea>
+          </div>
+
+          <!-- Redemption instructions -->
+          <div>
+            <label class="block text-[0.67rem] font-semibold text-neutral-400 uppercase tracking-wider mb-1.5">Redemption instructions</label>
+            <textarea x-model="typeForm.redemption_instructions" rows="2"
+              class="w-full border border-neutral-200 rounded-xl px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-uj/20 focus:border-uj"></textarea>
+          </div>
+        </fieldset>
+
+        <!-- Branding -->
+        <fieldset class="grid gap-3">
+          <legend class="text-[0.67rem] font-semibold text-neutral-400 uppercase tracking-wider">Branding</legend>
+
+          <!-- Accent colour -->
+          <div>
+            <label class="block text-[0.67rem] font-semibold text-neutral-400 uppercase tracking-wider mb-1.5">Accent colour</label>
+            <input type="color" x-model="typeForm.accent_color"
+              class="h-9 w-16 border border-neutral-200 rounded-lg p-1 cursor-pointer" />
+          </div>
+
+          <!-- Voucher label -->
+          <div>
+            <label class="block text-[0.67rem] font-semibold text-neutral-400 uppercase tracking-wider mb-1.5">Voucher label</label>
+            <input type="text" x-model="typeForm.voucher_label"
+              class="w-full border border-neutral-200 rounded-xl px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-uj/20 focus:border-uj" />
+          </div>
+
+          <!-- Show QR code -->
+          <label class="flex items-center gap-2.5 text-sm text-neutral-700">
+            <input type="checkbox" x-model="typeForm.show_qr"
+              class="rounded border-neutral-300 text-uj focus:ring-uj/20" />
+            Show QR code
+          </label>
+
+          <!-- Show value -->
+          <label class="flex items-center gap-2.5 text-sm text-neutral-700">
+            <input type="checkbox" x-model="typeForm.show_value"
+              class="rounded border-neutral-300 text-uj focus:ring-uj/20" />
+            Show value
+          </label>
+        </fieldset>
+
+        <!-- Staff -->
+        <fieldset class="grid gap-3">
+          <legend class="text-[0.67rem] font-semibold text-neutral-400 uppercase tracking-wider">Staff</legend>
+          <div>
+            <label class="block text-[0.67rem] font-semibold text-neutral-400 uppercase tracking-wider mb-1.5">Redemption warning (shown to staff)</label>
+            <textarea x-model="typeForm.redemption_warning" rows="2"
+              class="w-full border border-neutral-200 rounded-xl px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-uj/20 focus:border-uj"></textarea>
+          </div>
+        </fieldset>
+      </div>
+
+      <div class="flex gap-2.5 mt-6">
+        <button @click="closeTypeEditor()"
+          class="flex-1 border border-neutral-200 hover:bg-neutral-50 text-neutral-700 font-medium rounded-xl py-2.5 text-sm transition-colors">
+          Cancel
+        </button>
+        <button @click="saveVoucherType()" :disabled="typeEditorSaving"
+          class="flex-1 bg-uj hover:bg-uj-dark disabled:opacity-50 text-white font-semibold rounded-xl py-2.5 text-sm transition-colors">
+          <span x-text="typeEditorSaving ? 'Saving…' : 'Save type'"></span>
+        </button>
+      </div>
+    </div>
+  </div>
+
   <!-- ── Toast ────────────────────────────────────────────────────────────── -->
   <div x-show="toast" x-cloak
     x-transition:enter="transition ease-out duration-200"
@@ -1259,6 +1471,13 @@
       createItem: '',
       createTypeOpen: false,
       createItemOpen: false,
+
+      // ── Voucher Type editor ────────────────────────────────────────────
+      typeEditorOpen: false,
+      editingExisting: false,
+      typeEditorSaving: false,
+      typeEditorError: '',
+      typeForm: {},
       createName: '',
       createPhone: '',
       createEmail: '',
@@ -1763,8 +1982,91 @@
         }
       },
 
-      // Filled in by later tasks (stubs so the list markup is wired):
-      openTypeEditor(t = null) { /* Task 3 */ },
+      // ── Voucher Type editor ──────────────────────────────────────────────
+      blankTypeForm() {
+        return {
+          type_id: '', display_name: '', description: '',
+          availability: 'both', expiry_months: '', max_per_customer: '',
+          limit_period: '', promo_id: '', sort_order: 0,
+          is_physical: false, is_active: true,
+          email_subject: '', email_body: '',
+          terms_conditions: '', usage_info: '',
+          redemption_instructions: 'Scan at the front desk to redeem',
+          accent_color: '#ae222a', voucher_label: 'Your Voucher',
+          show_qr: true, show_value: true,
+          redemption_warning: '',
+        };
+      },
+
+      openTypeEditor(t = null) {
+        this.typeEditorError = '';
+        this.editingExisting = !!t;
+        if (t) {
+          // Merge onto a blank so any column the API omitted still has a sane default.
+          this.typeForm = { ...this.blankTypeForm(), ...t };
+          // Normalise nulls to '' for text inputs so x-model binds cleanly.
+          for (const k of ['description','expiry_months','max_per_customer','limit_period','promo_id',
+                           'email_subject','email_body','terms_conditions','usage_info',
+                           'redemption_instructions','voucher_label','redemption_warning','accent_color']) {
+            if (this.typeForm[k] === null || this.typeForm[k] === undefined) this.typeForm[k] = '';
+          }
+          if (this.typeForm.sort_order === null || this.typeForm.sort_order === undefined) this.typeForm.sort_order = 0;
+        } else {
+          this.typeForm = this.blankTypeForm();
+        }
+        this.typeEditorOpen = true;
+      },
+
+      closeTypeEditor() {
+        this.typeEditorOpen = false;
+      },
+
+      async saveVoucherType() {
+        const f = this.typeForm;
+        if (!f.type_id || !f.type_id.trim()) { this.typeEditorError = 'Type ID is required'; return; }
+        if (!f.display_name || !f.display_name.trim()) { this.typeEditorError = 'Display name is required'; return; }
+
+        const numOrNull = (v) => (v === '' || v === null || v === undefined ? null : Number(v));
+        const textOrNull = (v) => (v === '' || v === null || v === undefined ? null : v);
+
+        const payload = {
+          type_id: f.type_id.trim(),
+          display_name: f.display_name.trim(),
+          description: textOrNull(f.description),
+          availability: f.availability,
+          expiry_months: numOrNull(f.expiry_months),
+          max_per_customer: numOrNull(f.max_per_customer),
+          limit_period: textOrNull(f.limit_period),   // '' -> null (enum check)
+          promo_id: textOrNull(f.promo_id),
+          sort_order: Number(f.sort_order) || 0,
+          is_physical: !!f.is_physical,
+          is_active: !!f.is_active,
+          email_subject: textOrNull(f.email_subject),
+          email_body: textOrNull(f.email_body),
+          terms_conditions: textOrNull(f.terms_conditions),
+          usage_info: textOrNull(f.usage_info),
+          redemption_instructions: textOrNull(f.redemption_instructions),
+          accent_color: f.accent_color || '#ae222a',
+          voucher_label: textOrNull(f.voucher_label) || 'Your Voucher',
+          show_qr: !!f.show_qr,
+          show_value: !!f.show_value,
+          redemption_warning: textOrNull(f.redemption_warning),
+        };
+
+        this.typeEditorSaving = true;
+        this.typeEditorError = '';
+        try {
+          await this.api('/v1/staff/voucher-types', { method: 'POST', body: JSON.stringify(payload) });
+          this.showToast('Type saved');
+          this.typeEditorOpen = false;
+          await this.loadVoucherTypes();
+        } catch (e) {
+          this.typeEditorError = e.message || 'Failed to save type';
+        } finally {
+          this.typeEditorSaving = false;
+        }
+      },
+
       openItemsEditor(t = null) { /* Task 5 */ },
     };
   }
