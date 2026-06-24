@@ -1056,6 +1056,8 @@
                   <span x-text="t.availability"></span>
                   <span class="mx-1.5">·</span>
                   <span>sort <span x-text="t.sort_order"></span></span>
+                  <span class="mx-1.5">·</span>
+                  <span x-text="(typeItemCounts[t.type_id] ?? '–') + ' items'"></span>
                 </div>
               </div>
               <div class="flex items-center gap-2 shrink-0">
@@ -1190,7 +1192,7 @@
   <div x-show="typeEditorOpen" x-cloak class="fixed inset-0 z-50 flex items-center justify-center p-4"
     @keydown.escape.window="closeTypeEditor()">
     <div class="absolute inset-0 bg-black/40 backdrop-blur-sm" @click="closeTypeEditor()"></div>
-    <div class="relative bg-white rounded-card shadow-2xl shadow-neutral-900/15 w-full max-w-6xl max-h-[90vh] overflow-y-auto p-6 border border-neutral-100">
+    <div class="relative bg-white rounded-card shadow-2xl shadow-neutral-900/15 w-full max-w-7xl max-h-[90vh] overflow-y-auto p-6 border border-neutral-100">
       <div class="flex items-center justify-between mb-4">
         <h3 class="text-base font-semibold text-neutral-900"
           x-text="editingExisting ? ('Edit ' + typeForm.display_name) : 'New voucher type'"></h3>
@@ -1201,13 +1203,16 @@
         class="bg-rose-50 border border-rose-200 text-rose-700 rounded-xl p-3 text-sm mb-4"
         x-text="typeEditorError"></div>
 
-      <div class="grid lg:grid-cols-3 gap-6">
-        <div class="lg:col-span-2 order-2 lg:order-1" @input="refreshPreview()">
-          <div class="grid md:grid-cols-2 gap-x-5 gap-y-5">
+      <div class="grid lg:grid-cols-2 gap-6">
+        <div class="order-2 lg:order-1" @input="refreshPreview()">
+          <div class="grid gap-5">
 
         <!-- Identity & rules -->
-        <fieldset class="md:col-span-2 grid sm:grid-cols-2 gap-x-4 gap-y-3">
-          <legend class="col-span-full text-[0.67rem] font-semibold text-neutral-400 uppercase tracking-wider">Identity &amp; rules</legend>
+        <fieldset class="grid sm:grid-cols-2 gap-x-4 gap-y-3">
+          <div class="col-span-full flex items-center gap-2.5 pb-2 mb-1 border-b border-neutral-200">
+            <div class="section-icon"><svg viewBox="0 0 24 24"><path d="M20.59 13.41l-7.17 7.17a2 2 0 0 1-2.83 0L2 12V2h10l8.59 8.59a2 2 0 0 1 0 2.82z"/><line x1="7" y1="7" x2="7.01" y2="7"/></svg></div>
+            <span class="text-xs font-semibold text-neutral-600 uppercase tracking-wider">Identity &amp; rules</span>
+          </div>
 
           <!-- Type ID (immutable once created) -->
           <div>
@@ -1239,12 +1244,17 @@
           <!-- Availability -->
           <div>
             <label class="block text-[0.67rem] font-semibold text-neutral-400 uppercase tracking-wider mb-1.5">Availability</label>
-            <select x-model="typeForm.availability"
-              class="w-full border border-neutral-200 rounded-xl px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-uj/20 focus:border-uj bg-white">
-              <option value="both">both</option>
-              <option value="online">online</option>
-              <option value="staff_only">staff_only</option>
-            </select>
+            <div class="combo" @click.outside="availabilityOpen = false" @keydown.escape.window="availabilityOpen = false">
+              <button type="button" @click="availabilityOpen = !availabilityOpen" :aria-expanded="availabilityOpen.toString()" class="combo-trigger">
+                <span x-text="typeForm.availability"></span>
+                <svg class="combo-chevron" viewBox="0 0 24 24"><path d="m6 9 6 6 6-6"/></svg>
+              </button>
+              <div x-show="availabilityOpen" x-transition.origin.top x-cloak class="combo-menu">
+                <button type="button" @click="typeForm.availability = 'both'; availabilityOpen = false; refreshPreview()" :class="typeForm.availability === 'both' ? 'active' : ''" class="combo-option">both</button>
+                <button type="button" @click="typeForm.availability = 'online'; availabilityOpen = false; refreshPreview()" :class="typeForm.availability === 'online' ? 'active' : ''" class="combo-option">online</button>
+                <button type="button" @click="typeForm.availability = 'staff_only'; availabilityOpen = false; refreshPreview()" :class="typeForm.availability === 'staff_only' ? 'active' : ''" class="combo-option">staff_only</button>
+              </div>
+            </div>
           </div>
 
           <!-- Expiry months -->
@@ -1264,12 +1274,17 @@
           <!-- Limit period -->
           <div>
             <label class="block text-[0.67rem] font-semibold text-neutral-400 uppercase tracking-wider mb-1.5">Limit period</label>
-            <select x-model="typeForm.limit_period"
-              class="w-full border border-neutral-200 rounded-xl px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-uj/20 focus:border-uj bg-white">
-              <option value="">none</option>
-              <option value="lifetime">lifetime</option>
-              <option value="annual">annual</option>
-            </select>
+            <div class="combo" @click.outside="limitPeriodOpen = false" @keydown.escape.window="limitPeriodOpen = false">
+              <button type="button" @click="limitPeriodOpen = !limitPeriodOpen" :aria-expanded="limitPeriodOpen.toString()" class="combo-trigger">
+                <span x-text="typeForm.limit_period || 'none'"></span>
+                <svg class="combo-chevron" viewBox="0 0 24 24"><path d="m6 9 6 6 6-6"/></svg>
+              </button>
+              <div x-show="limitPeriodOpen" x-transition.origin.top x-cloak class="combo-menu">
+                <button type="button" @click="typeForm.limit_period = ''; limitPeriodOpen = false; refreshPreview()" :class="typeForm.limit_period === '' ? 'active' : ''" class="combo-option">none</button>
+                <button type="button" @click="typeForm.limit_period = 'lifetime'; limitPeriodOpen = false; refreshPreview()" :class="typeForm.limit_period === 'lifetime' ? 'active' : ''" class="combo-option">lifetime</button>
+                <button type="button" @click="typeForm.limit_period = 'annual'; limitPeriodOpen = false; refreshPreview()" :class="typeForm.limit_period === 'annual' ? 'active' : ''" class="combo-option">annual</button>
+              </div>
+            </div>
           </div>
 
           <!-- Promo ID -->
@@ -1282,6 +1297,7 @@
           <!-- Sort order -->
           <div>
             <label class="block text-[0.67rem] font-semibold text-neutral-400 uppercase tracking-wider mb-1.5">Sort order</label>
+            <p class="text-[0.7rem] leading-snug text-neutral-400 mt-1">Lower numbers appear first in the customer purchase list and staff dropdowns.</p>
             <input type="number" x-model="typeForm.sort_order"
               class="w-full border border-neutral-200 rounded-xl px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-uj/20 focus:border-uj" />
           </div>
@@ -1302,8 +1318,11 @@
         </fieldset>
 
         <!-- Email content -->
-        <fieldset class="md:col-span-2 grid gap-3">
-          <legend class="text-[0.67rem] font-semibold text-neutral-400 uppercase tracking-wider">Email content</legend>
+        <fieldset class="grid gap-3">
+          <div class="col-span-full flex items-center gap-2.5 pb-2 mb-1 border-b border-neutral-200">
+            <div class="section-icon"><svg viewBox="0 0 24 24"><rect x="2" y="4" width="20" height="16" rx="2"/><path d="m22 7-8.97 5.7a1.94 1.94 0 0 1-2.06 0L2 7"/></svg></div>
+            <span class="text-xs font-semibold text-neutral-600 uppercase tracking-wider">Email content</span>
+          </div>
 
           <!-- Email subject -->
           <div>
@@ -1315,6 +1334,7 @@
           <!-- Email body (Markdown) -->
           <div>
             <label class="block text-[0.67rem] font-semibold text-neutral-400 uppercase tracking-wider mb-1.5">Email body (Markdown)</label>
+            <p class="text-[0.7rem] leading-snug text-neutral-400 mt-1">Markdown: **bold**, _italic_, [link](https://…), - bullet lists, ## heading. Dynamic placeholders are filled per voucher — check the live preview.</p>
             <textarea x-model="typeForm.email_body" rows="6"
               class="w-full border border-neutral-200 rounded-xl px-3 py-2 text-sm font-mono focus:outline-none focus:ring-2 focus:ring-uj/20 focus:border-uj"></textarea>
           </div>
@@ -1322,6 +1342,7 @@
           <!-- Terms & conditions (Markdown) -->
           <div>
             <label class="block text-[0.67rem] font-semibold text-neutral-400 uppercase tracking-wider mb-1.5">Terms &amp; conditions (Markdown)</label>
+            <p class="text-[0.7rem] leading-snug text-neutral-400 mt-1">Markdown supported: **bold**, _italic_, [links](url), - lists.</p>
             <textarea x-model="typeForm.terms_conditions" rows="4"
               class="w-full border border-neutral-200 rounded-xl px-3 py-2 text-sm font-mono focus:outline-none focus:ring-2 focus:ring-uj/20 focus:border-uj"></textarea>
           </div>
@@ -1329,6 +1350,7 @@
           <!-- Usage info (Markdown) -->
           <div>
             <label class="block text-[0.67rem] font-semibold text-neutral-400 uppercase tracking-wider mb-1.5">Usage info (Markdown)</label>
+            <p class="text-[0.7rem] leading-snug text-neutral-400 mt-1">Markdown supported: **bold**, _italic_, [links](url), - lists.</p>
             <textarea x-model="typeForm.usage_info" rows="3"
               class="w-full border border-neutral-200 rounded-xl px-3 py-2 text-sm font-mono focus:outline-none focus:ring-2 focus:ring-uj/20 focus:border-uj"></textarea>
           </div>
@@ -1336,14 +1358,18 @@
           <!-- Redemption instructions -->
           <div>
             <label class="block text-[0.67rem] font-semibold text-neutral-400 uppercase tracking-wider mb-1.5">Redemption instructions</label>
+            <p class="text-[0.7rem] leading-snug text-neutral-400 mt-1">Appears on the voucher email, telling the customer how to redeem (e.g. "Scan at the front desk to redeem").</p>
             <textarea x-model="typeForm.redemption_instructions" rows="2"
               class="w-full border border-neutral-200 rounded-xl px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-uj/20 focus:border-uj"></textarea>
           </div>
         </fieldset>
 
         <!-- Branding -->
-        <fieldset class="grid gap-3 content-start">
-          <legend class="text-[0.67rem] font-semibold text-neutral-400 uppercase tracking-wider">Branding</legend>
+        <fieldset class="grid sm:grid-cols-2 gap-x-4 gap-y-3 content-start">
+          <div class="col-span-full flex items-center gap-2.5 pb-2 mb-1 border-b border-neutral-200">
+            <div class="section-icon"><svg viewBox="0 0 24 24"><path d="M9.06 11.9l8.07-8.06a2.85 2.85 0 1 1 4.03 4.03l-8.06 8.08"/><path d="M7.07 14.94c-1.66 0-3 1.35-3 3.02 0 1.33-2.5 1.52-2 2.02 1 1 2.48 1.02 3 1.02 2.2 0 4-1.8 4-4.04a3.01 3.01 0 0 0-2-2.02z"/></svg></div>
+            <span class="text-xs font-semibold text-neutral-600 uppercase tracking-wider">Branding</span>
+          </div>
 
           <!-- Accent colour -->
           <div>
@@ -1375,8 +1401,11 @@
         </fieldset>
 
         <!-- Staff -->
-        <fieldset class="grid gap-3 content-start">
-          <legend class="text-[0.67rem] font-semibold text-neutral-400 uppercase tracking-wider">Staff</legend>
+        <fieldset class="grid gap-3">
+          <div class="col-span-full flex items-center gap-2.5 pb-2 mb-1 border-b border-neutral-200">
+            <div class="section-icon"><svg viewBox="0 0 24 24"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/></svg></div>
+            <span class="text-xs font-semibold text-neutral-600 uppercase tracking-wider">Staff</span>
+          </div>
           <div>
             <label class="block text-[0.67rem] font-semibold text-neutral-400 uppercase tracking-wider mb-1.5">Redemption warning (shown to staff)</label>
             <textarea x-model="typeForm.redemption_warning" rows="2"
@@ -1422,16 +1451,25 @@
 
           <!-- Items list -->
           <div class="grid gap-2 mb-4" x-show="!itemFormOpen">
-            <template x-for="it in items" :key="it.id">
-              <div class="border border-neutral-200 rounded-xl p-3 flex items-center justify-between gap-3">
-                <div class="min-w-0">
-                  <div class="flex items-center gap-2">
-                    <span class="font-medium text-neutral-900 truncate" x-text="it.name"></span>
-                    <span x-show="!it.is_active" class="text-[0.6rem] font-semibold uppercase tracking-wider text-neutral-500 bg-neutral-100 rounded-full px-2 py-0.5">Inactive</span>
+            <p class="text-[0.7rem] text-neutral-400">Drag rows to reorder.</p>
+            <template x-for="(it, idx) in items" :key="it.id">
+              <div class="border border-neutral-200 rounded-xl p-3 flex items-center justify-between gap-3 cursor-move"
+                draggable="true"
+                @dragstart="onItemDragStart(idx)"
+                @dragover.prevent
+                @drop="onItemDrop(idx)"
+                @dragend="dragItemIndex = null">
+                <div class="flex items-center gap-2 min-w-0">
+                  <svg class="w-4 h-4 shrink-0 text-neutral-300" viewBox="0 0 24 24" fill="currentColor"><circle cx="9" cy="6" r="1.5"/><circle cx="15" cy="6" r="1.5"/><circle cx="9" cy="12" r="1.5"/><circle cx="15" cy="12" r="1.5"/><circle cx="9" cy="18" r="1.5"/><circle cx="15" cy="18" r="1.5"/></svg>
+                  <div class="min-w-0">
+                    <div class="flex items-center gap-2">
+                      <span class="font-medium text-neutral-900 truncate" x-text="it.name"></span>
+                      <span x-show="!it.is_active" class="text-[0.6rem] font-semibold uppercase tracking-wider text-neutral-500 bg-neutral-100 rounded-full px-2 py-0.5">Inactive</span>
+                    </div>
+                    <div class="text-xs text-neutral-400 mt-0.5" x-text="priceHint(it)"></div>
                   </div>
-                  <div class="text-xs text-neutral-400 mt-0.5" x-text="priceHint(it)"></div>
                 </div>
-                <button @click="openItemForm(it)" class="text-sm text-neutral-600 hover:text-uj border border-neutral-200 hover:border-uj/40 rounded-lg px-3 py-1.5 transition-colors">Edit</button>
+                <button @click="openItemForm(it)" class="text-sm text-neutral-600 hover:text-uj border border-neutral-200 hover:border-uj/40 rounded-lg px-3 py-1.5 transition-colors shrink-0">Edit</button>
               </div>
             </template>
             <button @click="openItemForm(null)" class="mt-1 bg-uj hover:bg-uj-dark text-white font-semibold rounded-xl px-4 py-2 text-sm transition-colors">Add item</button>
@@ -1446,14 +1484,17 @@
             <div class="grid grid-cols-3 gap-3">
               <div>
                 <label class="block text-[0.67rem] font-semibold text-neutral-400 uppercase tracking-wider mb-1.5">Value *</label>
+                <p class="text-[0.7rem] leading-snug text-neutral-400 mt-1">Face value issued to the customer — the voucher's starting balance.</p>
                 <input type="number" step="0.01" x-model="itemForm.value" class="w-full border border-neutral-200 rounded-xl px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-uj/20 focus:border-uj" />
               </div>
               <div>
                 <label class="block text-[0.67rem] font-semibold text-neutral-400 uppercase tracking-wider mb-1.5">Price</label>
+                <p class="text-[0.7rem] leading-snug text-neutral-400 mt-1">Amount charged at checkout. Leave blank to charge the face value.</p>
                 <input type="number" step="0.01" x-model="itemForm.price" placeholder="= value" class="w-full border border-neutral-200 rounded-xl px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-uj/20 focus:border-uj" />
               </div>
               <div>
                 <label class="block text-[0.67rem] font-semibold text-neutral-400 uppercase tracking-wider mb-1.5">Was price</label>
+                <p class="text-[0.7rem] leading-snug text-neutral-400 mt-1">Optional "before" price shown struck-through beside the price. Display only — never charged.</p>
                 <input type="number" step="0.01" x-model="itemForm.was_price" class="w-full border border-neutral-200 rounded-xl px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-uj/20 focus:border-uj" />
               </div>
             </div>
@@ -1464,6 +1505,7 @@
             <div class="grid grid-cols-2 gap-3">
               <div>
                 <label class="block text-[0.67rem] font-semibold text-neutral-400 uppercase tracking-wider mb-1.5">Display order</label>
+                <p class="text-[0.7rem] leading-snug text-neutral-400 mt-1">Lower numbers appear first in the customer purchase list and staff dropdowns.</p>
                 <input type="number" x-model="itemForm.display_order" class="w-full border border-neutral-200 rounded-xl px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-uj/20 focus:border-uj" />
               </div>
               <div class="flex items-end pb-2">
@@ -1483,6 +1525,29 @@
           </div>
         </div>
       </div>
+
+  <!-- ── Deactivate confirmation modal ─────────────────────────────────── -->
+  <div x-show="deactivateOpen" x-cloak class="fixed inset-0 z-50 flex items-center justify-center p-4"
+    @keydown.escape.window="deactivateOpen = false">
+    <div class="absolute inset-0 bg-black/40 backdrop-blur-sm" @click="deactivateOpen = false"></div>
+    <div class="relative bg-white rounded-card shadow-2xl shadow-neutral-900/15 w-full max-w-md p-6 border border-neutral-100">
+      <div class="flex items-center justify-between mb-4">
+        <h3 class="text-base font-semibold text-neutral-900">Deactivate voucher type?</h3>
+        <button @click="deactivateOpen = false" class="text-neutral-400 hover:text-neutral-700 text-xl leading-none">&times;</button>
+      </div>
+      <p class="text-sm text-neutral-700 mb-6">Deactivating <b x-text="deactivateTarget?.display_name"></b> stops new vouchers of this type being sold online and created by staff. Vouchers already issued are unaffected, and you can reactivate it any time.</p>
+      <div class="flex gap-2.5">
+        <button @click="deactivateOpen = false"
+          class="flex-1 border border-neutral-200 hover:bg-neutral-50 text-neutral-700 font-medium rounded-xl py-2.5 text-sm transition-colors">
+          Cancel
+        </button>
+        <button @click="confirmDeactivate()"
+          class="flex-1 bg-uj hover:bg-uj-dark text-white font-semibold rounded-xl py-2.5 text-sm transition-colors">
+          Deactivate
+        </button>
+      </div>
+    </div>
+  </div>
 
   <!-- ── Toast ────────────────────────────────────────────────────────────── -->
   <div x-show="toast" x-cloak
@@ -1574,6 +1639,12 @@
       itemFormOpen: false,
       itemForm: {},
       itemSaving: false,
+      availabilityOpen: false,
+      limitPeriodOpen: false,
+      deactivateOpen: false,
+      deactivateTarget: null,
+      typeItemCounts: {},
+      dragItemIndex: null,
       _previewTimer: null,
       createName: '',
       createPhone: '',
@@ -2059,6 +2130,7 @@
         this.voucherTypesError = '';
         try {
           this.adminVoucherTypes = await this.api('/v1/staff/voucher-types');
+          this.loadTypeItemCounts(); // fire-and-forget; do not block the list render
         } catch (e) {
           this.voucherTypesError = e.message || 'Failed to load voucher types';
         } finally {
@@ -2066,17 +2138,45 @@
         }
       },
 
+      async loadTypeItemCounts() {
+        const map = {};
+        await Promise.all(this.adminVoucherTypes.map(async (t) => {
+          try {
+            const items = await this.api('/v1/staff/voucher-types/' + encodeURIComponent(t.type_id) + '/items');
+            map[t.type_id] = items.filter(i => i.is_active).length;
+          } catch (e) {
+            map[t.type_id] = null;
+          }
+        }));
+        this.typeItemCounts = map;
+      },
+
       async toggleTypeActive(t) {
+        if (t.is_active) {
+          this.deactivateTarget = t;
+          this.deactivateOpen = true;
+        } else {
+          await this.doToggleTypeActive(t);
+        }
+      },
+
+      async doToggleTypeActive(t) {
         try {
           await this.api('/v1/staff/voucher-types', {
             method: 'POST',
-            body: JSON.stringify({ type_id: t.type_id, is_active: !t.is_active }),
+            body: JSON.stringify({ ...t, is_active: !t.is_active }),
           });
           this.showToast(t.is_active ? 'Type deactivated' : 'Type activated');
           await this.loadVoucherTypes();
         } catch (e) {
           this.showToast(e.message || 'Failed to update type', 'error');
         }
+      },
+
+      async confirmDeactivate() {
+        const t = this.deactivateTarget;
+        this.deactivateOpen = false;
+        if (t) await this.doToggleTypeActive(t);
       },
 
       // ── Voucher Type editor ──────────────────────────────────────────────
@@ -2265,6 +2365,35 @@
         } finally {
           this.itemSaving = false;
         }
+      },
+
+      onItemDragStart(i) {
+        this.dragItemIndex = i;
+      },
+
+      async onItemDrop(j) {
+        const from = this.dragItemIndex;
+        this.dragItemIndex = null;
+        if (from === null || from === j) return;
+        const arr = this.items;
+        const [moved] = arr.splice(from, 1);
+        arr.splice(j, 0, moved);
+        const changed = [];
+        arr.forEach((it, k) => {
+          if (it.display_order !== k) {
+            it.display_order = k;
+            changed.push(it);
+          }
+        });
+        try {
+          for (const it of changed) {
+            await this.api('/v1/staff/voucher-items', { method: 'POST', body: JSON.stringify({ ...it, display_order: it.display_order }) });
+          }
+          this.showToast('Items reordered');
+        } catch (e) {
+          this.itemsError = e.message || 'Failed to reorder';
+        }
+        await this.loadItems();
       },
     };
   }
