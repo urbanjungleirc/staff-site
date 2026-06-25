@@ -1,0 +1,9 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" role="img" aria-label="Urban Jungle Slideshow">
+  <rect width="64" height="64" rx="14" fill="#8b1c23" />
+  <g transform="translate(13 13) scale(1.583)" fill="none" stroke="#ffffff" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+    <rect x="2.5" y="4" width="19" height="13.5" rx="2.5" />
+    <path d="M8.5 20.5h7" />
+    <path d="M12 17.5v3" />
+    <path d="M10.6 8.6v5.8l4.8-2.9z" fill="#ffffff" />
+  </g>
+</svg>
