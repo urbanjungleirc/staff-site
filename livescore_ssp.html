@@ -19,10 +19,14 @@
     <!-- <link href="https://cdn.datatables.net/v/bs5/jq-3.7.0/dt-2.3.2/cc-1.0.6/date-1.5.5/r-3.0.4/sp-2.3.3/sl-3.0.1/datatables.min.css" rel="stylesheet" integrity="sha384-5LDkuLuEfvw5/Apfn2AYGfZo0GX1tzoPopH5UljPvr/0h8clEfKvYbKATwOkWCM1" crossorigin="anonymous"> -->
 
     <style>
-        /* SSP competition brand purple — local override of Bootstrap theme vars */
+        /* SSP competition brand purple — local override of Bootstrap theme vars.
+           Both the hex and the -rgb triplet must be set: custom CSS reads var(--bs-primary),
+           but Bootstrap utility classes (.text-primary, .btn-primary, ...) read var(--bs-primary-rgb). */
         :root {
             --bs-primary: #7a39fc;
+            --bs-primary-rgb: 122, 57, 252;
             --bs-danger: #4a18c0;
+            --bs-danger-rgb: 74, 24, 192;
         }
 
         /* Modern gradient background */
@@ -33,9 +37,9 @@
         
         /* Modern header with gradient and glass effect */
         .main-header {
-            background: linear-gradient(135deg, var(--bs-primary) 0%, var(--bs-danger) 100%);
+            background: linear-gradient(135deg, var(--bs-danger) 0%, var(--bs-primary) 100%);
             backdrop-filter: blur(10px);
-            box-shadow: 0 8px 32px rgba(174, 34, 42, 0.3);
+            box-shadow: 0 8px 32px rgba(122, 57, 252, 0.3);
             border-bottom: 1px solid rgba(255, 255, 255, 0.1);
         }
         
