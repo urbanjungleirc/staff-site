@@ -19,6 +19,12 @@
     <!-- <link href="https://cdn.datatables.net/v/bs5/jq-3.7.0/dt-2.3.2/cc-1.0.6/date-1.5.5/r-3.0.4/sp-2.3.3/sl-3.0.1/datatables.min.css" rel="stylesheet" integrity="sha384-5LDkuLuEfvw5/Apfn2AYGfZo0GX1tzoPopH5UljPvr/0h8clEfKvYbKATwOkWCM1" crossorigin="anonymous"> -->
 
     <style>
+        /* SSP competition brand purple — local override of Bootstrap theme vars */
+        :root {
+            --bs-primary: #7a39fc;
+            --bs-danger: #4a18c0;
+        }
+
         /* Modern gradient background */
         body {
             background: linear-gradient(135deg, #f8f9fa 0%, #e9ecef 100%);
@@ -217,7 +223,7 @@
         }
         
         .boulder-flash {
-            background: linear-gradient(45deg, #6821AD, #C59DEF);
+            background: linear-gradient(45deg, #7a39fc, #b794fc);
             color: white;
             border-radius: 50%;
             width: 35px;
@@ -231,7 +237,7 @@
         }
         
         .boulder-top {
-            background: linear-gradient(45deg, #6821AD, #C59DEF);
+            background: linear-gradient(45deg, #7a39fc, #b794fc);
             color: white;
             border-radius: 6px;
             padding: 8px 12px;
@@ -242,13 +248,13 @@
         }
         
         .boulder-zone {
-            background: linear-gradient(45deg, #6821AD, #C59DEF);
+            background: linear-gradient(45deg, #7a39fc, #b794fc);
             background-size: 100% 25%;
             background-repeat: no-repeat;
             background-position: bottom;
             /* background-color:  #dbd3e4; */
             color: black;
-            border: 1px solid #6821AD;
+            border: 1px solid #7a39fc;
             border-radius: 6px;
             padding: 8px 12px;
             /* font-weight: bold; */

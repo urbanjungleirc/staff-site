@@ -27,17 +27,22 @@
     <link rel="stylesheet" href="https://cdn.datatables.net/buttons/2.2.3/js/dataTables.buttons.min.js">
 
     <style>
-        /* Elegant gradient background */
+        /* SSP competition brand purple — local override of Bootstrap theme vars */
+        :root {
+            --bs-primary: #7a39fc;
+            --bs-danger: #4a18c0;
+        }
+
+        /* Light background to match the live view page */
         body {
-            /* background: linear-gradient(135deg, #1a1a2e 0%, #16213e 50%, #0f3460 100%); */
-            background: linear-gradient(135deg, #2a1a1a 0%, #3e1621 50%, #601a0f 100%);
+            background: linear-gradient(135deg, #f8f9fa 0%, #e9ecef 100%);
             min-height: 100vh;
             font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
         }
         
         /* Sophisticated header */
         .results-header {
-            background: linear-gradient(135deg, var(--bs-dark) 0%, var(--bs-info) 100%);
+            background: linear-gradient(135deg, var(--bs-primary) 0%, var(--bs-danger) 100%);
             backdrop-filter: blur(20px);
             box-shadow: 0 8px 32px rgba(0, 0, 0, 0.3);
             border-bottom: 1px solid rgba(255, 255, 255, 0.1);
