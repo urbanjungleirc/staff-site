@@ -650,7 +650,7 @@
               <template x-for="entry in (voucher?._history || [])" :key="entry.id">
                 <div class="py-3">
                   <div class="text-[0.67rem] text-neutral-400 tabular-nums mb-1" x-text="fmtDateTime(entry.timestamp)"></div>
-                  <div class="text-sm font-medium text-neutral-700 capitalize" x-text="entry.action.replace(/_/g,' ')"></div>
+                  <div class="text-sm font-medium text-neutral-700 capitalize" x-text="auditLabel(entry)"></div>
                   <div class="flex flex-wrap gap-x-1.5 text-xs text-neutral-400 mt-1">
                     <span x-show="entry.user_id" x-text="entry.user_id"></span>
                     <span x-show="entry.data?.amount" x-text="'$' + Number(entry.data?.amount||0).toFixed(2)"></span>
@@ -2474,6 +2474,17 @@
         if (!v || v.status !== 'active') return false;
         const value = Number(v.value), balance = Number(v.balance);
         return Number.isFinite(value) && Number.isFinite(balance) && balance < value && balance > 0;
+      },
+
+      // Human label for an audit entry. A redemption that left a remaining balance
+      // (new_balance > 0) reads as "Partial redemption"; everything else falls back
+      // to the action name with underscores spaced out (the .capitalize class title-cases it).
+      auditLabel(entry) {
+        const action = entry?.action || '';
+        if (action === 'voucher_redeemed' && Number(entry?.data?.new_balance) > 0) {
+          return 'Partial redemption';
+        }
+        return action.replace(/_/g, ' ');
       },
 
       // ── Voucher Types (admin) ──────────────────────────────────────────
