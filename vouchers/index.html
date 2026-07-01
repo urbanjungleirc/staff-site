@@ -82,16 +82,96 @@
       background: rgba(245, 158, 11, 0.09);
       border-color: rgba(245, 158, 11, 0.22);
     }
+    /* Header brand icon — a saturated brand-gradient "logo chip": a brighter red
+       than the dark-red header so it reads as a badge (not a translucent nav
+       button), white glyph, soft drop shadow, hairline light edge for lift. */
     .header-icon {
       width: 58px;
       height: 58px;
       border-radius: 18px;
-      color: rgba(255, 255, 255, 0.96);
-      background: rgba(255, 255, 255, 0.13);
-      border: 1px solid rgba(255, 255, 255, 0.26);
-      box-shadow: inset 0 0 0 1px rgba(255,255,255,0.12);
+      color: var(--uj);
+      background: linear-gradient(135deg, #f4d4d8, #e0a9b0);
+      border: 1px solid rgba(255, 255, 255, 0.55);
+      box-shadow: 0 12px 24px -10px rgba(0, 0, 0, 0.5), inset 0 1px 0 rgba(255, 255, 255, 0.55);
     }
     .header-icon svg { width: 28px; height: 28px; }
+    /* Loading spinner — brand-tinted ring shown on async fetches (search, detail). */
+    @keyframes uj-spin { to { transform: rotate(360deg); } }
+    .uj-spinner {
+      width: 30px;
+      height: 30px;
+      border-radius: 50%;
+      border: 3px solid rgba(139, 28, 35, 0.15);
+      border-top-color: var(--uj);
+      animation: uj-spin 0.7s linear infinite;
+    }
+    /* Per-field help tooltip — a small (?) that reveals an explanation on hover
+       or keyboard focus. Bubble opens downward so it isn't clipped by the top of
+       the scrollable editor panel. */
+    .help-tip {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      width: 15px;
+      height: 15px;
+      margin-left: 5px;
+      border-radius: 50%;
+      font-size: 10px;
+      font-weight: 700;
+      line-height: 1;
+      color: #6b7280;
+      background: #f3f4f6;
+      border: 1px solid #d1d5db;
+      cursor: help;
+      position: relative;
+      vertical-align: middle;
+      user-select: none;
+    }
+    .help-tip:hover { color: #374151; background: #e5e7eb; border-color: #9ca3af; }
+    .help-tip:focus { outline: 2px solid rgba(107, 114, 128, 0.35); outline-offset: 1px; }
+    /* Bubble is position:fixed and JS-positioned (positionTip) so it escapes the
+       editor panel's overflow clipping and can be clamped to the viewport when a
+       (?) sits near a form edge. --arrow-left keeps the arrow pointing at the tip
+       after horizontal clamping. */
+    .help-tip .help-bubble {
+      position: fixed;
+      top: 0;
+      left: 0;
+      width: max-content;
+      max-width: 240px;
+      background: #1f2937;
+      color: #f9fafb;
+      font-size: 11px;
+      font-weight: 400;
+      line-height: 1.45;
+      letter-spacing: normal;
+      text-transform: none;
+      text-align: left;
+      padding: 8px 10px;
+      border-radius: 8px;
+      box-shadow: 0 10px 26px -10px rgba(0, 0, 0, 0.55);
+      opacity: 0;
+      visibility: hidden;
+      transition: opacity 0.12s ease;
+      z-index: 80;
+      pointer-events: none;
+      white-space: normal;
+    }
+    .help-tip .help-bubble::after {
+      content: '';
+      position: absolute;
+      bottom: 100%;
+      left: var(--arrow-left, 50%);
+      transform: translateX(-50%);
+      border: 5px solid transparent;
+      border-bottom-color: #1f2937;
+    }
+    .help-tip:hover .help-bubble,
+    .help-tip:focus .help-bubble,
+    .help-tip:focus-within .help-bubble {
+      opacity: 1;
+      visibility: visible;
+    }
     .nav-icon,
     .button-icon {
       display: inline-flex;
@@ -460,7 +540,10 @@
         x-text="searchError"></div>
 
       <div x-show="searchLoading"
-        class="text-center py-16 text-neutral-400 text-sm">Searching…</div>
+        class="flex flex-col items-center justify-center gap-3 py-16 text-neutral-400 text-sm">
+        <div class="uj-spinner"></div>
+        Searching…
+      </div>
 
       <div x-show="!searchLoading && !results.length && !searchError"
         class="text-center py-16 text-neutral-400 text-sm">
@@ -537,7 +620,10 @@
         <span x-text="detailOrigin === 'report' ? 'Back to reports' : 'Back to search'"></span>
       </button>
 
-      <div x-show="detailLoading" class="text-center py-16 text-neutral-400 text-sm">Loading voucher…</div>
+      <div x-show="detailLoading" class="flex flex-col items-center justify-center gap-3 py-16 text-neutral-400 text-sm">
+        <div class="uj-spinner"></div>
+        Loading voucher…
+      </div>
       <div x-show="detailError && !detailLoading"
         class="bg-rose-50 border border-rose-200 text-rose-700 rounded-xl p-4 text-sm" x-text="detailError"></div>
 
@@ -881,7 +967,10 @@
         </div>
       </div>
 
-      <div x-show="reportLoading" class="text-center py-16 text-neutral-400 text-sm">Loading report…</div>
+      <div x-show="reportLoading" class="flex flex-col items-center justify-center gap-3 py-16 text-neutral-400 text-sm">
+        <div class="uj-spinner"></div>
+        Loading report…
+      </div>
       <div x-show="reportError && !reportLoading"
         class="bg-rose-50 border border-rose-200 text-rose-700 rounded-xl p-4 text-sm" x-text="reportError"></div>
 
@@ -1082,28 +1171,40 @@
           class="bg-rose-50 border border-rose-200 text-rose-700 rounded-xl p-3 text-sm"
           x-text="voucherTypesError"></div>
 
-        <div x-show="voucherTypesLoading" class="text-sm text-neutral-400">Loading types…</div>
+        <div x-show="voucherTypesLoading" class="flex items-center gap-2.5 text-sm text-neutral-400">
+          <div class="uj-spinner" style="width:18px;height:18px;border-width:2px;"></div>
+          Loading types…
+        </div>
 
         <div x-show="!voucherTypesLoading && !adminVoucherTypes.length && !voucherTypesError"
           class="text-sm text-neutral-400">No voucher types yet.</div>
 
+        <p x-show="!voucherTypesLoading && adminVoucherTypes.length" class="text-[0.7rem] text-neutral-400 mb-0.5">Drag rows to reorder.</p>
         <div class="grid gap-2.5">
-          <template x-for="t in adminVoucherTypes" :key="t.type_id">
-            <div class="bg-white border border-neutral-200 rounded-xl p-4 flex items-center justify-between gap-4">
-              <div class="min-w-0">
-                <div class="flex items-center gap-2">
-                  <span class="font-semibold text-neutral-900 truncate" x-text="t.display_name"></span>
-                  <span x-show="!t.is_active"
-                    class="text-[0.65rem] font-semibold uppercase tracking-wider text-neutral-500 bg-neutral-100 rounded-full px-2 py-0.5">Inactive</span>
-                </div>
-                <div class="text-xs text-neutral-400 mt-0.5">
-                  <span x-text="t.type_id"></span>
-                  <span class="mx-1.5">·</span>
-                  <span x-text="t.availability"></span>
-                  <span class="mx-1.5">·</span>
-                  <span>sort <span x-text="t.sort_order"></span></span>
-                  <span class="mx-1.5">·</span>
-                  <span x-text="(typeItemCounts[t.type_id] ?? '–') + ' items'"></span>
+          <template x-for="(t, idx) in adminVoucherTypes" :key="t.type_id">
+            <div class="bg-white border border-neutral-200 rounded-xl p-4 flex items-center justify-between gap-4 cursor-move"
+              draggable="true"
+              @dragstart="onTypeDragStart(idx)"
+              @dragover.prevent
+              @drop="onTypeDrop(idx)"
+              @dragend="dragTypeIndex = null">
+              <div class="flex items-center gap-2.5 min-w-0">
+                <svg class="w-4 h-4 shrink-0 text-neutral-300" viewBox="0 0 24 24" fill="currentColor"><circle cx="9" cy="6" r="1.5"/><circle cx="15" cy="6" r="1.5"/><circle cx="9" cy="12" r="1.5"/><circle cx="15" cy="12" r="1.5"/><circle cx="9" cy="18" r="1.5"/><circle cx="15" cy="18" r="1.5"/></svg>
+                <div class="min-w-0">
+                  <div class="flex items-center gap-2">
+                    <span class="font-semibold text-neutral-900 truncate" x-text="t.display_name"></span>
+                    <span x-show="!t.is_active"
+                      class="text-[0.65rem] font-semibold uppercase tracking-wider text-neutral-500 bg-neutral-100 rounded-full px-2 py-0.5">Inactive</span>
+                  </div>
+                  <div class="text-xs text-neutral-400 mt-0.5">
+                    <span x-text="t.type_id"></span>
+                    <span class="mx-1.5">·</span>
+                    <span x-text="t.availability"></span>
+                    <span class="mx-1.5">·</span>
+                    <span>sort <span x-text="t.sort_order"></span></span>
+                    <span class="mx-1.5">·</span>
+                    <span x-text="(typeItemCounts[t.type_id] ?? '–') + ' items'"></span>
+                  </div>
                 </div>
               </div>
               <div class="flex items-center gap-2 shrink-0">
@@ -1126,6 +1227,25 @@
 
     </div>
   </main>
+
+  <!-- ── Redeem modal ──────────────────────────────────────────────────────── -->
+  <div x-show="discardOpen" x-cloak class="fixed inset-0 z-[60] flex items-center justify-center p-4"
+    @keydown.escape.window="cancelDiscard()">
+    <div class="absolute inset-0 bg-black/40 backdrop-blur-sm" @click="cancelDiscard()"></div>
+    <div class="relative bg-white rounded-card shadow-2xl shadow-neutral-900/15 w-full max-w-sm p-6 border border-neutral-100">
+      <div class="flex items-start gap-3 mb-4">
+        <div class="icon-tile warning"><svg viewBox="0 0 24 24"><path d="M12 9v4m0 4h.01M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/></svg></div>
+        <div>
+          <h3 class="text-base font-semibold text-neutral-900">Discard unsaved changes?</h3>
+          <p class="text-sm text-neutral-500 mt-1">Your edits haven't been saved. If you close now they'll be lost.</p>
+        </div>
+      </div>
+      <div class="flex gap-2.5">
+        <button @click="cancelDiscard()" class="flex-1 border border-neutral-200 hover:bg-neutral-50 text-neutral-700 font-medium rounded-xl py-2.5 text-sm transition-colors">Keep editing</button>
+        <button @click="confirmDiscard()" class="flex-1 bg-uj hover:bg-uj-dark text-white font-semibold rounded-xl py-2.5 text-sm transition-colors">Discard</button>
+      </div>
+    </div>
+  </div>
 
   <!-- ── Redeem modal ──────────────────────────────────────────────────────── -->
   <div x-show="redeemOpen" x-cloak class="fixed inset-0 z-50 flex items-center justify-center p-4"
@@ -1236,7 +1356,7 @@
 
   <!-- ── Voucher Type editor modal ──────────────────────────────────────── -->
   <div x-show="typeEditorOpen" x-cloak class="fixed inset-0 z-50 flex items-center justify-center p-4"
-    @keydown.escape.window="closeTypeEditor()">
+    @keydown.escape.window="!discardOpen && closeTypeEditor()">
     <div class="absolute inset-0 bg-black/40 backdrop-blur-sm" @click="closeTypeEditor()"></div>
     <div class="relative bg-white rounded-card shadow-2xl shadow-neutral-900/15 w-full max-w-7xl max-h-[90vh] overflow-y-auto p-6 border border-neutral-100">
       <div class="flex items-center justify-between mb-4">
@@ -1263,7 +1383,7 @@
           <!-- Type ID (immutable once created) -->
           <div>
             <label class="block text-[0.67rem] font-semibold text-neutral-400 uppercase tracking-wider mb-1.5">
-              Type ID <span class="text-rose-400 normal-case tracking-normal font-normal">*</span>
+              Type ID <span class="text-rose-400 normal-case tracking-normal font-normal">*</span><span class="help-tip" tabindex="0" role="note" aria-label="Help">?<span class="help-bubble">Permanent internal ID (e.g. gift_card). Set once — it can't be changed after creation. Never shown to customers.</span></span>
             </label>
             <input type="text" x-model="typeForm.type_id" :readonly="editingExisting"
               placeholder="lowercase_with_underscores"
@@ -1274,7 +1394,7 @@
           <!-- Display name -->
           <div>
             <label class="block text-[0.67rem] font-semibold text-neutral-400 uppercase tracking-wider mb-1.5">
-              Display name <span class="text-rose-400 normal-case tracking-normal font-normal">*</span>
+              Display name <span class="text-rose-400 normal-case tracking-normal font-normal">*</span><span class="help-tip" tabindex="0" role="note" aria-label="Help">?<span class="help-bubble">The name customers see on the purchase page and as the voucher email heading; also how staff see this type in lists.</span></span>
             </label>
             <input type="text" x-model="typeForm.display_name"
               class="w-full border border-neutral-200 rounded-xl px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-uj/20 focus:border-uj" />
@@ -1282,14 +1402,14 @@
 
           <!-- Description -->
           <div class="sm:col-span-2">
-            <label class="block text-[0.67rem] font-semibold text-neutral-400 uppercase tracking-wider mb-1.5">Description</label>
+            <label class="block text-[0.67rem] font-semibold text-neutral-400 uppercase tracking-wider mb-1.5">Description<span class="help-tip" tabindex="0" role="note" aria-label="Help">?<span class="help-bubble">Internal note for staff only. Never shown to customers.</span></span></label>
             <textarea x-model="typeForm.description" rows="2"
               class="w-full border border-neutral-200 rounded-xl px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-uj/20 focus:border-uj"></textarea>
           </div>
 
           <!-- Availability -->
           <div>
-            <label class="block text-[0.67rem] font-semibold text-neutral-400 uppercase tracking-wider mb-1.5">Availability</label>
+            <label class="block text-[0.67rem] font-semibold text-neutral-400 uppercase tracking-wider mb-1.5">Availability<span class="help-tip" tabindex="0" role="note" aria-label="Help">?<span class="help-bubble">Where this type can be sold — both (customer page + staff), online (customer page only), or staff_only (staff Create flow only).</span></span></label>
             <div class="combo" @click.outside="availabilityOpen = false" @keydown.escape.window="availabilityOpen = false">
               <button type="button" @click="availabilityOpen = !availabilityOpen" :aria-expanded="availabilityOpen.toString()" class="combo-trigger">
                 <span x-text="typeForm.availability"></span>
@@ -1305,21 +1425,21 @@
 
           <!-- Expiry months -->
           <div>
-            <label class="block text-[0.67rem] font-semibold text-neutral-400 uppercase tracking-wider mb-1.5">Expiry months</label>
+            <label class="block text-[0.67rem] font-semibold text-neutral-400 uppercase tracking-wider mb-1.5">Expiry months<span class="help-tip" tabindex="0" role="note" aria-label="Help">?<span class="help-bubble">Months until an issued voucher expires. Blank = never. Drives the expiry date printed on the voucher.</span></span></label>
             <input type="number" x-model="typeForm.expiry_months" placeholder="blank = no expiry"
               class="w-full border border-neutral-200 rounded-xl px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-uj/20 focus:border-uj" />
           </div>
 
           <!-- Max per customer -->
           <div>
-            <label class="block text-[0.67rem] font-semibold text-neutral-400 uppercase tracking-wider mb-1.5">Max per customer</label>
+            <label class="block text-[0.67rem] font-semibold text-neutral-400 uppercase tracking-wider mb-1.5">Max per customer<span class="help-tip" tabindex="0" role="note" aria-label="Help">?<span class="help-bubble">Most of this type one email address can buy online. Blank = unlimited. Enforced at checkout together with Limit period.</span></span></label>
             <input type="number" x-model="typeForm.max_per_customer" placeholder="blank = unlimited"
               class="w-full border border-neutral-200 rounded-xl px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-uj/20 focus:border-uj" />
           </div>
 
           <!-- Limit period -->
           <div>
-            <label class="block text-[0.67rem] font-semibold text-neutral-400 uppercase tracking-wider mb-1.5">Limit period</label>
+            <label class="block text-[0.67rem] font-semibold text-neutral-400 uppercase tracking-wider mb-1.5">Limit period<span class="help-tip" tabindex="0" role="note" aria-label="Help">?<span class="help-bubble">Window the Max-per-customer cap covers — lifetime (ever) or annual (rolling 12 months). 'none' turns the cap off.</span></span></label>
             <div class="combo" @click.outside="limitPeriodOpen = false" @keydown.escape.window="limitPeriodOpen = false">
               <button type="button" @click="limitPeriodOpen = !limitPeriodOpen" :aria-expanded="limitPeriodOpen.toString()" class="combo-trigger">
                 <span x-text="typeForm.limit_period || 'none'"></span>
@@ -1335,15 +1455,14 @@
 
           <!-- Promo ID -->
           <div>
-            <label class="block text-[0.67rem] font-semibold text-neutral-400 uppercase tracking-wider mb-1.5">Promo ID</label>
+            <label class="block text-[0.67rem] font-semibold text-neutral-400 uppercase tracking-wider mb-1.5">Promo ID<span class="help-tip" tabindex="0" role="note" aria-label="Help">?<span class="help-bubble">Restricts this type to a promo link (…?promo=ID). Blank = shown to everyone. Not shown publicly.</span></span></label>
             <input type="text" x-model="typeForm.promo_id" placeholder="blank = none"
               class="w-full border border-neutral-200 rounded-xl px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-uj/20 focus:border-uj" />
           </div>
 
           <!-- Sort order -->
           <div>
-            <label class="block text-[0.67rem] font-semibold text-neutral-400 uppercase tracking-wider mb-1.5">Sort order</label>
-            <p class="text-[0.7rem] leading-snug text-neutral-400 mt-1">Lower numbers appear first in the customer purchase list and staff dropdowns.</p>
+            <label class="block text-[0.67rem] font-semibold text-neutral-400 uppercase tracking-wider mb-1.5">Sort order<span class="help-tip" tabindex="0" role="note" aria-label="Help">?<span class="help-bubble">Lower numbers appear first in the customer purchase list and staff dropdowns. You can also drag to reorder on the Voucher Types list.</span></span></label>
             <input type="number" x-model="typeForm.sort_order"
               class="w-full border border-neutral-200 rounded-xl px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-uj/20 focus:border-uj" />
           </div>
@@ -1352,14 +1471,14 @@
           <label class="flex items-center gap-2.5 text-sm text-neutral-700">
             <input type="checkbox" x-model="typeForm.is_physical"
               class="rounded border-neutral-300 text-uj focus:ring-uj/20" />
-            Physical voucher
+            Physical voucher<span class="help-tip" tabindex="0" role="note" aria-label="Help">?<span class="help-bubble">No email is sent — vouchers of this type are physical cards, and are flagged 'Physical' in staff views.</span></span>
           </label>
 
           <!-- Active -->
           <label class="flex items-center gap-2.5 text-sm text-neutral-700">
             <input type="checkbox" x-model="typeForm.is_active"
               class="rounded border-neutral-300 text-uj focus:ring-uj/20" />
-            Active
+            Active<span class="help-tip" tabindex="0" role="note" aria-label="Help">?<span class="help-bubble">Turns this type on or off. Inactive types are hidden from customers and the staff Create dropdown.</span></span>
           </label>
         </fieldset>
 
@@ -1384,36 +1503,35 @@
 
           <!-- Email subject -->
           <div>
-            <label class="block text-[0.67rem] font-semibold text-neutral-400 uppercase tracking-wider mb-1.5">Email subject</label>
+            <label class="block text-[0.67rem] font-semibold text-neutral-400 uppercase tracking-wider mb-1.5">Email subject<span class="help-tip" tabindex="0" role="note" aria-label="Help">?<span class="help-bubble">Subject line of the voucher email the customer receives. Supports {{tokens}}. Blank = a sensible default.</span></span></label>
             <input type="text" x-model="typeForm.email_subject"
               class="w-full border border-neutral-200 rounded-xl px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-uj/20 focus:border-uj" />
           </div>
 
           <!-- Email body (Markdown) -->
           <div>
-            <label class="block text-[0.67rem] font-semibold text-neutral-400 uppercase tracking-wider mb-1.5">Email body (Markdown)</label>
+            <label class="block text-[0.67rem] font-semibold text-neutral-400 uppercase tracking-wider mb-1.5">Email body (Markdown)<span class="help-tip" tabindex="0" role="note" aria-label="Help">?<span class="help-bubble">The main message at the top of the voucher email. Markdown + {{tokens}}. Shown to the customer — see the live preview on the right.</span></span></label>
             <textarea x-model="typeForm.email_body" rows="6"
               class="w-full border border-neutral-200 rounded-xl px-3 py-2 text-sm font-mono focus:outline-none focus:ring-2 focus:ring-uj/20 focus:border-uj"></textarea>
           </div>
 
           <!-- Terms & conditions (Markdown) -->
           <div>
-            <label class="block text-[0.67rem] font-semibold text-neutral-400 uppercase tracking-wider mb-1.5">Terms &amp; conditions (Markdown)</label>
+            <label class="block text-[0.67rem] font-semibold text-neutral-400 uppercase tracking-wider mb-1.5">Terms &amp; conditions (Markdown)<span class="help-tip" tabindex="0" role="note" aria-label="Help">?<span class="help-bubble">Fine print shown in the Terms section at the bottom of the voucher email.</span></span></label>
             <textarea x-model="typeForm.terms_conditions" rows="4"
               class="w-full border border-neutral-200 rounded-xl px-3 py-2 text-sm font-mono focus:outline-none focus:ring-2 focus:ring-uj/20 focus:border-uj"></textarea>
           </div>
 
           <!-- Usage info (Markdown) -->
           <div>
-            <label class="block text-[0.67rem] font-semibold text-neutral-400 uppercase tracking-wider mb-1.5">Usage info (Markdown)</label>
+            <label class="block text-[0.67rem] font-semibold text-neutral-400 uppercase tracking-wider mb-1.5">Usage info (Markdown)<span class="help-tip" tabindex="0" role="note" aria-label="Help">?<span class="help-bubble">Short 'how to use' note shown inside the voucher ticket in the email (e.g. what the voucher covers).</span></span></label>
             <textarea x-model="typeForm.usage_info" rows="3"
               class="w-full border border-neutral-200 rounded-xl px-3 py-2 text-sm font-mono focus:outline-none focus:ring-2 focus:ring-uj/20 focus:border-uj"></textarea>
           </div>
 
           <!-- Redemption instructions -->
           <div>
-            <label class="block text-[0.67rem] font-semibold text-neutral-400 uppercase tracking-wider mb-1.5">Redemption instructions</label>
-            <p class="text-[0.7rem] leading-snug text-neutral-400 mt-1">Appears on the voucher email, telling the customer how to redeem (e.g. "Scan at the front desk to redeem").</p>
+            <label class="block text-[0.67rem] font-semibold text-neutral-400 uppercase tracking-wider mb-1.5">Redemption instructions<span class="help-tip" tabindex="0" role="note" aria-label="Help">?<span class="help-bubble">One line shown under the QR on the voucher email, telling the customer how to redeem (e.g. "Scan at the front desk to redeem").</span></span></label>
             <textarea x-model="typeForm.redemption_instructions" rows="2"
               class="w-full border border-neutral-200 rounded-xl px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-uj/20 focus:border-uj"></textarea>
           </div>
@@ -1428,14 +1546,14 @@
 
           <!-- Accent colour -->
           <div>
-            <label class="block text-[0.67rem] font-semibold text-neutral-400 uppercase tracking-wider mb-1.5">Accent colour</label>
+            <label class="block text-[0.67rem] font-semibold text-neutral-400 uppercase tracking-wider mb-1.5">Accent colour<span class="help-tip" tabindex="0" role="note" aria-label="Help">?<span class="help-bubble">Brand colour for this type's email — the header gradient, ticket border and code colour are all derived from it.</span></span></label>
             <input type="color" x-model="typeForm.accent_color"
               class="h-9 w-16 border border-neutral-200 rounded-lg p-1 cursor-pointer" />
           </div>
 
           <!-- Voucher label -->
           <div>
-            <label class="block text-[0.67rem] font-semibold text-neutral-400 uppercase tracking-wider mb-1.5">Voucher label</label>
+            <label class="block text-[0.67rem] font-semibold text-neutral-400 uppercase tracking-wider mb-1.5">Voucher label<span class="help-tip" tabindex="0" role="note" aria-label="Help">?<span class="help-bubble">Small caption printed above the code on the voucher ticket (e.g. 'Gift Voucher', 'Account Credit').</span></span></label>
             <input type="text" x-model="typeForm.voucher_label"
               class="w-full border border-neutral-200 rounded-xl px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-uj/20 focus:border-uj" />
           </div>
@@ -1444,14 +1562,14 @@
           <label class="flex items-center gap-2.5 text-sm text-neutral-700">
             <input type="checkbox" x-model="typeForm.show_qr"
               class="rounded border-neutral-300 text-uj focus:ring-uj/20" />
-            Show QR code
+            Show QR code<span class="help-tip" tabindex="0" role="note" aria-label="Help">?<span class="help-bubble">Show the scannable QR code on the voucher email. Turn off for types redeemed by hand.</span></span>
           </label>
 
           <!-- Show value -->
           <label class="flex items-center gap-2.5 text-sm text-neutral-700">
             <input type="checkbox" x-model="typeForm.show_value"
               class="rounded border-neutral-300 text-uj focus:ring-uj/20" />
-            Show value
+            Show value<span class="help-tip" tabindex="0" role="note" aria-label="Help">?<span class="help-bubble">Show the dollar value + expiry box on the voucher email. Turn off to hide the amount.</span></span>
           </label>
         </fieldset>
 
@@ -1462,7 +1580,7 @@
             <span class="text-xs font-semibold text-neutral-600 uppercase tracking-wider">Staff</span>
           </div>
           <div>
-            <label class="block text-[0.67rem] font-semibold text-neutral-400 uppercase tracking-wider mb-1.5">Redemption warning — shown to staff (Markdown)</label>
+            <label class="block text-[0.67rem] font-semibold text-neutral-400 uppercase tracking-wider mb-1.5">Redemption warning — shown to staff (Markdown)<span class="help-tip" tabindex="0" role="note" aria-label="Help">?<span class="help-bubble">Caution shown to staff on the voucher detail panel and redeem modal before redeeming (e.g. account-credit rules). Never shown to customers.</span></span></label>
             <textarea x-model="typeForm.redemption_warning" rows="2"
               class="w-full border border-neutral-200 rounded-xl px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-uj/20 focus:border-uj"></textarea>
           </div>
@@ -1493,7 +1611,7 @@
 
       <!-- ── Items sub-editor modal ─────────────────────────────────────── -->
       <div x-show="itemsEditorOpen" x-cloak class="fixed inset-0 z-50 flex items-center justify-center p-4"
-        @keydown.escape.window="closeItemsEditor()">
+        @keydown.escape.window="!discardOpen && closeItemsEditor()">
         <div class="absolute inset-0 bg-black/40 backdrop-blur-sm" @click="closeItemsEditor()"></div>
         <div class="relative bg-white rounded-card shadow-2xl shadow-neutral-900/15 w-full max-w-2xl max-h-[90vh] overflow-y-auto p-6 border border-neutral-100">
           <div class="flex items-center justify-between mb-4">
@@ -1542,46 +1660,42 @@
           <!-- Item form -->
           <div x-show="itemFormOpen" class="grid gap-4">
             <div>
-              <label class="block text-[0.67rem] font-semibold text-neutral-400 uppercase tracking-wider mb-1.5">Name *</label>
+              <label class="block text-[0.67rem] font-semibold text-neutral-400 uppercase tracking-wider mb-1.5">Name *<span class="help-tip" tabindex="0" role="note" aria-label="Help">?<span class="help-bubble">The item's name shown to customers on the purchase page and recorded on the voucher (e.g. '10-visit pass').</span></span></label>
               <input type="text" x-model="itemForm.name" class="w-full border border-neutral-200 rounded-xl px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-uj/20 focus:border-uj" />
             </div>
             <div class="grid grid-cols-3 gap-3">
               <div>
-                <label class="block text-[0.67rem] font-semibold text-neutral-400 uppercase tracking-wider mb-1.5">Value *</label>
-                <p class="text-[0.7rem] leading-snug text-neutral-400 mt-1">Face value issued to the customer — the voucher's starting balance.</p>
+                <label class="block text-[0.67rem] font-semibold text-neutral-400 uppercase tracking-wider mb-1.5">Value *<span class="help-tip" tabindex="0" role="note" aria-label="Help">?<span class="help-bubble">Face value issued to the customer — the voucher's starting balance they can redeem.</span></span></label>
                 <input type="number" step="0.01" x-model="itemForm.value" class="w-full border border-neutral-200 rounded-xl px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-uj/20 focus:border-uj" />
               </div>
               <div>
-                <label class="block text-[0.67rem] font-semibold text-neutral-400 uppercase tracking-wider mb-1.5">Price</label>
-                <p class="text-[0.7rem] leading-snug text-neutral-400 mt-1">Amount charged at checkout. Leave blank to charge the face value.</p>
+                <label class="block text-[0.67rem] font-semibold text-neutral-400 uppercase tracking-wider mb-1.5">Price<span class="help-tip" tabindex="0" role="note" aria-label="Help">?<span class="help-bubble">Amount charged at checkout. Leave blank to charge the face value; set lower than value for a sale.</span></span></label>
                 <input type="number" step="0.01" x-model="itemForm.price" placeholder="= value" class="w-full border border-neutral-200 rounded-xl px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-uj/20 focus:border-uj" />
               </div>
               <div>
-                <label class="block text-[0.67rem] font-semibold text-neutral-400 uppercase tracking-wider mb-1.5">Was price</label>
-                <p class="text-[0.7rem] leading-snug text-neutral-400 mt-1">Optional "before" price shown struck-through beside the price. Display only — never charged.</p>
+                <label class="block text-[0.67rem] font-semibold text-neutral-400 uppercase tracking-wider mb-1.5">Was price<span class="help-tip" tabindex="0" role="note" aria-label="Help">?<span class="help-bubble">Optional "before" price shown struck-through beside the price to signal a discount. Display only — never charged.</span></span></label>
                 <input type="number" step="0.01" x-model="itemForm.was_price" class="w-full border border-neutral-200 rounded-xl px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-uj/20 focus:border-uj" />
               </div>
             </div>
             <div>
-              <label class="block text-[0.67rem] font-semibold text-neutral-400 uppercase tracking-wider mb-1.5">Description</label>
+              <label class="block text-[0.67rem] font-semibold text-neutral-400 uppercase tracking-wider mb-1.5">Description<span class="help-tip" tabindex="0" role="note" aria-label="Help">?<span class="help-bubble">Optional extra detail shown under the item name on the customer purchase page.</span></span></label>
               <textarea x-model="itemForm.description" rows="2" class="w-full border border-neutral-200 rounded-xl px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-uj/20 focus:border-uj resize-none"></textarea>
             </div>
             <div class="grid grid-cols-2 gap-3">
               <div>
-                <label class="block text-[0.67rem] font-semibold text-neutral-400 uppercase tracking-wider mb-1.5">Display order</label>
-                <p class="text-[0.7rem] leading-snug text-neutral-400 mt-1">Lower numbers appear first in the customer purchase list and staff dropdowns.</p>
+                <label class="block text-[0.67rem] font-semibold text-neutral-400 uppercase tracking-wider mb-1.5">Display order<span class="help-tip" tabindex="0" role="note" aria-label="Help">?<span class="help-bubble">Lower numbers appear first in the customer's item list. You can also drag to reorder the items list.</span></span></label>
                 <input type="number" x-model="itemForm.display_order" class="w-full border border-neutral-200 rounded-xl px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-uj/20 focus:border-uj" />
               </div>
               <div class="flex items-end pb-2">
                 <label class="flex items-center gap-2 text-sm text-neutral-700 cursor-pointer">
                   <input type="checkbox" x-model="itemForm.is_active" class="rounded" />
-                  Active
+                  Active<span class="help-tip" tabindex="0" role="note" aria-label="Help">?<span class="help-bubble">Whether this item can be purchased. Inactive items are hidden from customers but kept for records.</span></span>
                 </label>
               </div>
             </div>
             <p class="text-xs text-neutral-400" x-text="priceHint(itemForm)"></p>
             <div class="flex gap-2.5 mt-2">
-              <button @click="itemFormOpen=false" class="flex-1 border border-neutral-200 hover:bg-neutral-50 text-neutral-700 font-medium rounded-xl py-2.5 text-sm transition-colors">Back</button>
+              <button @click="closeItemForm()" class="flex-1 border border-neutral-200 hover:bg-neutral-50 text-neutral-700 font-medium rounded-xl py-2.5 text-sm transition-colors">Back</button>
               <button @click="saveItem()" :disabled="itemSaving" class="flex-1 bg-uj hover:bg-uj-dark disabled:opacity-50 text-white font-semibold rounded-xl py-2.5 text-sm transition-colors">
                 <span x-text="itemSaving ? 'Saving…' : 'Save item'"></span>
               </button>
@@ -1832,6 +1946,11 @@
       deactivateTarget: null,
       typeItemCounts: {},
       dragItemIndex: null,
+      dragTypeIndex: null,
+      _typeFormSnapshot: null,
+      _itemFormSnapshot: null,
+      discardOpen: false,
+      _pendingDiscard: null,
       _previewTimer: null,
       createName: '',
       createPhone: '',
@@ -1916,10 +2035,31 @@
           history.replaceState(null, '', window.location.pathname + window.location.search);
         }
         this.secret = localStorage.getItem('uj_staff_secret') || '';
+        // Position help-tip bubbles on hover/focus so they escape the editor
+        // panel's overflow and stay inside the viewport near a form edge.
+        const onTip = (e) => { const t = e.target.closest && e.target.closest('.help-tip'); if (t) this.positionTip(t); };
+        document.addEventListener('mouseover', onTip);
+        document.addEventListener('focusin', onTip);
         if (this.secret) {
           await this.search();
           this.loadDashStats(); // fire and forget — don't block the search
         }
+      },
+
+      // Place a help bubble under its (?), clamped to the viewport so it never
+      // clips at a form edge. Arrow tracks the tip via the --arrow-left var.
+      positionTip(tip) {
+        const bubble = tip.querySelector('.help-bubble');
+        if (!bubble) return;
+        const margin = 8;
+        const r = tip.getBoundingClientRect();
+        const bw = bubble.offsetWidth; // measurable even while visibility:hidden
+        const tipCentre = r.left + r.width / 2;
+        let left = tipCentre - bw / 2;
+        left = Math.max(margin, Math.min(left, window.innerWidth - bw - margin));
+        bubble.style.left = left + 'px';
+        bubble.style.top = (r.bottom + 7) + 'px';
+        bubble.style.setProperty('--arrow-left', (tipCentre - left) + 'px');
       },
 
       logout() {
@@ -2011,6 +2151,15 @@
         });
       },
 
+      // After a redeem/undo, keep the search results list (which the staff member
+      // most likely opened the voucher from) in sync — patch the matching row in
+      // place so its balance and status reflect the change without a re-search.
+      syncResultRow(v) {
+        if (!v || !Array.isArray(this.results)) return;
+        const row = this.results.find(r => r.voucher_id === v.voucher_id);
+        if (row) Object.assign(row, v);
+      },
+
       // ── Redeem ───────────────────────────────────────────────────────────
       openRedeem() {
         this.redeemAmount = '';
@@ -2042,6 +2191,7 @@
           this.redeemOpen = false;
           this.showToast('Redeemed ' + this.fmtMoney(amount));
           await this.openVoucher(this.voucher.voucher_id);
+          this.syncResultRow(this.voucher);
         } catch (e) {
           this.redeemError = e.message;
         } finally {
@@ -2063,6 +2213,7 @@
           this.undoOpen = false;
           this.showToast('Redemption undone');
           await this.openVoucher(this.voucher.voucher_id);
+          this.syncResultRow(this.voucher);
         } catch (e) {
           this.showToast(e.message, 'error');
         } finally {
@@ -2581,7 +2732,25 @@
           this.typeForm = this.blankTypeForm();
         }
         this.typeEditorOpen = true;
+        // Snapshot AFTER Alpine binds x-model (next tick) so value coercion during
+        // binding (e.g. number inputs) can't make an untouched form look dirty.
+        this._typeFormSnapshot = null;
+        this.$nextTick(() => { this._typeFormSnapshot = this._formFingerprint(this.typeForm); });
         this.refreshPreview();
+      },
+
+      // Order-independent, type-tolerant fingerprint of a form object: sort keys
+      // and stringify every value, so number/string coercion can't produce a
+      // false "unsaved changes" positive.
+      _formFingerprint(obj) {
+        const o = {};
+        Object.keys(obj).sort().forEach(k => { o[k] = obj[k] == null ? '' : String(obj[k]); });
+        return JSON.stringify(o);
+      },
+
+      typeDirty() {
+        return this.typeEditorOpen && this._typeFormSnapshot !== null
+          && this._formFingerprint(this.typeForm) !== this._typeFormSnapshot;
       },
 
       refreshPreview() {
@@ -2607,8 +2776,38 @@
         }
       },
 
-      closeTypeEditor() {
-        this.typeEditorOpen = false;
+      closeTypeEditor() { this.requestClose('type'); },
+
+      // Discard-confirmation flow. Instead of a native confirm(), closing a dirty
+      // editor opens a styled modal; the close only runs if the user confirms.
+      requestClose(kind) {
+        const dirty = kind === 'type' ? this.typeDirty() : this.itemDirty();
+        if (!dirty) { this._applyClose(kind); return; }
+        this._pendingDiscard = kind;
+        this.discardOpen = true;
+      },
+      confirmDiscard() {
+        const kind = this._pendingDiscard;
+        this.discardOpen = false;
+        this._pendingDiscard = null;
+        if (kind) this._applyClose(kind);
+      },
+      cancelDiscard() {
+        this.discardOpen = false;
+        this._pendingDiscard = null;
+      },
+      _applyClose(kind) {
+        if (kind === 'type') {
+          this.typeEditorOpen = false;
+          this._typeFormSnapshot = null;
+        } else if (kind === 'items') {
+          this.itemsEditorOpen = false;
+          this.itemFormOpen = false;
+          this._itemFormSnapshot = null;
+        } else if (kind === 'itemForm') {
+          this.itemFormOpen = false;
+          this._itemFormSnapshot = null;
+        }
       },
 
       async saveVoucherType() {
@@ -2664,7 +2863,7 @@
         await this.loadItems();
       },
 
-      closeItemsEditor() { this.itemsEditorOpen = false; },
+      closeItemsEditor() { this.requestClose('items'); },
 
       async loadItems() {
         this.itemsLoading = true;
@@ -2702,7 +2901,17 @@
           };
         }
         this.itemFormOpen = true;
+        // Snapshot after Alpine binds x-model (next tick) — see _formFingerprint.
+        this._itemFormSnapshot = null;
+        this.$nextTick(() => { this._itemFormSnapshot = this._formFingerprint(this.itemForm); });
       },
+
+      itemDirty() {
+        return this.itemFormOpen && this._itemFormSnapshot !== null
+          && this._formFingerprint(this.itemForm) !== this._itemFormSnapshot;
+      },
+
+      closeItemForm() { this.requestClose('itemForm'); },
 
       async saveItem() {
         const f = this.itemForm;
@@ -2763,6 +2972,38 @@
           this.itemsError = e.message || 'Failed to reorder';
         }
         await this.loadItems();
+      },
+
+      // Voucher TYPE reordering — mirrors the item DnD above, persisting the new
+      // order to `sort_order` (the field the types list sorts by) via the same
+      // upsert endpoint doToggleTypeActive/saveVoucherType use.
+      onTypeDragStart(i) {
+        this.dragTypeIndex = i;
+      },
+
+      async onTypeDrop(j) {
+        const from = this.dragTypeIndex;
+        this.dragTypeIndex = null;
+        if (from === null || from === j) return;
+        const arr = this.adminVoucherTypes;
+        const [moved] = arr.splice(from, 1);
+        arr.splice(j, 0, moved);
+        const changed = [];
+        arr.forEach((t, k) => {
+          if (t.sort_order !== k) {
+            t.sort_order = k;
+            changed.push(t);
+          }
+        });
+        try {
+          for (const t of changed) {
+            await this.api('/v1/staff/voucher-types', { method: 'POST', body: JSON.stringify({ ...t, sort_order: t.sort_order }) });
+          }
+          this.showToast('Types reordered');
+        } catch (e) {
+          this.voucherTypesError = e.message || 'Failed to reorder';
+        }
+        await this.loadVoucherTypes();
       },
 
       // Archive (is_active=false) / restore (is_active=true) — the reversible,
