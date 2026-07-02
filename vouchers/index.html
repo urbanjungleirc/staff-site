@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Staff Portal — UJ Vouchers</title>
+  <title>Vouchers - staff portal</title>
   <link rel="icon" type="image/svg+xml" href="data:image/svg+xml,%3Csvg%20xmlns='http://www.w3.org/2000/svg'%20viewBox='0%200%2024%2024'%3E%3Crect%20width='24'%20height='24'%20rx='6'%20fill='%238b1c23'/%3E%3Cg%20transform='translate(4.5%204.5)%20scale(0.625)'%20fill='none'%20stroke='%23fff'%20stroke-width='2.6'%20stroke-linecap='round'%20stroke-linejoin='round'%3E%3Cpath%20d='M2%209a3%203%200%200%201%200%206v2a2%202%200%200%200%202%202h16a2%202%200%200%200%202-2v-2a3%203%200%200%201%200-6V7a2%202%200%200%200-2-2H4a2%202%200%200%200-2%202v2z'/%3E%3Cline%20x1='9'%20y1='9'%20x2='9'%20y2='15'%20stroke-dasharray='1.5%201.5'/%3E%3C/g%3E%3C/svg%3E">
   <script src="https://cdn.tailwindcss.com"></script>
   <script>
@@ -1285,8 +1285,10 @@
             class="text-xs text-uj hover:underline mt-1.5">Use full balance</button>
         </div>
         <div>
-          <label class="block text-[0.67rem] font-semibold text-neutral-400 uppercase tracking-wider mb-1.5">Clubworx receipt #</label>
-          <input type="text" x-model="redeemReceipt" placeholder="Optional"
+          <label class="block text-[0.67rem] font-semibold text-neutral-400 uppercase tracking-wider mb-1.5">
+            Clubworx receipt # <span class="text-rose-400 normal-case tracking-normal font-normal">*</span>
+          </label>
+          <input type="text" x-model="redeemReceipt" placeholder="Required — process in Clubworx first" required
             class="w-full border border-neutral-200 rounded-xl px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-uj/20 focus:border-uj" />
         </div>
         <div>
@@ -2176,6 +2178,11 @@
           this.redeemError = 'Amount exceeds balance of ' + this.fmtMoney(this.voucher.balance);
           return;
         }
+        if (!this.redeemReceipt || !this.redeemReceipt.trim()) {
+          this.redeemError = 'Clubworx receipt # is required — process the redemption in Clubworx first';
+          return;
+        }
+        this.redeemReceipt = this.redeemReceipt.trim();
         this.redeemLoading = true;
         this.redeemError = '';
         try {
