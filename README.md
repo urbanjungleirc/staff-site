@@ -113,7 +113,7 @@ The voucher management portal lives at `ujstaff.happyk.au/vouchers/`. It connect
 
 ### First-time setup (per browser / per device)
 
-The portal uses a URL-hash seeding approach so staff never see a login screen. The secret is stored in `localStorage` after the first visit and never prompts again. the secret is: d60d61624f016b78e84c2caf04980e53
+The portal uses a URL-hash seeding approach so staff never see a login screen. The secret is stored in `localStorage` after the first visit and never prompts again. The secret value lives **only** in the team password manager ("UJ Staff Voucher Secret") — never write it into this repo, which is public.
 
 **Step 1 — get the setup URL** (from the password manager entry "UJ Staff Voucher Secret"):
 
