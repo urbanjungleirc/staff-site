@@ -695,6 +695,7 @@
                 <div x-show="voucher?.gift_from" class="col-span-2"><dt class="text-[0.62rem] font-semibold text-neutral-400 uppercase tracking-wider mb-1">Gift from → to</dt><dd class="text-neutral-700" x-text="(voucher?.gift_from || '') + (voucher?.gift_to ? ' → ' + voucher.gift_to : '')"></dd></div>
                 <div x-show="voucher?.gift_message" class="col-span-2"><dt class="text-[0.62rem] font-semibold text-neutral-400 uppercase tracking-wider mb-1">Gift message</dt><dd class="italic text-neutral-600" x-text="voucher?.gift_message"></dd></div>
                 <div x-show="voucher?.redemption_notes" class="col-span-2"><dt class="text-[0.62rem] font-semibold text-neutral-400 uppercase tracking-wider mb-1">Redemption notes</dt><dd class="text-neutral-700" x-text="voucher?.redemption_notes"></dd></div>
+                <div x-show="voucher?.staff_notes" class="col-span-2"><dt class="text-[0.62rem] font-semibold text-neutral-400 uppercase tracking-wider mb-1">Staff notes</dt><dd class="text-neutral-700 whitespace-pre-wrap" x-text="voucher?.staff_notes"></dd></div>
               </dl>
             </div>
           </div>
@@ -722,6 +723,11 @@
                 class="bg-white hover:bg-neutral-50 text-neutral-700 px-4 py-2 rounded-xl text-sm font-medium border border-neutral-200 hover:border-neutral-300 transition-colors inline-flex items-center gap-1.5">
                 <span class="button-icon"><svg viewBox="0 0 24 24"><path d="M4.5 7.5h15v10h-15z"/><path d="m5 8 7 5.25L19 8"/><path d="M17.25 4.75v3.5"/><path d="M15.5 6.5h3.5"/></svg></span>
                 Resend Email
+              </button>
+              <button @click="openNotes()"
+                class="bg-white hover:bg-neutral-50 text-neutral-700 px-4 py-2 rounded-xl text-sm font-medium border border-neutral-200 hover:border-neutral-300 transition-colors inline-flex items-center gap-1.5">
+                <span class="button-icon"><svg viewBox="0 0 24 24"><path d="M12.5 5.5 18 11l-8.5 8.5H4v-5.5z"/><path d="m15 3 3 3"/></svg></span>
+                <span x-text="voucher?.staff_notes ? 'Edit Notes' : 'Add Notes'"></span>
               </button>
             </div>
             <p x-show="!voucher?.customer_email && !voucher?.is_physical"
@@ -1306,6 +1312,40 @@
         <button @click="submitRedeem()" :disabled="redeemLoading"
           class="flex-1 bg-uj hover:bg-uj-dark disabled:opacity-50 text-white font-semibold rounded-xl py-2.5 text-sm transition-colors">
           <span x-text="redeemLoading ? 'Processing…' : 'Confirm redeem'"></span>
+        </button>
+      </div>
+    </div>
+  </div>
+
+  <!-- ── Staff notes modal ────────────────────────────────────────────────── -->
+  <div x-show="notesOpen" x-cloak class="fixed inset-0 z-50 flex items-center justify-center p-4"
+    @keydown.escape.window="notesOpen = false">
+    <div class="absolute inset-0 bg-black/40 backdrop-blur-sm" @click="notesOpen = false"></div>
+    <div class="relative bg-white rounded-card shadow-2xl shadow-neutral-900/15 w-full max-w-md p-6 border border-neutral-100">
+      <div class="flex items-center justify-between mb-1">
+        <h3 class="text-base font-semibold text-neutral-900">Staff notes</h3>
+      </div>
+      <p class="text-xs text-neutral-400 mb-4" x-text="voucher?.voucher_id + ' · ' + (voucher?.voucher_type_id || '')"></p>
+
+      <div x-show="notesError"
+        class="bg-rose-50 border border-rose-200 text-rose-700 rounded-xl p-3 text-sm mb-4"
+        x-text="notesError"></div>
+
+      <div>
+        <label class="block text-[0.67rem] font-semibold text-neutral-400 uppercase tracking-wider mb-1.5">Notes</label>
+        <textarea x-model="notesValue" rows="5" placeholder="Free-form notes for staff — visible in the voucher detail view."
+          class="w-full border border-neutral-200 rounded-xl px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-uj/20 focus:border-uj resize-y"></textarea>
+        <p class="text-xs text-neutral-400 mt-1.5">Leave blank and save to clear the note.</p>
+      </div>
+
+      <div class="flex gap-2.5 mt-6">
+        <button @click="notesOpen = false"
+          class="flex-1 border border-neutral-200 hover:bg-neutral-50 text-neutral-700 font-medium rounded-xl py-2.5 text-sm transition-colors">
+          Cancel
+        </button>
+        <button @click="submitNotes()" :disabled="notesLoading"
+          class="flex-1 bg-uj hover:bg-uj-dark disabled:opacity-50 text-white font-semibold rounded-xl py-2.5 text-sm transition-colors">
+          <span x-text="notesLoading ? 'Saving…' : 'Save notes'"></span>
         </button>
       </div>
     </div>
@@ -1905,6 +1945,12 @@
       redeemLoading: false,
       redeemError: '',
 
+      // Staff notes modal
+      notesOpen: false,
+      notesValue: '',
+      notesLoading: false,
+      notesError: '',
+
       qrDataUrl: '',
 
       // Resend email modal
@@ -2203,6 +2249,35 @@
           this.redeemError = e.message;
         } finally {
           this.redeemLoading = false;
+        }
+      },
+
+      // ── Staff notes ──────────────────────────────────────────────────────
+      openNotes() {
+        this.notesValue = this.voucher?.staff_notes || '';
+        this.notesError = '';
+        this.notesOpen = true;
+      },
+
+      async submitNotes() {
+        this.notesLoading = true;
+        this.notesError = '';
+        try {
+          await this.api('/v1/vouchers/' + encodeURIComponent(this.voucher.voucher_id) + '/notes', {
+            method: 'POST',
+            body: JSON.stringify({
+              staff_notes: this.notesValue,
+              updated_by: 'staff',
+            }),
+          });
+          this.notesOpen = false;
+          this.showToast('Notes saved');
+          await this.openVoucher(this.voucher.voucher_id);
+          this.syncResultRow(this.voucher);
+        } catch (e) {
+          this.notesError = e.message;
+        } finally {
+          this.notesLoading = false;
         }
       },
 
