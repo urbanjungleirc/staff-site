@@ -302,7 +302,7 @@
       left: 0;
       right: 0;
       top: calc(100% + 6px);
-      max-height: 220px;
+      max-height: min(60vh, 560px);
       overflow: auto;
       padding: 6px;
       border-radius: 14px;
@@ -351,6 +351,12 @@
     }
     .soft-surface {
       background: linear-gradient(135deg, rgba(139, 28, 35, 0.035), rgba(139, 28, 35, 0));
+      border-color: rgba(139, 28, 35, 0.12);
+    }
+    /* Form/detail section card — the .stat-card look, but without its
+       overflow:hidden so combo dropdown menus can escape the card. */
+    .section-card {
+      background: linear-gradient(135deg, rgba(139, 28, 35, 0.06), rgba(139, 28, 35, 0));
       border-color: rgba(139, 28, 35, 0.12);
     }
     @media (max-width: 720px) {
@@ -633,7 +639,7 @@
         <div class="md:col-span-2">
 
           <!-- Header card -->
-          <div class="bg-white rounded-card hub-card soft-surface border border-neutral-100 overflow-hidden">
+          <div class="bg-white rounded-card hub-card section-card border border-neutral-100 overflow-hidden">
             <div class="p-5">
               <div class="flex flex-wrap items-start justify-between gap-4 mb-5">
                 <div class="flex items-start gap-3">
@@ -674,7 +680,7 @@
                 </svg>
                 <div>
                   <span class="font-semibold">Redemption warning</span>
-                  <div class="mt-0.5 md-body" x-html="renderMarkdown(voucher?._redemption_warning)"></div>
+                  <div class="mt-2 md-body" x-html="renderMarkdown(voucher?._redemption_warning)"></div>
                 </div>
               </div>
 
@@ -686,7 +692,7 @@
                 </svg>
                 <div class="min-w-0">
                   <span class="font-semibold uppercase tracking-wide text-[0.7rem]">Staff note</span>
-                  <div class="mt-0.5 whitespace-pre-wrap font-medium" x-text="voucher?.staff_notes"></div>
+                  <div class="mt-2 whitespace-pre-wrap font-medium" x-text="voucher?.staff_notes"></div>
                 </div>
               </div>
 
@@ -802,7 +808,7 @@
       <div class="grid grid-cols-1 md:grid-cols-3 gap-4 items-start">
 
         <!-- ① Voucher details -->
-        <div class="bg-white rounded-card hub-card soft-surface border border-neutral-100 p-5 space-y-4">
+        <div class="bg-white rounded-card hub-card section-card border border-neutral-100 p-5 space-y-4">
           <div class="flex items-center gap-2.5 pb-3 border-b border-neutral-100">
             <div class="section-icon"><svg viewBox="0 0 24 24"><path d="M3.5 8.5a2 2 0 0 1 2-2h13a2 2 0 0 1 2 2v2.1a2.4 2.4 0 0 0 0 4.8v2.1a2 2 0 0 1-2 2h-13a2 2 0 0 1-2-2v-2.1a2.4 2.4 0 0 0 0-4.8V8.5z"/><path d="M9 9.25v5.5"/></svg></div>
             <span class="text-xs font-semibold text-neutral-600 uppercase tracking-wider">Voucher details</span>
@@ -860,21 +866,31 @@
             <label class="block text-[0.67rem] font-semibold text-neutral-400 uppercase tracking-wider mb-1.5">
               Value ($) <span class="text-rose-400 normal-case tracking-normal font-normal">*</span>
             </label>
+            <!-- Locked while an item is selected — the worker takes the value from the item, not this field. -->
             <input type="number" step="0.01" min="0.01" x-model="createValue" placeholder="0.00"
-              class="w-full border border-neutral-200 rounded-xl px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-uj/20 focus:border-uj" />
+              :disabled="!!createItem" :title="createItem ? 'Value comes from the selected item. Choose Custom amount… to enter your own.' : ''"
+              class="w-full border border-neutral-200 rounded-xl px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-uj/20 focus:border-uj disabled:bg-neutral-100 disabled:text-neutral-500 disabled:cursor-not-allowed" />
           </div>
 
           <div>
             <label class="block text-[0.67rem] font-semibold text-neutral-400 uppercase tracking-wider mb-1.5">
               Reason <span class="normal-case tracking-normal font-normal text-neutral-400">(internal)</span>
             </label>
-            <input type="text" x-model="createReason" placeholder="e.g. Staff comp, Competition prize"
+            <input type="text" x-model="createReason" placeholder="e.g. Refund — cancelled booking, Comp — prize"
+              class="w-full border border-neutral-200 rounded-xl px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-uj/20 focus:border-uj" />
+          </div>
+
+          <div>
+            <label class="block text-[0.67rem] font-semibold text-neutral-400 uppercase tracking-wider mb-1.5">
+              Created by <span class="text-rose-400 normal-case tracking-normal font-normal">*</span>
+            </label>
+            <input type="text" x-model="createIssuer" placeholder="Your name"
               class="w-full border border-neutral-200 rounded-xl px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-uj/20 focus:border-uj" />
           </div>
         </div>
 
         <!-- ② Customer info -->
-        <div class="bg-white rounded-card hub-card soft-surface border border-neutral-100 p-5 space-y-4">
+        <div class="bg-white rounded-card hub-card section-card border border-neutral-100 p-5 space-y-4">
           <div class="flex items-center gap-2.5 pb-3 border-b border-neutral-100">
             <div class="section-icon"><svg viewBox="0 0 24 24"><path d="M12 12a4 4 0 1 0 0-8 4 4 0 0 0 0 8z"/><path d="M4.5 20a7.5 7.5 0 0 1 15 0"/></svg></div>
             <span class="text-xs font-semibold text-neutral-600 uppercase tracking-wider">Customer</span>
@@ -907,7 +923,7 @@
         </div>
 
         <!-- ③ Gift information -->
-        <div class="bg-white rounded-card hub-card soft-surface border border-neutral-100 p-5 space-y-4">
+        <div class="bg-white rounded-card hub-card section-card border border-neutral-100 p-5 space-y-4">
           <div class="flex items-center gap-2.5 pb-3 border-b border-neutral-100">
             <div class="section-icon"><svg viewBox="0 0 24 24"><path d="M20 12v7H4v-7"/><path d="M3 8h18v4H3z"/><path d="M12 8v11"/><path d="M12 8H8.5a2 2 0 1 1 2-2c0 1.5 1.5 2 1.5 2z"/><path d="M12 8h3.5a2 2 0 1 0-2-2c0 1.5-1.5 2-1.5 2z"/></svg></div>
             <span class="text-xs font-semibold text-neutral-600 uppercase tracking-wider">Gift details</span>
@@ -943,8 +959,8 @@
         </svg>
         <div class="min-w-0">
           <span class="font-semibold text-neutral-700">Conditions &amp; expiry</span>
-          <div x-show="createTypeExpiryNote()" class="mt-0.5" x-text="createTypeExpiryNote()"></div>
-          <div x-show="selectedCreateType()?.redemption_warning" class="mt-1 md-body" x-html="renderMarkdown(selectedCreateType()?.redemption_warning)"></div>
+          <div x-show="createTypeExpiryNote()" class="mt-2" x-text="createTypeExpiryNote()"></div>
+          <div x-show="selectedCreateType()?.redemption_warning" class="mt-2 md-body" x-html="renderMarkdown(selectedCreateType()?.redemption_warning)"></div>
         </div>
       </div>
 
@@ -2031,6 +2047,7 @@
       createGiftFrom: '',
       createGiftTo: '',
       createGiftMessage: '',
+      createIssuer: '',
       createLoading: false,
       createError: '',
       createdVoucher: null,
@@ -2074,6 +2091,10 @@
       dashStats: null,
       dashStatsLoading: false,
 
+      // Background refresh
+      _lastRefresh: 0,
+      _refreshTimer: null,
+
       // Reports
       reportTab: 'today',
       report: null,
@@ -2106,6 +2127,7 @@
           history.replaceState(null, '', window.location.pathname + window.location.search);
         }
         this.secret = localStorage.getItem('uj_staff_secret') || '';
+        this.createIssuer = localStorage.getItem('uj_voucher_created_by') || '';
         // Position help-tip bubbles on hover/focus so they escape the editor
         // panel's overflow and stay inside the viewport near a form edge.
         const onTip = (e) => { const t = e.target.closest && e.target.closest('.help-tip'); if (t) this.positionTip(t); };
@@ -2115,6 +2137,13 @@
           await this.search();
           this.loadDashStats(); // fire and forget — don't block the search
         }
+        // Background refresh: on tab focus (throttled inside refreshData) plus
+        // a 5-minute tick that only fires while the tab is visible.
+        this._lastRefresh = Date.now();
+        const kick = () => { if (document.visibilityState === 'visible') this.refreshData(); };
+        document.addEventListener('visibilitychange', kick);
+        window.addEventListener('focus', kick);
+        this._refreshTimer = setInterval(kick, 5 * 60 * 1000);
       },
 
       // Place a help bubble under its (?), clamped to the viewport so it never
@@ -2521,6 +2550,7 @@
       },
 
       async submitCreate() {
+        if (!this.createIssuer.trim()) { this.createError = 'Created by is required — enter your name'; return; }
         if (!this.createName.trim()) { this.createError = 'Customer name is required'; return; }
         if (!this.createType) { this.createError = 'Select a voucher type'; return; }
         if (!this.createItem && !this.createValue) { this.createError = 'Select an item or enter a value'; return; }
@@ -2545,9 +2575,11 @@
               gift_from: this.createGiftFrom.trim() || null,
               gift_to: this.createGiftTo.trim() || null,
               gift_message: this.createGiftMessage.trim() || null,
-              issued_by: 'staff',
+              issued_by: this.createIssuer.trim(),
             }),
           });
+          // Remember who's creating vouchers on this device so staff type it once.
+          localStorage.setItem('uj_voucher_created_by', this.createIssuer.trim());
           this.showToast(this.createdVoucher.voucher_id + ' created');
           this.createName = '';
           this.createPhone = '';
@@ -2594,6 +2626,37 @@
         } finally {
           this.dashStatsLoading = false;
         }
+      },
+
+      // ── Background refresh ───────────────────────────────────────────────
+      _anyModalOpen() {
+        return this.statusOpen || this.redeemOpen || this.notesOpen || this.resendOpen
+          || this.typeEditorOpen || this.itemsEditorOpen || this.itemFormOpen
+          || this.deactivateOpen || this.discardOpen || this.undoOpen
+          || this.formatHelpOpen || this.createPreviewOpen || this.deleteItemOpen;
+      },
+
+      // Quietly re-fetch what's on screen: no spinners, no pagination reset,
+      // never while a modal is open or the create form is in use.
+      async refreshData() {
+        if (!this.secret) return;
+        if (Date.now() - this._lastRefresh < 60 * 1000) return;
+        if (this._anyModalOpen() || this.view === 'create') return;
+        this._lastRefresh = Date.now();
+        this.loadDashStats();
+        try {
+          if (this.view === 'search') {
+            const recent = !this.q.trim() && !this.statusFilter;
+            const p = new URLSearchParams();
+            if (this.q) p.set('q', this.q);
+            if (this.statusFilter) p.set('status', this.statusFilter);
+            if (recent) p.set('limit', '99');
+            this.results = await this.api('/v1/vouchers/search?' + p.toString());
+            this.recentListing = recent;
+          } else if (this.view === 'report') {
+            this.report = await this.api('/v1/vouchers/report?type=' + this.reportTab);
+          }
+        } catch { /* background refresh — fail silently */ }
       },
 
       // ── Sort & pagination ────────────────────────────────────────────────
@@ -2834,7 +2897,18 @@
           }
           if (this.typeForm.sort_order === null || this.typeForm.sort_order === undefined) this.typeForm.sort_order = 0;
         } else {
+          // New type: seed the settings from the live Gift Certificate record so
+          // edits to that type automatically become the template. Identity fields
+          // (type_id, display_name, description, promo_id, sort_order) stay blank.
           this.typeForm = this.blankTypeForm();
+          const gv = (this.adminVoucherTypes || []).find(x => x.type_id === 'gift_voucher');
+          if (gv) {
+            for (const k of ['availability','expiry_months','max_per_customer','limit_period','is_physical',
+                             'email_subject','email_body','terms_conditions','accent_color','voucher_label',
+                             'redemption_instructions','usage_info','redemption_warning','show_qr','show_value']) {
+              if (gv[k] !== null && gv[k] !== undefined) this.typeForm[k] = gv[k];
+            }
+          }
         }
         this.typeEditorOpen = true;
         // Snapshot AFTER Alpine binds x-model (next tick) so value coercion during
