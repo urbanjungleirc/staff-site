@@ -568,6 +568,9 @@
               <th @click="sortSearch('customer_name')" class="text-left px-4 py-3 text-[0.67rem] font-semibold text-neutral-400 uppercase tracking-wider cursor-pointer hover:text-neutral-600 select-none hidden sm:table-cell">
                 Customer <span x-show="searchSort.col==='customer_name'" x-text="searchSort.dir==='asc'?'↑':'↓'" class="text-uj"></span>
               </th>
+              <th @click="sortSearch('type_name')" class="text-left px-4 py-3 text-[0.67rem] font-semibold text-neutral-400 uppercase tracking-wider cursor-pointer hover:text-neutral-600 select-none hidden md:table-cell">
+                Type <span x-show="searchSort.col==='type_name'" x-text="searchSort.dir==='asc'?'↑':'↓'" class="text-uj"></span>
+              </th>
               <th @click="sortSearch('balance')" class="text-right px-4 py-3 text-[0.67rem] font-semibold text-neutral-400 uppercase tracking-wider cursor-pointer hover:text-neutral-600 select-none">
                 Balance <span x-show="searchSort.col==='balance'" x-text="searchSort.dir==='asc'?'↑':'↓'" class="text-uj"></span>
               </th>
@@ -588,6 +591,7 @@
                   <div class="text-sm font-medium text-neutral-800" x-text="v.customer_name || '—'"></div>
                   <div class="text-neutral-400 text-xs mt-0.5" x-text="v.customer_email || ''"></div>
                 </td>
+                <td class="px-4 py-3 text-sm text-neutral-600 hidden md:table-cell" x-text="v.type_name || v.voucher_type_id || '—'"></td>
                 <td class="px-4 py-3 text-right text-sm font-semibold text-neutral-800" x-text="fmtMoney(v.balance)"></td>
                 <td class="px-4 py-3 text-center">
                   <span :class="statusClass(v.status)"
@@ -700,7 +704,7 @@
                 <div><dt class="text-[0.62rem] font-semibold text-neutral-400 uppercase tracking-wider mb-1">Customer</dt><dd class="font-medium text-neutral-800" x-text="voucher?.customer_name || '—'"></dd></div>
                 <div><dt class="text-[0.62rem] font-semibold text-neutral-400 uppercase tracking-wider mb-1">Email</dt><dd class="text-neutral-700" x-text="voucher?.customer_email || '—'"></dd></div>
                 <div><dt class="text-[0.62rem] font-semibold text-neutral-400 uppercase tracking-wider mb-1">Phone</dt><dd class="text-neutral-700" x-text="voucher?.customer_phone || '—'"></dd></div>
-                <div><dt class="text-[0.62rem] font-semibold text-neutral-400 uppercase tracking-wider mb-1">Type</dt><dd class="text-neutral-700" x-text="voucher?.voucher_type_id || '—'"></dd></div>
+                <div><dt class="text-[0.62rem] font-semibold text-neutral-400 uppercase tracking-wider mb-1">Type</dt><dd class="text-neutral-700" x-text="voucher?._type_name || voucher?.voucher_type_id || '—'"></dd></div>
                 <div><dt class="text-[0.62rem] font-semibold text-neutral-400 uppercase tracking-wider mb-1">Issued</dt><dd class="text-neutral-700" x-text="fmtDate(voucher?.issued_date)"></dd></div>
                 <div><dt class="text-[0.62rem] font-semibold text-neutral-400 uppercase tracking-wider mb-1">Expires</dt><dd class="text-neutral-700" x-text="fmtDate(voucher?.expiry_date)"></dd></div>
                 <div x-show="voucher?.last_redeemed_date"><dt class="text-[0.62rem] font-semibold text-neutral-400 uppercase tracking-wider mb-1">Last redeemed</dt><dd class="text-neutral-700" x-text="fmtDateTime(voucher?.last_redeemed_date)"></dd></div>
@@ -731,12 +735,12 @@
                 <span class="button-icon"><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="7.5"/><path d="m8.75 12.25 2.1 2.1 4.6-4.85"/></svg></span>
                 Redeem
               </button>
-              <button x-show="voucher?.last_redeemed_amount" @click="openUndo()"
+              <button x-show="voucher?.last_redeemed_amount && voucher?.status !== 'cancelled'" @click="openUndo()"
                 class="bg-white hover:bg-neutral-50 text-neutral-700 px-4 py-2 rounded-xl text-sm font-medium border border-neutral-200 hover:border-neutral-300 transition-colors inline-flex items-center gap-1.5">
                 <span class="button-icon"><svg viewBox="0 0 24 24"><path d="M8 7.5H4.5V4"/><path d="M5 7.25a7.5 7.5 0 1 1 1.4 9.25"/></svg></span>
                 Undo Redemption
               </button>
-              <button x-show="!voucher?.is_physical && voucher?.customer_email" @click="resendEmail()"
+              <button x-show="!voucher?.is_physical && voucher?.customer_email && voucher?.status !== 'cancelled'" @click="resendEmail()"
                 class="bg-white hover:bg-neutral-50 text-neutral-700 px-4 py-2 rounded-xl text-sm font-medium border border-neutral-200 hover:border-neutral-300 transition-colors inline-flex items-center gap-1.5">
                 <span class="button-icon"><svg viewBox="0 0 24 24"><path d="M4.5 7.5h15v10h-15z"/><path d="m5 8 7 5.25L19 8"/><path d="M17.25 4.75v3.5"/><path d="M15.5 6.5h3.5"/></svg></span>
                 Resend Email
@@ -745,6 +749,11 @@
                 class="bg-white hover:bg-neutral-50 text-neutral-700 px-4 py-2 rounded-xl text-sm font-medium border border-neutral-200 hover:border-neutral-300 transition-colors inline-flex items-center gap-1.5">
                 <span class="button-icon"><svg viewBox="0 0 24 24"><path d="M12.5 5.5 18 11l-8.5 8.5H4v-5.5z"/><path d="m15 3 3 3"/></svg></span>
                 <span x-text="voucher?.staff_notes ? 'Edit Notes' : 'Add Notes'"></span>
+              </button>
+              <button x-show="voucher && voucher.status !== 'cancelled'" @click="openCancel()"
+                class="bg-white hover:bg-rose-50 text-rose-700 px-4 py-2 rounded-xl text-sm font-medium border border-rose-200 hover:border-rose-300 transition-colors inline-flex items-center gap-1.5">
+                <span class="button-icon"><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="7.5"/><path d="m9.25 9.25 5.5 5.5"/><path d="m14.75 9.25-5.5 5.5"/></svg></span>
+                Cancel Voucher
               </button>
             </div>
             <p x-show="!voucher?.customer_email && !voucher?.is_physical"
@@ -765,6 +774,7 @@
                     <span x-show="entry.data?.amount" x-text="'$' + Number(entry.data?.amount||0).toFixed(2)"></span>
                     <span x-show="entry.data?.clubworx_receipt" x-text="entry.data?.clubworx_receipt"></span>
                     <span x-show="entry.action === 'resend_email' && entry.data?.to" x-text="'→ ' + (entry.data?.to || '')"></span>
+                    <span x-show="entry.action === 'voucher_cancelled' && entry.data?.reason" x-text="'— ' + (entry.data?.reason || '')"></span>
                     <span x-show="entry.action === 'resend_email' && entry.data?.overridden" class="text-amber-500">(override)</span>
                   </div>
                 </div>
@@ -1832,6 +1842,43 @@
     </div>
   </div>
 
+  <!-- ── Cancel voucher modal (manager-gated soft delete) ─────────────────── -->
+  <div x-show="cancelOpen" x-cloak class="fixed inset-0 z-50 flex items-center justify-center p-4"
+    @keydown.escape.window="cancelOpen = false">
+    <div class="absolute inset-0 bg-black/40 backdrop-blur-sm" @click="cancelOpen = false"></div>
+    <div class="relative bg-white rounded-card shadow-2xl shadow-neutral-900/15 w-full max-w-md p-6 border border-neutral-100">
+      <div class="flex items-center justify-between mb-4">
+        <h3 class="text-base font-semibold text-neutral-900">Cancel this voucher?</h3>
+        <button @click="cancelOpen = false" class="text-neutral-400 hover:text-neutral-700 text-xl leading-none">&times;</button>
+      </div>
+      <p class="text-sm text-neutral-700 mb-4">
+        <b class="font-mono" x-text="voucher?.voucher_id"></b>
+        <span x-show="voucher?.customer_name" x-text="' — ' + (voucher?.customer_name || '')"></span>
+        will be marked <b>cancelled</b>. It can no longer be redeemed. The record and its history are kept.
+      </p>
+      <div x-show="voucher && (voucher.last_redeemed_amount || Number(voucher.balance) < Number(voucher.value))"
+        class="bg-amber-50 border border-amber-200 text-amber-800 rounded-xl px-3.5 py-2.5 text-xs mb-4">
+        This voucher has redemption history — cancelling does not reverse past redemptions.
+      </div>
+      <label class="block text-xs font-semibold text-neutral-500 uppercase tracking-wider mb-1.5">Reason <span class="text-rose-500">*</span></label>
+      <textarea x-model="cancelReason" rows="2" maxlength="500" placeholder="e.g. duplicate issuance"
+        class="w-full border border-neutral-200 rounded-xl px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-uj/30 focus:border-uj mb-4"></textarea>
+      <label class="block text-xs font-semibold text-neutral-500 uppercase tracking-wider mb-1.5">Manager password <span class="text-rose-500">*</span></label>
+      <!-- Deliberately asked every time and never stored: cancelling is destructive. -->
+      <input type="password" x-model="cancelManagerSecret" autocomplete="off"
+        class="w-full border border-neutral-200 rounded-xl px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-uj/30 focus:border-uj mb-2">
+      <p x-show="cancelError" class="text-sm text-rose-600 mb-2" x-text="cancelError"></p>
+      <div class="flex gap-2.5 mt-3">
+        <button @click="cancelOpen = false"
+          class="flex-1 border border-neutral-200 hover:bg-neutral-50 text-neutral-700 font-medium rounded-xl py-2.5 text-sm transition-colors">Keep voucher</button>
+        <button @click="submitCancel()" :disabled="cancelLoading"
+          class="flex-1 bg-rose-600 hover:bg-rose-700 disabled:opacity-50 text-white font-semibold rounded-xl py-2.5 text-sm transition-colors">
+          <span x-text="cancelLoading ? 'Cancelling…' : 'Cancel voucher'"></span>
+        </button>
+      </div>
+    </div>
+  </div>
+
   <!-- ── Formatting / placeholders help modal ───────────────────────────── -->
   <div x-show="formatHelpOpen" x-cloak class="fixed inset-0 z-[60] flex items-center justify-center p-4"
     @keydown.escape.window="formatHelpOpen = false">
@@ -2054,6 +2101,15 @@
 
       // Undo redemption confirmation
       undoOpen: false,
+
+      // Cancel voucher (manager-gated). Manager secret is intentionally not
+      // persisted anywhere — re-entered for every cancellation.
+      cancelOpen: false,
+      cancelReason: '',
+      cancelManagerSecret: '',
+      cancelLoading: false,
+      cancelError: '',
+      accessEmail: '',
       undoLoading: false,
 
       // Formatting / placeholders help
@@ -2128,6 +2184,12 @@
         }
         this.secret = localStorage.getItem('uj_staff_secret') || '';
         this.createIssuer = localStorage.getItem('uj_voucher_created_by') || '';
+        // Cloudflare Access identity (audit only — the API can't verify it, so
+        // it never gates anything). Same-origin endpoint; absent on localhost.
+        fetch('/cdn-cgi/access/get-identity')
+          .then((r) => (r.ok ? r.json() : null))
+          .then((d) => { if (d && d.email) this.accessEmail = d.email; })
+          .catch(() => {});
         // Position help-tip bubbles on hover/focus so they escape the editor
         // panel's overflow and stay inside the viewport near a form edge.
         const onTip = (e) => { const t = e.target.closest && e.target.closest('.help-tip'); if (t) this.positionTip(t); };
@@ -2335,6 +2397,46 @@
 
       openUndo() {
         this.undoOpen = true;
+      },
+
+      openCancel() {
+        this.cancelReason = '';
+        this.cancelManagerSecret = '';
+        this.cancelError = '';
+        this.cancelOpen = true;
+      },
+
+      async submitCancel() {
+        if (!this.cancelReason.trim()) {
+          this.cancelError = 'A reason is required';
+          return;
+        }
+        if (!this.cancelManagerSecret) {
+          this.cancelError = 'Manager password is required';
+          return;
+        }
+        this.cancelLoading = true;
+        this.cancelError = '';
+        try {
+          await this.api('/v1/vouchers/' + encodeURIComponent(this.voucher.voucher_id) + '/cancel', {
+            method: 'POST',
+            headers: { 'X-Manager-Secret': this.cancelManagerSecret },
+            body: JSON.stringify({
+              cancelled_by: this.createIssuer || 'staff',
+              reason: this.cancelReason.trim(),
+              access_email: this.accessEmail,
+            }),
+          });
+          this.cancelOpen = false;
+          this.cancelManagerSecret = '';
+          this.showToast('Voucher cancelled');
+          await this.openVoucher(this.voucher.voucher_id);
+          this.syncResultRow(this.voucher);
+        } catch (e) {
+          this.cancelError = e.status === 403 ? 'Manager password incorrect' : e.message;
+        } finally {
+          this.cancelLoading = false;
+        }
       },
 
       async confirmUndo() {
@@ -2632,7 +2734,7 @@
       _anyModalOpen() {
         return this.statusOpen || this.redeemOpen || this.notesOpen || this.resendOpen
           || this.typeEditorOpen || this.itemsEditorOpen || this.itemFormOpen
-          || this.deactivateOpen || this.discardOpen || this.undoOpen
+          || this.deactivateOpen || this.discardOpen || this.undoOpen || this.cancelOpen
           || this.formatHelpOpen || this.createPreviewOpen || this.deleteItemOpen;
       },
 
