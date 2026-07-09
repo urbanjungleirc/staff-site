@@ -755,6 +755,11 @@
                 <span class="button-icon"><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="7.5"/><path d="m9.25 9.25 5.5 5.5"/><path d="m14.75 9.25-5.5 5.5"/></svg></span>
                 Cancel Voucher
               </button>
+              <button x-show="voucher && voucher.status === 'cancelled'" @click="openRestore()"
+                class="bg-white hover:bg-emerald-50 text-emerald-700 px-4 py-2 rounded-xl text-sm font-medium border border-emerald-200 hover:border-emerald-300 transition-colors inline-flex items-center gap-1.5">
+                <span class="button-icon"><svg viewBox="0 0 24 24"><path d="M8 7.5H4.5V4"/><path d="M5 7.25a7.5 7.5 0 1 1 1.4 9.25"/></svg></span>
+                Restore Voucher
+              </button>
             </div>
             <p x-show="!voucher?.customer_email && !voucher?.is_physical"
               class="text-xs text-neutral-400 mt-3">No email address on file — cannot resend.</p>
@@ -775,6 +780,8 @@
                     <span x-show="entry.data?.clubworx_receipt" x-text="entry.data?.clubworx_receipt"></span>
                     <span x-show="entry.action === 'resend_email' && entry.data?.to" x-text="'→ ' + (entry.data?.to || '')"></span>
                     <span x-show="entry.action === 'voucher_cancelled' && entry.data?.reason" x-text="'— ' + (entry.data?.reason || '')"></span>
+                    <span x-show="entry.action === 'voucher_restored' && entry.data?.reason" x-text="'— ' + (entry.data?.reason || '')"></span>
+                    <span x-show="entry.action === 'voucher_restored' && entry.data?.restored_status" x-text="'→ ' + (entry.data?.restored_status || '')"></span>
                     <span x-show="entry.action === 'resend_email' && entry.data?.overridden" class="text-amber-500">(override)</span>
                   </div>
                 </div>
@@ -1879,6 +1886,49 @@
     </div>
   </div>
 
+  <!-- ── Restore voucher modal (manager-gated un-cancel) ──────────────────── -->
+  <div x-show="restoreOpen" x-cloak class="fixed inset-0 z-50 flex items-center justify-center p-4"
+    @keydown.escape.window="restoreOpen = false">
+    <div class="absolute inset-0 bg-black/40 backdrop-blur-sm" @click="restoreOpen = false"></div>
+    <div class="relative bg-white rounded-card shadow-2xl shadow-neutral-900/15 w-full max-w-md p-6 border border-neutral-100">
+      <div class="flex items-center justify-between mb-4">
+        <h3 class="text-base font-semibold text-neutral-900">Restore this voucher?</h3>
+        <button @click="restoreOpen = false" class="text-neutral-400 hover:text-neutral-700 text-xl leading-none">&times;</button>
+      </div>
+      <p class="text-sm text-neutral-700 mb-4">
+        <b class="font-mono" x-text="voucher?.voucher_id"></b>
+        <span x-show="voucher?.customer_name" x-text="' — ' + (voucher?.customer_name || '')"></span>
+        will be un-cancelled and returned to
+        <span :class="statusClass(predictedRestoreStatus())"
+          class="inline-flex items-center px-2 py-0.5 rounded-full text-[0.67rem] font-semibold uppercase tracking-wide ring-1 ring-inset"
+          x-text="predictedRestoreStatus()"></span>.
+      </p>
+      <!-- The status is derived from balance and expiry, not from what it was before
+           cancelling — an expiry can lapse while a voucher sits cancelled. -->
+      <div x-show="predictedRestoreStatus() !== 'active'"
+        class="bg-amber-50 border border-amber-200 text-amber-800 rounded-xl px-3.5 py-2.5 text-xs mb-4">
+        <span x-show="predictedRestoreStatus() === 'expired'">This voucher's expiry has passed, so it comes back <b>expired</b>, not active. It will not be redeemable.</span>
+        <span x-show="predictedRestoreStatus() === 'redeemed'">This voucher has no balance left, so it comes back <b>redeemed</b>. It will not be redeemable.</span>
+      </div>
+      <label class="block text-xs font-semibold text-neutral-500 uppercase tracking-wider mb-1.5">Reason <span class="text-rose-500">*</span></label>
+      <textarea x-model="restoreReason" rows="2" maxlength="500" placeholder="e.g. cancelled by mistake"
+        class="w-full border border-neutral-200 rounded-xl px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-uj/30 focus:border-uj mb-4"></textarea>
+      <label class="block text-xs font-semibold text-neutral-500 uppercase tracking-wider mb-1.5">Manager password <span class="text-rose-500">*</span></label>
+      <!-- Asked every time and never stored, exactly like cancelling. -->
+      <input type="password" x-model="restoreManagerSecret" autocomplete="off"
+        class="w-full border border-neutral-200 rounded-xl px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-uj/30 focus:border-uj mb-2">
+      <p x-show="restoreError" class="text-sm text-rose-600 mb-2" x-text="restoreError"></p>
+      <div class="flex gap-2.5 mt-3">
+        <button @click="restoreOpen = false"
+          class="flex-1 border border-neutral-200 hover:bg-neutral-50 text-neutral-700 font-medium rounded-xl py-2.5 text-sm transition-colors">Keep cancelled</button>
+        <button @click="submitRestore()" :disabled="restoreLoading"
+          class="flex-1 bg-emerald-600 hover:bg-emerald-700 disabled:opacity-50 text-white font-semibold rounded-xl py-2.5 text-sm transition-colors">
+          <span x-text="restoreLoading ? 'Restoring…' : 'Restore voucher'"></span>
+        </button>
+      </div>
+    </div>
+  </div>
+
   <!-- ── Formatting / placeholders help modal ───────────────────────────── -->
   <div x-show="formatHelpOpen" x-cloak class="fixed inset-0 z-[60] flex items-center justify-center p-4"
     @keydown.escape.window="formatHelpOpen = false">
@@ -2110,6 +2160,13 @@
       cancelLoading: false,
       cancelError: '',
       accessEmail: '',
+
+      // Restore (un-cancel). Same manager gate; secret likewise never stored.
+      restoreOpen: false,
+      restoreReason: '',
+      restoreManagerSecret: '',
+      restoreLoading: false,
+      restoreError: '',
       undoLoading: false,
 
       // Formatting / placeholders help
@@ -2404,6 +2461,59 @@
         this.cancelManagerSecret = '';
         this.cancelError = '';
         this.cancelOpen = true;
+      },
+
+      openRestore() {
+        this.restoreReason = '';
+        this.restoreManagerSecret = '';
+        this.restoreError = '';
+        this.restoreOpen = true;
+      },
+
+      // Preview of the status restore_voucher (migration 009) will derive.
+      // Must mirror voucher_derived_status() exactly, including the rule that a
+      // spent voucher reads as 'redeemed' even once its expiry has passed.
+      // Display only — the server derives the status it actually writes.
+      predictedRestoreStatus() {
+        const v = this.voucher;
+        if (!v) return 'active';
+        if (Number(v.balance) <= 0) return 'redeemed';
+        const today = new Date().toLocaleDateString('en-CA', { timeZone: 'Australia/Perth' });
+        if (v.expiry_date && String(v.expiry_date).slice(0, 10) < today) return 'expired';
+        return 'active';
+      },
+
+      async submitRestore() {
+        if (!this.restoreReason.trim()) {
+          this.restoreError = 'A reason is required';
+          return;
+        }
+        if (!this.restoreManagerSecret) {
+          this.restoreError = 'Manager password is required';
+          return;
+        }
+        this.restoreLoading = true;
+        this.restoreError = '';
+        try {
+          await this.api('/v1/vouchers/' + encodeURIComponent(this.voucher.voucher_id) + '/uncancel', {
+            method: 'POST',
+            headers: { 'X-Manager-Secret': this.restoreManagerSecret },
+            body: JSON.stringify({
+              restored_by: this.createIssuer || 'staff',
+              reason: this.restoreReason.trim(),
+              access_email: this.accessEmail,
+            }),
+          });
+          this.restoreOpen = false;
+          this.restoreManagerSecret = '';
+          this.showToast('Voucher restored');
+          await this.openVoucher(this.voucher.voucher_id);
+          this.syncResultRow(this.voucher);
+        } catch (e) {
+          this.restoreError = e.status === 403 ? 'Manager password incorrect' : e.message;
+        } finally {
+          this.restoreLoading = false;
+        }
       },
 
       async submitCancel() {
@@ -2735,6 +2845,7 @@
         return this.statusOpen || this.redeemOpen || this.notesOpen || this.resendOpen
           || this.typeEditorOpen || this.itemsEditorOpen || this.itemFormOpen
           || this.deactivateOpen || this.discardOpen || this.undoOpen || this.cancelOpen
+          || this.restoreOpen
           || this.formatHelpOpen || this.createPreviewOpen || this.deleteItemOpen;
       },
 
