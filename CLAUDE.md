@@ -17,6 +17,7 @@ roster.html             - daily staff roster, pulled from Deputy via Cloudflare 
 cloudflare-worker/      - Worker for roster API and tools.json editor API
 cloudflare-payments-proxy/ - Worker bridging vouchers/ to uj-payments with the Access JWT
 vouchers/               - voucher management portal (auth = Cloudflare Access)
+vouchers/stats.html     - voucher analytics: revenue, liability, redemption, product mix
 hvt/                    - High-volume Training tool copy
 slideshow/              - Google Drive TV slideshow tool
 sls_tv.html             - Summer Lead Series TV display

@@ -1459,7 +1459,7 @@
 
   <!-- ── Voucher Type editor modal ──────────────────────────────────────── -->
   <div x-show="typeEditorOpen" x-cloak class="fixed inset-0 z-50 flex items-center justify-center p-4"
-    @keydown.escape.window="!discardOpen && closeTypeEditor()">
+    @keydown.escape.window="!discardOpen && !revenueClassConfirmOpen && closeTypeEditor()">
     <div class="absolute inset-0 bg-black/40 backdrop-blur-sm" @click="closeTypeEditor()"></div>
     <div class="relative bg-white rounded-card shadow-2xl shadow-neutral-900/15 w-full max-w-7xl max-h-[90vh] overflow-y-auto p-6 border border-neutral-100">
       <div class="flex items-center justify-between mb-4">
@@ -1847,6 +1847,36 @@
     </div>
   </div>
 
+  <!-- ── Revenue class change confirmation modal ─────────────────────────
+       Layers above the type editor (z-[60], same as the discard modal), since
+       it opens while that editor is still open behind it. -->
+  <div x-show="revenueClassConfirmOpen" x-cloak class="fixed inset-0 z-[60] flex items-center justify-center p-4"
+    @keydown.escape.window="cancelRevenueClassChange()">
+    <div class="absolute inset-0 bg-black/40 backdrop-blur-sm" @click="cancelRevenueClassChange()"></div>
+    <div class="relative bg-white rounded-card shadow-2xl shadow-neutral-900/15 w-full max-w-md p-6 border border-neutral-100">
+      <div class="flex items-center justify-between mb-4">
+        <h3 class="text-base font-semibold text-neutral-900">Change revenue class?</h3>
+        <button @click="cancelRevenueClassChange()" class="text-neutral-400 hover:text-neutral-700 text-xl leading-none">&times;</button>
+      </div>
+      <p class="text-sm text-neutral-700 mb-6">
+        Changing the revenue class restates all historical revenue for this type. Vouchers already
+        issued under it will be re-counted under the new class in every report — the stats page has
+        no "as of" date, it always reflects the type's current class. This is sometimes the right
+        call (correcting a misclassification), it just must never happen by accident.
+      </p>
+      <div class="flex gap-2.5">
+        <button @click="cancelRevenueClassChange()"
+          class="flex-1 border border-neutral-200 hover:bg-neutral-50 text-neutral-700 font-medium rounded-xl py-2.5 text-sm transition-colors">
+          Cancel
+        </button>
+        <button @click="confirmRevenueClassChange()"
+          class="flex-1 bg-uj hover:bg-uj-dark text-white font-semibold rounded-xl py-2.5 text-sm transition-colors">
+          Change class
+        </button>
+      </div>
+    </div>
+  </div>
+
   <!-- ── Undo redemption confirmation modal ─────────────────────────────── -->
   <div x-show="undoOpen" x-cloak class="fixed inset-0 z-50 flex items-center justify-center p-4"
     @keydown.escape.window="undoOpen = false">
@@ -2156,6 +2186,9 @@
       limitPeriodOpen: false,
       deactivateOpen: false,
       deactivateTarget: null,
+      revenueClassConfirmOpen: false,
+      _typeFormOriginalRevenueClass: null,
+      _pendingTypeSave: null,
       typeItemCounts: {},
       dragItemIndex: null,
       dragTypeIndex: null,
@@ -3160,6 +3193,10 @@
       openTypeEditor(t = null) {
         this.typeEditorError = '';
         this.editingExisting = !!t;
+        // Snapshot the class as loaded, so saveVoucherType() can tell a genuine
+        // edit from a no-op re-save. Only set for an existing type — a brand
+        // new type has no history to restate.
+        this._typeFormOriginalRevenueClass = t ? (t.revenue_class ?? null) : null;
         if (t) {
           // Merge onto a blank so any column the API omitted still has a sane default.
           this.typeForm = { ...this.blankTypeForm(), ...t };
@@ -3296,6 +3333,23 @@
           redemption_warning: textOrNull(f.redemption_warning),
         };
 
+        // revenue_class is read at query time, not snapshotted per voucher: every
+        // report re-counts every voucher ever issued under this type using
+        // whichever class it holds right now. Changing it on an existing type is
+        // a legitimate correction, but it silently restates history with no
+        // audit row -- so it must never happen by accident. New types have no
+        // history to restate, so they skip straight to saving.
+        if (this.editingExisting && this._typeFormOriginalRevenueClass !== null
+            && payload.revenue_class !== this._typeFormOriginalRevenueClass) {
+          this._pendingTypeSave = payload;
+          this.revenueClassConfirmOpen = true;
+          return;
+        }
+
+        await this._doSaveVoucherType(payload);
+      },
+
+      async _doSaveVoucherType(payload) {
         this.typeEditorSaving = true;
         this.typeEditorError = '';
         try {
@@ -3308,6 +3362,18 @@
         } finally {
           this.typeEditorSaving = false;
         }
+      },
+
+      async confirmRevenueClassChange() {
+        const payload = this._pendingTypeSave;
+        this.revenueClassConfirmOpen = false;
+        this._pendingTypeSave = null;
+        if (payload) await this._doSaveVoucherType(payload);
+      },
+
+      cancelRevenueClassChange() {
+        this.revenueClassConfirmOpen = false;
+        this._pendingTypeSave = null;
       },
 
       async openItemsEditor(t) {

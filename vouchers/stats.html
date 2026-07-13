@@ -363,11 +363,13 @@
             </div>
           </div>
           <p class="text-xs text-neutral-500 mb-3" x-show="moneyMode==='dollars'">
-            The dashed line is face value issued — what customers can spend. Where it lifts above the
-            bars, vouchers were sold for less than they are worth.
+            The dashed line is face value issued on sale and promo vouchers only — the same classes
+            the bars are made of. Where it lifts above the bars, those vouchers were sold for less
+            than they are worth. Credits and comps are excluded from the line entirely, so a routine
+            account credit never lifts it and never reads as discounting.
           </p>
           <div class="chart-frame"><canvas x-ref="moneyChart" role="img"
-            aria-label="Money taken each month, stacked by revenue class, with face value issued overlaid"></canvas></div>
+            aria-label="Money taken each month, stacked by revenue class, with face value issued on sale and promo vouchers overlaid"></canvas></div>
           <details class="mt-3">
             <summary>Show the numbers</summary>
             <div class="table-scroll mt-2">
@@ -377,7 +379,7 @@
                     <th scope="col">Month</th>
                     <template x-for="c in CLASSES" :key="c.key"><th scope="col" x-text="c.label"></th></template>
                     <th scope="col">Total revenue</th>
-                    <th scope="col">Face value issued</th>
+                    <th scope="col">Face value (sale + promo)</th>
                     <th scope="col">Vouchers</th>
                   </tr>
                 </thead>
@@ -389,7 +391,7 @@
                         <td x-text="money(r.revenue[c.key])"></td>
                       </template>
                       <td class="font-semibold" x-text="money(totalRevenue(r))"></td>
-                      <td x-text="money(r.face_value_issued)"></td>
+                      <td x-text="money(r.face_value_issued_revenue)"></td>
                       <td x-text="r.sold_count"></td>
                     </tr>
                   </template>
@@ -455,7 +457,9 @@
               <p class="text-xs text-neutral-500 mt-0.5">
                 Revenue taken in a month against voucher value redeemed in that same month. Both are dollars,
                 on one axis — a month where redeemed sits well above revenue is a month the gym worked off
-                earlier sales.
+                earlier sales. Revenue counts sale and promo vouchers only — money actually taken. Redeemed
+                value covers every class, including account credits being drawn down, so a credit redemption
+                here is a real visit, not revenue the gym failed to collect.
               </p>
             </div>
           </div>
@@ -607,10 +611,12 @@
       <div class="mt-8 pt-5 border-t border-neutral-200/70">
         <p class="text-xs text-neutral-500 leading-relaxed">
           <span class="font-semibold text-neutral-600">How to read the earlier years.</span>
-          Redemptions before June 2026 were reconstructed from voucher balances at migration. Totals reconcile
-          exactly, but a voucher redeemed over several visits before then has its whole drawdown recorded in the
-          month of its last visit — so the month-to-month shape of earlier years is approximate. A handful of
-          2020–21 vouchers also carry no recorded value. All months are Perth months
+          Only a handful of the earliest redemptions were reconstructed rather than logged directly: 9 vouchers
+          totalling $344.90, all redeemed before 2022, when redemption logging began. Every redemption from
+          2022 onwards is an exact logged transaction. Those 9 reconstructed redemptions are dated at the
+          voucher's last redemption, so the month-to-month shape of the earliest years is approximate even
+          though totals reconcile exactly. A handful of 2020–21 vouchers also carry no recorded value. All
+          months are Perth months
           (<span class="font-mono">Australia/Perth</span>) and all money is in AUD.
         </p>
       </div>
@@ -810,7 +816,12 @@
           if (!out.has(r.month)) {
             out.set(r.month, {
               month: r.month,
-              face_value_issued: 0, redeemed_value: 0, expired_value: 0,
+              // face_value_issued: every class (credit/comp genuinely add to what's
+              // owed, so the liability twin needs the full figure). face_value_issued_revenue:
+              // sale + promo_sale only — the one the money chart's line and its table
+              // twin must use, so "line above bars" means only one thing: genuine
+              // discounting, never a routine account credit landing that month.
+              face_value_issued: 0, face_value_issued_revenue: 0, redeemed_value: 0, expired_value: 0,
               liability_close: null, sold_count: 0,
               revenue: { sale: 0, promo_sale: 0, credit: 0, comp: 0 },
               count: { sale: 0, promo_sale: 0, credit: 0, comp: 0 },
@@ -818,6 +829,9 @@
           }
           const m = out.get(r.month);
           m.face_value_issued += Number(r.face_value_issued) || 0;
+          if (r.revenue_class === 'sale' || r.revenue_class === 'promo_sale') {
+            m.face_value_issued_revenue += Number(r.face_value_issued) || 0;
+          }
           m.redeemed_value += Number(r.redeemed_value) || 0;
           m.expired_value += Number(r.expired_value) || 0;
           m.sold_count += Number(r.sold_count) || 0;
@@ -1006,8 +1020,8 @@
           })),
           dollars ? {
             type: 'line',
-            label: 'Face value issued',
-            data: rows.map((r) => r.face_value_issued),
+            label: 'Face value issued (sale + promo)',
+            data: rows.map((r) => r.face_value_issued_revenue),
             borderColor: '#111827',
             backgroundColor: '#111827',
             borderWidth: 2,
