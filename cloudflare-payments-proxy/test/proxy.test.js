@@ -26,6 +26,22 @@ describe('uj-payments-proxy', () => {
     expect((await call('/api/payments/v1/staff/voucher-types')).status).toBe(200);
   });
 
+  it('forwards /v1/vouchers/analytics to the payments worker', async () => {
+    // Assert the proxy relays this path rather than rejecting it as off-allowlist.
+    // If ALLOWED_PREFIXES is ever narrowed, the stats page dies — this test says why.
+    const upstream = vi.fn(async () => new Response('{}', { status: 200 }));
+    vi.stubGlobal('fetch', upstream);
+
+    const res = await call('/api/payments/v1/vouchers/analytics?from=2026-05&to=2026-06', {
+      headers: { 'Cf-Access-Jwt-Assertion': 'the-token' },
+    });
+
+    expect(res.status).toBe(200);
+    const forwarded = upstream.mock.calls[0][0];
+    expect(forwarded.url).toBe('https://uj-payments.example.workers.dev/v1/vouchers/analytics?from=2026-05&to=2026-06');
+    expect(forwarded.headers.get('Cf-Access-Jwt-Assertion')).toBe('the-token');
+  });
+
   it('forwards the public voucher-types reads the create form depends on', async () => {
     vi.stubGlobal('fetch', vi.fn(async () => new Response('{}', { status: 200 })));
     expect((await call('/api/payments/v1/voucher-types')).status).toBe(200);
