@@ -1,0 +1,1146 @@
+<!DOCTYPE html>
+<html lang="en-AU">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Voucher stats - staff portal</title>
+  <link rel="icon" type="image/svg+xml" href="data:image/svg+xml,%3Csvg%20xmlns='http://www.w3.org/2000/svg'%20viewBox='0%200%2024%2024'%3E%3Crect%20width='24'%20height='24'%20rx='6'%20fill='%238b1c23'/%3E%3Cg%20fill='none'%20stroke='%23fff'%20stroke-width='2'%20stroke-linecap='round'%3E%3Cpath%20d='M5%2019h14'/%3E%3Cpath%20d='M8%2016v-4'/%3E%3Cpath%20d='M12%2016V7'/%3E%3Cpath%20d='M16%2016v-6'/%3E%3C/g%3E%3C/svg%3E">
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script>
+    tailwind.config = {
+      theme: {
+        extend: {
+          colors: {
+            uj: { DEFAULT: '#8b1c23', dark: '#6b181e', light: '#ab2930' }
+          },
+          fontFamily: {
+            sans: ['"Inter"', '"Segoe UI"', 'system-ui', '-apple-system', 'sans-serif'],
+          },
+          borderRadius: {
+            card: '18px',
+          }
+        }
+      }
+    }
+  </script>
+  <script defer src="https://cdn.jsdelivr.net/npm/alpinejs@3.x.x/dist/cdn.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
+  <style>
+    [x-cloak] { display: none !important; }
+
+    /* ── Chart colour roles ───────────────────────────────────────────────
+       Every hex below was checked with the data-viz palette validator
+       (light surface #ffffff, categorical mode):
+
+         revenue classes  #b3242d #c2703a #2a78d6 #4a3aa7
+           lightness band PASS · chroma floor PASS · CVD PASS (worst adjacent
+           ΔE 16.1, deutan) · contrast PASS (all >= 3:1)
+
+         redeemed vs revenue  #b3242d #12855f   — all four checks PASS
+         liability vs expiry  #2a78d6 #c2703a   — all four checks PASS
+         cohort ordinal ramp  #86b6ef #5598e7 #2a78d6 #184f95
+           (--ordinal: monotone lightness, single hue, light end clears 2:1)
+
+       Sale keeps the brand red, one step lighter than the header's #8b1c23 so
+       it sits inside the validator's lightness band. Colour follows the entity:
+       a class keeps its hue no matter which classes a filter leaves standing. */
+    :root {
+      --uj: #8b1c23;
+      --border-soft: rgba(31, 41, 55, 0.08);
+
+      --series-sale:       #b3242d;
+      --series-promo:      #c2703a;
+      --series-credit:     #2a78d6;
+      --series-comp:       #4a3aa7;
+      --series-redeemed:   #12855f;
+      --series-liability:  #2a78d6;
+      --series-expired:    #c2703a;
+
+      --ink-primary:   #111827;
+      --ink-secondary: #4b5563;
+      --ink-muted:     #9ca3af;
+      --gridline:      #e9e7e4;
+      --surface:       #ffffff;
+    }
+
+    .hub-header {
+      background:
+        radial-gradient(circle at 20% -20%, rgba(171, 49, 57, 0.32), transparent 55%),
+        linear-gradient(145deg, rgba(107, 24, 30, 0.95), rgba(139, 28, 35, 0.92));
+    }
+    .voucher-panel {
+      background: #fff;
+      border: 1px solid var(--border-soft);
+      border-radius: 18px;
+      box-shadow: 0 12px 30px -24px rgba(15, 23, 42, 1);
+      padding: 28px 32px;
+    }
+    .header-icon {
+      width: 58px;
+      height: 58px;
+      border-radius: 18px;
+      color: var(--uj);
+      background: linear-gradient(135deg, #f4d4d8, #e0a9b0);
+      border: 1px solid rgba(255, 255, 255, 0.55);
+      box-shadow: 0 12px 24px -10px rgba(0, 0, 0, 0.5), inset 0 1px 0 rgba(255, 255, 255, 0.55);
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      flex-shrink: 0;
+    }
+    .header-icon svg { width: 28px; height: 28px; fill: none; stroke: currentColor; stroke-width: 1.9; stroke-linecap: round; stroke-linejoin: round; }
+    .nav-icon { display: inline-flex; align-items: center; justify-content: center; flex-shrink: 0; font-size: 15px; }
+    .nav-icon svg { width: 1em; height: 1em; fill: none; stroke: currentColor; stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round; }
+    .section-icon {
+      width: 28px;
+      height: 28px;
+      border-radius: 10px;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      color: var(--uj);
+      background: rgba(139, 28, 35, 0.08);
+      border: 1px solid rgba(139, 28, 35, 0.12);
+      font-size: 16px;
+      flex-shrink: 0;
+    }
+    .section-icon svg { width: 1em; height: 1em; fill: none; stroke: currentColor; stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round; }
+
+    /* Chart card — quiet surface, hairline ring, generous padding. The chart is
+       the loud thing on the page; its container must not compete. */
+    .chart-card {
+      background: #fff;
+      border: 1px solid rgba(31, 41, 55, 0.08);
+      border-radius: 16px;
+      padding: 20px 22px 22px;
+    }
+    /* Height includes the x-axis band, so tick labels are never clipped into a
+       nested scrollbar. */
+    .chart-frame { position: relative; height: 320px; }
+    @media (max-width: 720px) {
+      .voucher-panel { padding: 20px 16px; border-radius: 16px; }
+      .chart-card { padding: 16px 14px 18px; }
+      .chart-frame { height: 260px; }
+    }
+
+    .stat-card {
+      position: relative;
+      background: linear-gradient(135deg, rgba(139, 28, 35, 0.06), rgba(139, 28, 35, 0));
+      border: 1px solid rgba(139, 28, 35, 0.12);
+      border-radius: 14px;
+      padding: 16px 18px;
+    }
+    /* Stat-tile values use proportional figures; tabular-nums is reserved for
+       columns that must align (tables, axis ticks). */
+    .stat-value { font-size: 1.75rem; font-weight: 700; line-height: 1.1; color: var(--ink-primary); }
+    .stat-value.is-empty { color: var(--ink-muted); font-weight: 600; }
+
+    .field-label {
+      display: block;
+      font-size: 0.66rem;
+      font-weight: 600;
+      text-transform: uppercase;
+      letter-spacing: 0.08em;
+      color: #6b7280;
+      margin-bottom: 5px;
+    }
+    .field-input {
+      width: 100%;
+      min-height: 40px;
+      padding: 0.5rem 0.75rem;
+      border-radius: 12px;
+      border: 1px solid rgba(31, 41, 55, 0.12);
+      background: #fff;
+      color: #1f2937;
+      font-size: 0.875rem;
+      transition: border-color 150ms ease, box-shadow 150ms ease;
+    }
+    .field-input:focus {
+      outline: none;
+      border-color: var(--uj);
+      box-shadow: 0 0 0 3px rgba(139, 28, 35, 0.14);
+    }
+    .btn-primary {
+      min-height: 40px;
+      padding: 0.5rem 1.15rem;
+      border-radius: 12px;
+      background: var(--uj);
+      color: #fff;
+      font-size: 0.875rem;
+      font-weight: 600;
+      transition: background-color 150ms ease;
+    }
+    .btn-primary:hover { background: #6b181e; }
+    .btn-primary:focus-visible { outline: 2px solid var(--uj); outline-offset: 2px; }
+    .btn-primary:disabled { opacity: 0.55; cursor: not-allowed; }
+
+    /* Segmented control — dollars / count. Hit targets are full-height. */
+    .seg {
+      display: inline-flex;
+      padding: 3px;
+      gap: 3px;
+      border-radius: 11px;
+      background: rgba(31, 41, 55, 0.05);
+      border: 1px solid rgba(31, 41, 55, 0.07);
+    }
+    .seg button {
+      padding: 5px 13px;
+      border-radius: 8px;
+      font-size: 0.78rem;
+      font-weight: 600;
+      color: #6b7280;
+      transition: background-color 120ms ease, color 120ms ease;
+    }
+    .seg button:hover { color: #1f2937; }
+    .seg button.active { background: #fff; color: var(--uj); box-shadow: 0 1px 2px rgba(15, 23, 42, 0.10); }
+    .seg button:focus-visible { outline: 2px solid var(--uj); outline-offset: 1px; }
+
+    .legend-dot { width: 10px; height: 10px; border-radius: 3px; flex-shrink: 0; }
+
+    /* Table view — the WCAG-clean twin of every chart. */
+    .data-table { width: 100%; font-size: 0.78rem; font-variant-numeric: tabular-nums; }
+    .data-table th {
+      text-align: right;
+      font-weight: 600;
+      color: #6b7280;
+      padding: 6px 8px;
+      border-bottom: 1px solid var(--gridline);
+      white-space: nowrap;
+    }
+    .data-table th:first-child, .data-table td:first-child { text-align: left; }
+    .data-table td { text-align: right; padding: 5px 8px; color: #374151; border-bottom: 1px solid #f4f4f2; }
+    .table-scroll { overflow-x: auto; }
+    details > summary {
+      cursor: pointer;
+      list-style: none;
+      font-size: 0.74rem;
+      font-weight: 600;
+      color: #6b7280;
+      padding: 4px 0;
+    }
+    details > summary::-webkit-details-marker { display: none; }
+    details > summary:hover { color: var(--uj); }
+    details > summary:focus-visible { outline: 2px solid var(--uj); outline-offset: 2px; border-radius: 4px; }
+    details > summary::before { content: '▸ '; }
+    details[open] > summary::before { content: '▾ '; }
+
+    /* Refetch: hold the previous render at reduced opacity — no skeleton flash,
+       no layout jump. */
+    .is-refreshing { opacity: 0.55; transition: opacity 120ms ease; }
+
+    @keyframes uj-spin { to { transform: rotate(360deg); } }
+    .uj-spinner {
+      width: 30px; height: 30px; border-radius: 50%;
+      border: 3px solid rgba(139, 28, 35, 0.15);
+      border-top-color: var(--uj);
+      animation: uj-spin 0.7s linear infinite;
+    }
+    @media (prefers-reduced-motion: reduce) {
+      .uj-spinner { animation-duration: 2s; }
+      * { transition-duration: 1ms !important; }
+    }
+    ::-webkit-scrollbar { width: 6px; height: 6px; }
+    ::-webkit-scrollbar-track { background: transparent; }
+    ::-webkit-scrollbar-thumb { background: rgba(139, 28, 35, 0.2); border-radius: 3px; }
+  </style>
+</head>
+<body class="bg-neutral-100 text-neutral-900 min-h-screen antialiased font-sans"
+  x-data="voucherStats()" x-init="init()" x-cloak>
+
+  <!-- ── Header ──────────────────────────────────────────────────────────── -->
+  <header class="hub-header text-white">
+    <div class="max-w-[1100px] mx-auto px-6 pt-10 pb-16 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-6">
+
+      <div class="flex items-center gap-4 shrink-0">
+        <div class="header-icon">
+          <svg viewBox="0 0 24 24">
+            <path d="M4.5 19.5h15"/><path d="M7 16v-5"/><path d="M12 16V6.5"/><path d="M17 16v-8"/>
+          </svg>
+        </div>
+        <div>
+          <div class="text-[0.7rem] font-semibold uppercase tracking-[0.12em] text-white/65 leading-none mb-2">Staff Portal</div>
+          <h1 class="text-3xl sm:text-4xl font-bold tracking-tight text-white leading-none">Voucher stats</h1>
+          <p class="text-sm text-white/75 mt-2">What was sold, what is still owed, and what came back through the door.</p>
+        </div>
+      </div>
+
+      <nav class="flex items-center gap-1.5 flex-wrap sm:justify-end">
+        <a href="/vouchers/"
+          class="px-4 py-2 rounded-xl border border-white/30 bg-white/[0.12] text-white hover:bg-white/[0.22] text-[0.9rem] font-semibold transition-all inline-flex items-center gap-1.5">
+          <span class="nav-icon"><svg viewBox="0 0 24 24"><path d="M15 6l-6 6 6 6"/></svg></span>
+          Back to vouchers
+        </a>
+      </nav>
+
+    </div>
+  </header>
+
+  <main class="max-w-[1100px] mx-auto w-full px-4 pb-10 -mt-10">
+    <div class="voucher-panel">
+
+      <!-- ── Filters ───────────────────────────────────────────────────────
+           One filter row above everything it scopes. Every chart, tile and
+           table on the page renders against this same slice. -->
+      <form class="grid grid-cols-2 md:grid-cols-[repeat(4,minmax(0,1fr))_auto] gap-3 items-end"
+            @submit.prevent="apply()">
+        <div>
+          <label class="field-label" for="f-from">From</label>
+          <input id="f-from" type="month" class="field-input" x-model="filters.from" max="9999-12">
+        </div>
+        <div>
+          <label class="field-label" for="f-to">To</label>
+          <input id="f-to" type="month" class="field-input" x-model="filters.to" max="9999-12">
+        </div>
+        <div>
+          <label class="field-label" for="f-type">Voucher type</label>
+          <select id="f-type" class="field-input" x-model="filters.type">
+            <option value="">All types</option>
+            <template x-for="t in types" :key="t.type_id">
+              <option :value="t.type_id" x-text="t.display_name || t.type_id"></option>
+            </template>
+          </select>
+        </div>
+        <div>
+          <label class="field-label" for="f-class">Revenue class</label>
+          <select id="f-class" class="field-input" x-model="filters.class">
+            <option value="">All classes</option>
+            <template x-for="c in CLASSES" :key="c.key">
+              <option :value="c.key" x-text="c.label"></option>
+            </template>
+          </select>
+        </div>
+        <div class="col-span-2 md:col-span-1">
+          <button type="submit" class="btn-primary w-full md:w-auto" :disabled="loading">
+            <span x-show="!loading">Apply</span>
+            <span x-show="loading" x-cloak>Loading…</span>
+          </button>
+        </div>
+      </form>
+
+      <p x-show="rangeError" x-cloak x-text="rangeError"
+         class="mt-3 text-sm text-amber-800 bg-amber-50 border border-amber-200 rounded-xl px-4 py-2.5"></p>
+
+      <p x-show="error" x-cloak
+         class="mt-3 text-sm text-red-800 bg-red-50 border border-red-200 rounded-xl px-4 py-2.5">
+        Could not load the analytics: <span x-text="error" class="font-mono"></span>
+      </p>
+
+      <!-- First load -->
+      <div x-show="loading && !data" class="flex flex-col items-center gap-3 py-20">
+        <div class="uj-spinner"></div>
+        <p class="text-sm text-neutral-500">Loading voucher analytics…</p>
+      </div>
+
+      <!-- Nothing in the window -->
+      <div x-show="data && !hasRows()" x-cloak class="py-16 text-center">
+        <p class="text-base font-semibold text-neutral-700">No vouchers in this window</p>
+        <p class="text-sm text-neutral-500 mt-1">Widen the dates, or clear the type and class filters.</p>
+      </div>
+
+      <!-- ── Everything below is the current slice ───────────────────────── -->
+      <div x-show="data && hasRows()" x-cloak :class="refreshing ? 'is-refreshing' : ''" class="mt-7 space-y-7">
+
+        <!-- 1 ── Money -->
+        <section class="chart-card">
+          <div class="flex flex-wrap items-start justify-between gap-3 mb-1">
+            <div class="flex items-center gap-2.5">
+              <span class="section-icon"><svg viewBox="0 0 24 24"><path d="M4.5 19.5h15"/><path d="M8 16v-6"/><path d="M13 16V8"/><path d="M18 16v-4"/></svg></span>
+              <div>
+                <h2 class="text-base font-semibold text-neutral-900 leading-tight">Sold each month</h2>
+                <p class="text-xs text-neutral-500 mt-0.5">
+                  Bars are money taken, stacked by revenue class. Credits and comps take no money, so they
+                  sit at zero in dollars but still show up in the count.
+                </p>
+              </div>
+            </div>
+            <div class="seg" role="group" aria-label="Measure">
+              <button type="button" :class="moneyMode==='dollars' ? 'active' : ''"
+                :aria-pressed="moneyMode==='dollars'"
+                @click="moneyMode='dollars'; draw()">Dollars</button>
+              <button type="button" :class="moneyMode==='count' ? 'active' : ''"
+                :aria-pressed="moneyMode==='count'"
+                @click="moneyMode='count'; draw()">Vouchers</button>
+            </div>
+          </div>
+          <p class="text-xs text-neutral-500 mb-3" x-show="moneyMode==='dollars'">
+            The dashed line is face value issued — what customers can spend. Where it lifts above the
+            bars, vouchers were sold for less than they are worth.
+          </p>
+          <div class="chart-frame"><canvas x-ref="moneyChart" role="img"
+            aria-label="Money taken each month, stacked by revenue class, with face value issued overlaid"></canvas></div>
+          <details class="mt-3">
+            <summary>Show the numbers</summary>
+            <div class="table-scroll mt-2">
+              <table class="data-table">
+                <thead>
+                  <tr>
+                    <th scope="col">Month</th>
+                    <template x-for="c in CLASSES" :key="c.key"><th scope="col" x-text="c.label"></th></template>
+                    <th scope="col">Total revenue</th>
+                    <th scope="col">Face value issued</th>
+                    <th scope="col">Vouchers</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  <template x-for="r in byMonth()" :key="r.month">
+                    <tr>
+                      <td x-text="monthLabel(r.month)"></td>
+                      <template x-for="c in CLASSES" :key="c.key">
+                        <td x-text="money(r.revenue[c.key])"></td>
+                      </template>
+                      <td class="font-semibold" x-text="money(totalRevenue(r))"></td>
+                      <td x-text="money(r.face_value_issued)"></td>
+                      <td x-text="r.sold_count"></td>
+                    </tr>
+                  </template>
+                </tbody>
+              </table>
+            </div>
+          </details>
+        </section>
+
+        <!-- 2 ── Liability -->
+        <section class="chart-card">
+          <div class="flex items-center gap-2.5 mb-1">
+            <span class="section-icon"><svg viewBox="0 0 24 24"><path d="M4 18c3-1 5-9 8-9s5 8 8 6"/><path d="M4 20.5h16"/></svg></span>
+            <div>
+              <h2 class="text-base font-semibold text-neutral-900 leading-tight">Outstanding balance</h2>
+              <p class="text-xs text-neutral-500 mt-0.5">
+                What the gym still owes at the end of each month — every unredeemed dollar sitting on a live
+                voucher. Bars are breakage: balance that expired unspent that month, and stops being owed.
+              </p>
+            </div>
+          </div>
+          <p class="text-xs text-neutral-400 mb-3">
+            The window opened at <span class="font-semibold text-neutral-600" x-text="money(data?.opening_liability)"></span>
+            already owed, so the curve is seeded from there rather than from zero.
+          </p>
+          <div class="chart-frame"><canvas x-ref="liabilityChart" role="img"
+            aria-label="Outstanding voucher balance at each month end, with expired balance shown as bars"></canvas></div>
+          <details class="mt-3">
+            <summary>Show the numbers</summary>
+            <div class="table-scroll mt-2">
+              <table class="data-table">
+                <thead>
+                  <tr>
+                    <th scope="col">Month</th>
+                    <th scope="col">Face value issued</th>
+                    <th scope="col">Redeemed</th>
+                    <th scope="col">Expired (breakage)</th>
+                    <th scope="col">Outstanding at close</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  <template x-for="r in byMonth()" :key="r.month">
+                    <tr>
+                      <td x-text="monthLabel(r.month)"></td>
+                      <td x-text="money(r.face_value_issued)"></td>
+                      <td x-text="money(r.redeemed_value)"></td>
+                      <td x-text="money(r.expired_value)"></td>
+                      <td class="font-semibold" x-text="money(r.liability_close)"></td>
+                    </tr>
+                  </template>
+                </tbody>
+              </table>
+            </div>
+          </details>
+        </section>
+
+        <!-- 3 ── Redemption behaviour -->
+        <section class="chart-card">
+          <div class="flex items-center gap-2.5 mb-3">
+            <span class="section-icon"><svg viewBox="0 0 24 24"><path d="M20 7L9.5 17.5 4 12"/></svg></span>
+            <div>
+              <h2 class="text-base font-semibold text-neutral-900 leading-tight">Money in, value out</h2>
+              <p class="text-xs text-neutral-500 mt-0.5">
+                Revenue taken in a month against voucher value redeemed in that same month. Both are dollars,
+                on one axis — a month where redeemed sits well above revenue is a month the gym worked off
+                earlier sales.
+              </p>
+            </div>
+          </div>
+          <div class="chart-frame"><canvas x-ref="redeemedChart" role="img"
+            aria-label="Revenue taken and voucher value redeemed, by month"></canvas></div>
+          <details class="mt-3">
+            <summary>Show the numbers</summary>
+            <div class="table-scroll mt-2">
+              <table class="data-table">
+                <thead>
+                  <tr>
+                    <th scope="col">Month</th>
+                    <th scope="col">Revenue</th>
+                    <th scope="col">Redeemed</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  <template x-for="r in byMonth()" :key="r.month">
+                    <tr>
+                      <td x-text="monthLabel(r.month)"></td>
+                      <td x-text="money(totalRevenue(r))"></td>
+                      <td x-text="money(r.redeemed_value)"></td>
+                    </tr>
+                  </template>
+                </tbody>
+              </table>
+            </div>
+          </details>
+        </section>
+
+        <!-- 4 ── Cohorts -->
+        <section class="chart-card">
+          <div class="flex items-center gap-2.5 mb-1">
+            <span class="section-icon"><svg viewBox="0 0 24 24"><path d="M4.5 19.5h15"/><path d="M7.5 16v-3"/><path d="M12 16V9"/><path d="M16.5 16V6"/></svg></span>
+            <div>
+              <h2 class="text-base font-semibold text-neutral-900 leading-tight">How fast a cohort comes back</h2>
+              <p class="text-xs text-neutral-500 mt-0.5">
+                Of the value sold in each month, how much had been redeemed by 1, 3, 6 and 12 months.
+                The bands are cumulative, so they are drawn side by side, never stacked.
+              </p>
+            </div>
+          </div>
+          <p class="text-xs text-neutral-400 mb-3">
+            A band is only drawn once the cohort is old enough to have one. A voucher sold last month cannot
+            yet have a 12-month figure, so no 12-month bar is drawn for it — that gap is the honest answer,
+            not a zero. Cohort months marked <span class="font-semibold text-neutral-600">*</span> are still
+            younger than 12 months and therefore incomplete.
+          </p>
+          <div class="chart-frame"><canvas x-ref="cohortChart" role="img"
+            aria-label="Share of each cohort's issued value redeemed by 1, 3, 6 and 12 months"></canvas></div>
+          <details class="mt-3">
+            <summary>Show the numbers</summary>
+            <div class="table-scroll mt-2">
+              <table class="data-table">
+                <thead>
+                  <tr>
+                    <th scope="col">Cohort</th>
+                    <th scope="col">Issued value</th>
+                    <th scope="col">Age (days)</th>
+                    <template x-for="b in BANDS" :key="b.key"><th scope="col" x-text="b.label"></th></template>
+                  </tr>
+                </thead>
+                <tbody>
+                  <template x-for="c in (data?.cohorts || [])" :key="c.cohort_month">
+                    <tr>
+                      <td x-text="cohortLabel(c)"></td>
+                      <td x-text="money(c.issued_value)"></td>
+                      <td x-text="c.cohort_age_days"></td>
+                      <template x-for="b in BANDS" :key="b.key">
+                        <td x-text="pctText(c[b.key], c.issued_value)"></td>
+                      </template>
+                    </tr>
+                  </template>
+                </tbody>
+              </table>
+            </div>
+          </details>
+        </section>
+
+        <!-- 5 ── Summary tiles -->
+        <section>
+          <h2 class="text-sm font-semibold text-neutral-800 mb-3">Vouchers issued in this window</h2>
+          <div class="grid grid-cols-2 lg:grid-cols-4 gap-3">
+            <div class="stat-card">
+              <div class="text-[0.66rem] font-semibold uppercase tracking-[0.08em] text-neutral-500 mb-1.5">Redeemed at all</div>
+              <div class="stat-value" :class="isNil(data?.summary?.redemption_rate) ? 'is-empty' : ''"
+                   x-text="pctOrDash(data?.summary?.redemption_rate)"></div>
+              <div class="text-[0.7rem] text-neutral-500 mt-1">Share with at least one redemption</div>
+            </div>
+            <div class="stat-card">
+              <div class="text-[0.66rem] font-semibold uppercase tracking-[0.08em] text-neutral-500 mb-1.5">Fully drawn down</div>
+              <div class="stat-value" :class="isNil(data?.summary?.full_redemption_rate) ? 'is-empty' : ''"
+                   x-text="pctOrDash(data?.summary?.full_redemption_rate)"></div>
+              <div class="text-[0.7rem] text-neutral-500 mt-1">Share with a zero balance left</div>
+            </div>
+            <div class="stat-card">
+              <div class="text-[0.66rem] font-semibold uppercase tracking-[0.08em] text-neutral-500 mb-1.5">Median days to redeem</div>
+              <div class="stat-value" :class="isNil(data?.summary?.median_days_to_redeem) ? 'is-empty' : ''"
+                   x-text="daysOrDash(data?.summary?.median_days_to_redeem)"></div>
+              <div class="text-[0.7rem] text-neutral-500 mt-1">Issue to first redemption</div>
+            </div>
+            <div class="stat-card">
+              <div class="text-[0.66rem] font-semibold uppercase tracking-[0.08em] text-neutral-500 mb-1.5">Average voucher value</div>
+              <div class="stat-value" :class="isNil(data?.summary?.avg_voucher_value) ? 'is-empty' : ''"
+                   x-text="isNil(data?.summary?.avg_voucher_value) ? '—' : money(data.summary.avg_voucher_value)"></div>
+              <div class="text-[0.7rem] text-neutral-500 mt-1">Face value at issue</div>
+            </div>
+          </div>
+          <p class="text-[0.7rem] text-neutral-400 mt-2">
+            A voucher can be drawn down to zero without a redemption ever being recorded against it, so
+            "fully drawn down" can legitimately sit above "redeemed at all". The two are not nested.
+          </p>
+        </section>
+
+        <!-- 6 ── Item mix -->
+        <section>
+          <h2 class="text-sm font-semibold text-neutral-800 mb-1">What sold</h2>
+          <p class="text-xs text-neutral-500 mb-3">Every voucher item sold in the window, by the money it took.</p>
+          <div class="table-scroll rounded-xl border border-neutral-200/80">
+            <table class="data-table">
+              <thead>
+                <tr>
+                  <th scope="col" class="pl-4">Item</th>
+                  <th scope="col">Units</th>
+                  <th scope="col">Revenue</th>
+                  <th scope="col" class="pr-4">Share of revenue</th>
+                </tr>
+              </thead>
+              <tbody>
+                <template x-for="i in itemsSorted()" :key="i.item_id">
+                  <tr>
+                    <td class="pl-4 text-neutral-800" x-text="i.item_name || i.item_id"></td>
+                    <td x-text="i.units"></td>
+                    <td x-text="money(i.revenue)"></td>
+                    <td class="pr-4" x-text="itemShare(i)"></td>
+                  </tr>
+                </template>
+                <tr x-show="!(data?.items || []).length">
+                  <td class="pl-4 pr-4 py-4 text-neutral-500" colspan="4">No items sold in this window.</td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+        </section>
+
+      </div>
+
+      <!-- ── Caveat — always visible ─────────────────────────────────────── -->
+      <div class="mt-8 pt-5 border-t border-neutral-200/70">
+        <p class="text-xs text-neutral-500 leading-relaxed">
+          <span class="font-semibold text-neutral-600">How to read the earlier years.</span>
+          Redemptions before June 2026 were reconstructed from voucher balances at migration. Totals reconcile
+          exactly, but a voucher redeemed over several visits before then has its whole drawdown recorded in the
+          month of its last visit — so the month-to-month shape of earlier years is approximate. A handful of
+          2020–21 vouchers also carry no recorded value. All months are Perth months
+          (<span class="font-mono">Australia/Perth</span>) and all money is in AUD.
+        </p>
+      </div>
+
+    </div>
+  </main>
+
+  <script>
+  function voucherStats() {
+    // Production talks to the payments Worker through the same-origin proxy, so
+    // Cloudflare Access authenticates every call and no secret is needed.
+    // Localhost has no Access in front of it, so it keeps the shared-secret path.
+    const IS_LOCAL = ['localhost', '127.0.0.1'].includes(window.location.hostname);
+    const WORKER = IS_LOCAL ? 'https://uj-payments.urbanjungle.workers.dev' : '/api/payments';
+
+    const AUD = new Intl.NumberFormat('en-AU', {
+      style: 'currency', currency: 'AUD', minimumFractionDigits: 2, maximumFractionDigits: 2,
+    });
+    const AUD_EXACT = new Intl.NumberFormat('en-AU', {
+      style: 'currency', currency: 'AUD', minimumFractionDigits: 2, maximumFractionDigits: 2,
+    });
+    const MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+
+    const INK_MUTED = '#9ca3af';
+    const INK_SECONDARY = '#4b5563';
+    const GRIDLINE = '#e9e7e4';
+    const SURFACE = '#ffffff';
+
+    const REDUCED_MOTION = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+
+    // Selective direct labelling: the endpoint of a line, never a number on every
+    // point. Opt in per dataset with `endLabel: true`.
+    const endLabelPlugin = {
+      id: 'ujEndLabel',
+      afterDatasetsDraw(chart) {
+        const ctx = chart.ctx;
+        chart.data.datasets.forEach((ds, i) => {
+          if (!ds.endLabel) return;
+          const meta = chart.getDatasetMeta(i);
+          if (meta.hidden) return;
+          let last = null;
+          for (let k = meta.data.length - 1; k >= 0; k--) {
+            const raw = ds.data[k];
+            if (raw !== null && raw !== undefined) { last = meta.data[k]; break; }
+          }
+          if (!last) return;
+          const text = ds.endLabelText || '';
+          if (!text) return;
+          ctx.save();
+          ctx.font = '600 11px Inter, "Segoe UI", system-ui, sans-serif';
+          ctx.fillStyle = ds.borderColor;
+          ctx.textAlign = 'right';
+          ctx.textBaseline = 'bottom';
+          ctx.fillText(text, Math.min(last.x, chart.chartArea.right) - 2, last.y - 7);
+          ctx.restore();
+        });
+      },
+    };
+
+    return {
+      WORKER,
+      IS_LOCAL,
+      loading: true,
+      refreshing: false,
+      error: '',
+      rangeError: '',
+      types: [],
+      data: null,
+      charts: {},
+      moneyMode: 'dollars',
+      filters: { from: '', to: '', type: '', class: '' },
+
+      // Revenue classes, in the order they stack. Colour follows the class, not
+      // its rank, so filtering never repaints the survivors.
+      CLASSES: [
+        { key: 'sale',       label: 'Sale',       colour: '#b3242d' },
+        { key: 'promo_sale', label: 'Promo sale', colour: '#c2703a' },
+        { key: 'credit',     label: 'Credit',     colour: '#2a78d6' },
+        { key: 'comp',       label: 'Comp',       colour: '#4a3aa7' },
+      ],
+      // An ordered ramp, because the bands are ordered: one hue, light to dark.
+      BANDS: [
+        { key: 'redeemed_by_1m',  label: 'by 1 month',   colour: '#86b6ef' },
+        { key: 'redeemed_by_3m',  label: 'by 3 months',  colour: '#5598e7' },
+        { key: 'redeemed_by_6m',  label: 'by 6 months',  colour: '#2a78d6' },
+        { key: 'redeemed_by_12m', label: 'by 12 months', colour: '#184f95' },
+      ],
+
+      async init() {
+        Chart.defaults.font.family = 'Inter, "Segoe UI", system-ui, -apple-system, sans-serif';
+        Chart.defaults.font.size = 11;
+        Chart.defaults.color = INK_MUTED;
+        Chart.register(endLabelPlugin);
+
+        // Default window: the last 24 Perth months.
+        const now = this.perthNow();
+        this.filters.to = this.ym(now.getFullYear(), now.getMonth());
+        this.filters.from = this.ym(now.getFullYear(), now.getMonth() - 23);
+
+        try {
+          this.types = await this.api('/v1/staff/voucher-types');
+        } catch (e) {
+          // A failed type list must not block the charts — the filter simply
+          // offers "All types" until it loads.
+          this.types = [];
+        }
+        await this.load();
+      },
+
+      // "Now" in Perth, regardless of the machine's own clock. The front-desk
+      // laptop is in Perth, but a manager on a plane should still see Perth months.
+      perthNow() {
+        const parts = new Intl.DateTimeFormat('en-AU', {
+          timeZone: 'Australia/Perth', year: 'numeric', month: '2-digit', day: '2-digit',
+        }).formatToParts(new Date());
+        const get = (t) => Number(parts.find((p) => p.type === t).value);
+        return new Date(get('year'), get('month') - 1, get('day'));
+      },
+
+      ym(year, monthIndex) {
+        const d = new Date(year, monthIndex, 1);
+        return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
+      },
+
+      async api(path) {
+        const res = await fetch(this.WORKER + path, {
+          headers: this.IS_LOCAL
+            ? { 'X-Staff-Secret': localStorage.getItem('uj_staff_secret') || '' }
+            : {},
+        });
+        if (!res.ok) {
+          let msg = `${res.status}`;
+          try {
+            const body = await res.json();
+            if (body?.error) msg += ` ${body.error}`;
+          } catch { /* non-JSON error body — the status is enough */ }
+          throw new Error(msg);
+        }
+        return res.json();
+      },
+
+      apply() {
+        this.rangeError = '';
+        if (!/^\d{4}-\d{2}$/.test(this.filters.from) || !/^\d{4}-\d{2}$/.test(this.filters.to)) {
+          this.rangeError = 'Pick a from month and a to month.';
+          return;
+        }
+        if (this.filters.from > this.filters.to) {
+          this.rangeError = 'The from month must not be after the to month.';
+          return;
+        }
+        this.load();
+      },
+
+      async load() {
+        this.loading = true;
+        this.refreshing = !!this.data;   // hold the previous render, do not flash
+        this.error = '';
+        try {
+          const p = new URLSearchParams({ from: this.filters.from, to: this.filters.to });
+          if (this.filters.type) p.set('type', this.filters.type);
+          if (this.filters.class) p.set('class', this.filters.class);
+          this.data = await this.api('/v1/vouchers/analytics?' + p.toString());
+          this.$nextTick(() => this.draw());
+        } catch (e) {
+          this.error = e.message;
+        } finally {
+          this.loading = false;
+          this.refreshing = false;
+        }
+      },
+
+      // ── Shaping ────────────────────────────────────────────────────────
+
+      // months[] is one row per (month, voucher type). Fold to one row per month,
+      // with revenue and count split by class so the bars can stack.
+      //
+      // liability_close is the ONE field that must not be summed. The Worker
+      // accumulates it as a running total over rows ordered by (month, type), so
+      // each row inside a month carries a *partial* running total and the month's
+      // last row carries its true close. Summing would multiply the liability by
+      // the number of voucher types. Overwriting on every row leaves the last
+      // row's value standing, which is the month's close — and unlike Math.max
+      // that stays correct when a month's liability falls (redemptions outrunning
+      // issuance), which is exactly what a quiet January looks like.
+      byMonth() {
+        const out = new Map();
+        for (const r of (this.data?.months || [])) {
+          if (!out.has(r.month)) {
+            out.set(r.month, {
+              month: r.month,
+              face_value_issued: 0, redeemed_value: 0, expired_value: 0,
+              liability_close: 0, sold_count: 0,
+              revenue: { sale: 0, promo_sale: 0, credit: 0, comp: 0 },
+              count: { sale: 0, promo_sale: 0, credit: 0, comp: 0 },
+            });
+          }
+          const m = out.get(r.month);
+          m.face_value_issued += Number(r.face_value_issued) || 0;
+          m.redeemed_value += Number(r.redeemed_value) || 0;
+          m.expired_value += Number(r.expired_value) || 0;
+          m.sold_count += Number(r.sold_count) || 0;
+          if (r.revenue_class in m.revenue) {
+            m.revenue[r.revenue_class] += Number(r.revenue) || 0;
+            m.count[r.revenue_class] += Number(r.sold_count) || 0;
+          }
+          m.liability_close = Number(r.liability_close) || 0;   // last row wins — never summed
+        }
+        return [...out.values()].sort((a, b) => String(a.month).localeCompare(String(b.month)));
+      },
+
+      hasRows() {
+        return (this.data?.months || []).length > 0;
+      },
+
+      totalRevenue(r) {
+        return r.revenue.sale + r.revenue.promo_sale + r.revenue.credit + r.revenue.comp;
+      },
+
+      windowRevenue() {
+        return (this.data?.items || []).reduce((s, i) => s + (Number(i.revenue) || 0), 0);
+      },
+
+      itemsSorted() {
+        return [...(this.data?.items || [])].sort((a, b) => (Number(b.revenue) || 0) - (Number(a.revenue) || 0));
+      },
+
+      itemShare(i) {
+        const total = this.windowRevenue();
+        if (!(total > 0.005)) return '—';
+        return ((Number(i.revenue) || 0) / total * 100).toFixed(1) + '%';
+      },
+
+      // ── Formatting ─────────────────────────────────────────────────────
+
+      isNil(v) { return v === null || v === undefined || v === ''; },
+
+      money(v) {
+        if (this.isNil(v) || !Number.isFinite(Number(v))) return '—';
+        return AUD.format(Number(v));
+      },
+      moneyExact(v) {
+        if (this.isNil(v) || !Number.isFinite(Number(v))) return '—';
+        return AUD_EXACT.format(Number(v));
+      },
+      pctOrDash(v) {
+        if (this.isNil(v) || !Number.isFinite(Number(v))) return '—';
+        return Number(v).toFixed(1) + '%';
+      },
+      daysOrDash(v) {
+        if (this.isNil(v) || !Number.isFinite(Number(v))) return '—';
+        return String(Number(v));
+      },
+      // A band that has not matured yet is null, and stays a dash. Coercing it to
+      // 0 would claim a young cohort had a full year to redeem and did not.
+      pctText(part, whole) {
+        if (this.isNil(part)) return '—';
+        if (!(Number(whole) > 0.005)) return '—';
+        return (Number(part) / Number(whole) * 100).toFixed(1) + '%';
+      },
+      pctValue(part, whole) {
+        if (this.isNil(part)) return null;                       // never 0 — Chart.js skips nulls
+        if (!(Number(whole) > 0.005)) return null;
+        return Number(part) / Number(whole) * 100;
+      },
+
+      monthLabel(m) {
+        const s = String(m).slice(0, 7);
+        const [y, mo] = s.split('-');
+        const idx = Number(mo) - 1;
+        if (!MONTHS[idx]) return s;
+        return `${MONTHS[idx]} ${String(y).slice(2)}`;
+      },
+      monthLabelLong(m) {
+        const s = String(m).slice(0, 7);
+        const [y, mo] = s.split('-');
+        const idx = Number(mo) - 1;
+        if (!MONTHS[idx]) return s;
+        return `${MONTHS[idx]} ${y}`;
+      },
+      // Cohorts younger than a year cannot have a full set of bands. Mark them,
+      // so a short bar is read as "not yet" rather than "did not come back".
+      cohortLabel(c) {
+        const base = this.monthLabel(c.cohort_month);
+        return Number(c.cohort_age_days) < 365 ? base + ' *' : base;
+      },
+
+      // ── Charts ─────────────────────────────────────────────────────────
+
+      baseOptions(yFormat) {
+        return {
+          responsive: true,
+          maintainAspectRatio: false,
+          animation: REDUCED_MOTION ? false : { duration: 260 },
+          interaction: { mode: 'index', intersect: false },
+          layout: { padding: { top: 8, right: 4 } },
+          plugins: {
+            legend: {
+              position: 'bottom',
+              align: 'start',
+              labels: {
+                boxWidth: 10, boxHeight: 10, usePointStyle: true, pointStyle: 'rectRounded',
+                padding: 14, color: INK_SECONDARY,
+              },
+            },
+            tooltip: {
+              backgroundColor: '#1f2937',
+              padding: 10,
+              cornerRadius: 8,
+              displayColors: true,
+              boxWidth: 8, boxHeight: 8, boxPadding: 4, usePointStyle: true,
+              titleFont: { weight: '600' },
+            },
+          },
+          scales: {
+            x: {
+              grid: { display: false },
+              border: { color: GRIDLINE },
+              ticks: { color: INK_MUTED, maxRotation: 0, autoSkipPadding: 12 },
+            },
+            y: {
+              beginAtZero: true,
+              grid: { color: GRIDLINE, drawTicks: false },
+              border: { display: false },
+              ticks: { color: INK_MUTED, padding: 8, callback: yFormat },
+            },
+          },
+        };
+      },
+
+      // Compact axis ticks — "$12k", not "$12,000.00".
+      axisMoney(v) {
+        const n = Number(v);
+        if (!Number.isFinite(n)) return v;
+        if (Math.abs(n) >= 1000) return '$' + (n / 1000).toFixed(Math.abs(n) < 10000 ? 1 : 0) + 'k';
+        return '$' + n;
+      },
+
+      draw() {
+        // Nothing in the window: the empty state is showing and the canvases are
+        // display:none, so there is nothing to size a chart against.
+        if (!this.hasRows()) {
+          Object.values(this.charts).forEach((c) => c?.destroy());
+          this.charts = {};
+          return;
+        }
+        const rows = this.byMonth();
+        const labels = rows.map((r) => this.monthLabel(r.month));
+        const titles = rows.map((r) => this.monthLabelLong(r.month));
+        const dollars = this.moneyMode === 'dollars';
+        const self = this;
+
+        const titleCb = (items) => titles[items[0].dataIndex] ?? items[0].label;
+
+        // 1 ── Money: stacked bars by class, face value overlaid as a line.
+        //      The face-value line is a dollar figure, so it has no meaning on a
+        //      count axis — it is left out entirely in count mode rather than
+        //      being drawn against a scale it does not belong to.
+        const moneyDatasets = [
+          ...this.CLASSES.map((c) => ({
+            label: c.label,
+            data: rows.map((r) => (dollars ? r.revenue[c.key] : r.count[c.key])),
+            backgroundColor: c.colour,
+            borderColor: SURFACE,           // a 2px surface gap between stacked fills,
+            borderWidth: { top: 2 },        // not a border drawn around the mark
+            borderRadius: 4,
+            borderSkipped: 'bottom',
+            stack: 'money',
+            order: 2,
+          })),
+          dollars ? {
+            type: 'line',
+            label: 'Face value issued',
+            data: rows.map((r) => r.face_value_issued),
+            borderColor: '#111827',
+            backgroundColor: '#111827',
+            borderWidth: 2,
+            borderDash: [5, 4],
+            pointRadius: 0,
+            pointHitRadius: 12,
+            tension: 0.15,
+            fill: false,
+            order: 1,
+            endLabel: true,
+            endLabelText: 'Face value',
+          } : null,
+        ].filter(Boolean);
+
+        const moneyOpts = this.baseOptions(dollars ? this.axisMoney : ((v) => v));
+        moneyOpts.scales.x.stacked = true;
+        moneyOpts.scales.y.stacked = true;
+        moneyOpts.plugins.tooltip.callbacks = {
+          title: titleCb,
+          label: (ctx) => {
+            const n = Number(ctx.raw) || 0;
+            if (ctx.dataset.type === 'line' || dollars) {
+              return `${ctx.dataset.label}: ${self.moneyExact(n)}`;
+            }
+            return `${ctx.dataset.label}: ${Math.round(n)} voucher${Math.round(n) === 1 ? '' : 's'}`;
+          },
+        };
+        this.charts.money?.destroy();
+        this.charts.money = new Chart(this.$refs.moneyChart, {
+          type: 'bar',
+          data: { labels, datasets: moneyDatasets },
+          options: moneyOpts,
+        });
+
+        // 2 ── Liability: the outstanding balance is a stock (a running total,
+        //      already seeded and accumulated by the Worker — plotted exactly as
+        //      it arrives, never re-accumulated). Expiries are a flow, so they are
+        //      bars. Both are dollars, so they share one axis.
+        const liabOpts = this.baseOptions(this.axisMoney);
+        liabOpts.plugins.tooltip.callbacks = {
+          title: titleCb,
+          label: (ctx) => `${ctx.dataset.label}: ${self.moneyExact(ctx.raw)}`,
+        };
+        this.charts.liability?.destroy();
+        this.charts.liability = new Chart(this.$refs.liabilityChart, {
+          type: 'bar',
+          data: {
+            labels,
+            datasets: [
+              {
+                type: 'line',
+                label: 'Outstanding at month end',
+                data: rows.map((r) => r.liability_close),
+                borderColor: '#2a78d6',
+                backgroundColor: 'rgba(42, 120, 214, 0.08)',
+                borderWidth: 2,
+                pointRadius: 0,
+                pointHoverRadius: 4,
+                pointHitRadius: 14,
+                tension: 0.2,
+                fill: true,
+                order: 1,
+                endLabel: true,
+                endLabelText: 'Still owed',
+              },
+              {
+                label: 'Expired unspent (breakage)',
+                data: rows.map((r) => r.expired_value),
+                backgroundColor: '#c2703a',
+                borderRadius: 4,
+                borderSkipped: 'bottom',
+                order: 2,
+              },
+            ],
+          },
+          options: liabOpts,
+        });
+
+        // 3 ── Redemption behaviour: money in against value out, same axis, same
+        //      time base. Grouped bars — these are two independent flows, not
+        //      parts of a whole, so they must not stack.
+        const redOpts = this.baseOptions(this.axisMoney);
+        redOpts.plugins.tooltip.callbacks = {
+          title: titleCb,
+          label: (ctx) => `${ctx.dataset.label}: ${self.moneyExact(ctx.raw)}`,
+        };
+        this.charts.redeemed?.destroy();
+        this.charts.redeemed = new Chart(this.$refs.redeemedChart, {
+          type: 'bar',
+          data: {
+            labels,
+            datasets: [
+              {
+                label: 'Revenue taken',
+                data: rows.map((r) => self.totalRevenue(r)),
+                backgroundColor: '#b3242d',
+                borderRadius: 4,
+                borderSkipped: 'bottom',
+              },
+              {
+                label: 'Value redeemed',
+                data: rows.map((r) => r.redeemed_value),
+                backgroundColor: '#12855f',
+                borderRadius: 4,
+                borderSkipped: 'bottom',
+              },
+            ],
+          },
+          options: redOpts,
+        });
+
+        // 4 ── Cohorts: grouped, never stacked — the bands are cumulative by
+        //      construction (the 12-month figure already contains the 1-month
+        //      one), so stacking them would count the same dollar four times.
+        //      An immature band arrives as null and STAYS null: Chart.js simply
+        //      draws no bar. Plotting it as 0 would be a confident lie.
+        const cohorts = this.data?.cohorts || [];
+        const cohortOpts = this.baseOptions((v) => v + '%');
+        cohortOpts.interaction = { mode: 'index', intersect: false };
+        cohortOpts.scales.y.max = 100;
+        cohortOpts.scales.x.ticks.color = (ctx) => {
+          const c = cohorts[ctx.index];
+          return c && Number(c.cohort_age_days) < 365 ? '#c9c6c2' : INK_MUTED;
+        };
+        cohortOpts.plugins.tooltip.callbacks = {
+          title: (items) => self.monthLabelLong(cohorts[items[0].dataIndex]?.cohort_month),
+          label: (ctx) => `${ctx.dataset.label}: ${Number(ctx.raw).toFixed(1)}% redeemed`,
+          afterBody: (items) => {
+            const c = cohorts[items[0].dataIndex];
+            if (!c) return '';
+            const out = [`Issued: ${self.moneyExact(c.issued_value)}`, `Cohort age: ${c.cohort_age_days} days`];
+            const missing = self.BANDS.filter((b) => self.isNil(c[b.key])).map((b) => b.label);
+            if (missing.length) out.push(`Too young for: ${missing.join(', ')}`);
+            return out;
+          },
+        };
+        this.charts.cohort?.destroy();
+        this.charts.cohort = new Chart(this.$refs.cohortChart, {
+          type: 'bar',
+          data: {
+            labels: cohorts.map((c) => self.cohortLabel(c)),
+            datasets: this.BANDS.map((b) => ({
+              label: b.label,
+              data: cohorts.map((c) => self.pctValue(c[b.key], c.issued_value)),
+              backgroundColor: b.colour,
+              borderRadius: 3,
+              borderSkipped: 'bottom',
+              categoryPercentage: 0.72,
+              barPercentage: 0.9,
+            })),
+          },
+          options: cohortOpts,
+        });
+      },
+    };
+  }
+  </script>
+</body>
+</html>
