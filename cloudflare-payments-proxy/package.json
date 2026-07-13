@@ -1,0 +1,14 @@
+{
+  "name": "uj-payments-proxy",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "deploy": "wrangler deploy",
+    "check": "node --check src/index.js",
+    "test": "vitest run"
+  },
+  "devDependencies": {
+    "wrangler": "^4.0.0",
+    "vitest": "^2.1.0"
+  }
+}

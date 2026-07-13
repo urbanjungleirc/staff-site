@@ -1,0 +1,14 @@
+name = "uj-payments-proxy"
+main = "src/index.js"
+compatibility_date = "2026-05-28"
+account_id = "7b9239b4304637147e3e26d2ceb27666"
+
+[vars]
+PAYMENTS_ORIGIN = "https://uj-payments.urbanjungle.workers.dev"
+
+# Route (add in the dashboard):
+#   ujstaff.happyk.au/api/payments/*     zone: happyk.au
+#
+# More specific than the existing ujstaff.happyk.au/api/* -> uj-tools-editor
+# route, so this one wins for /api/payments/* and the roster/tools-editor
+# Worker is untouched.
