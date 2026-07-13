@@ -677,6 +677,7 @@
       types: [],
       data: null,
       charts: {},
+      warnedClasses: new Set(),
       moneyMode: 'dollars',
       filters: { from: '', to: '', type: '', class: '' },
 
@@ -791,25 +792,21 @@
       // months[] is one row per (month, voucher type). Fold to one row per month,
       // with revenue and count split by class so the bars can stack.
       //
-      // liability_close is the ONE field that must not be summed. The Worker
-      // accumulates it as a running total over rows ordered by (month, type), so
-      // each row inside a month carries a *partial* running total and the month's
-      // last row carries its true close. Summing would multiply the liability by
-      // the number of voucher types. Overwriting on every row leaves the last
-      // row's value standing, which is the month's close — and unlike Math.max
-      // that stays correct when a month's liability falls (redemptions outrunning
-      // issuance), which is exactly what a quiet January looks like.
-      //
-      // "Last row" means last by (month, voucher_type_id), not merely last in the
-      // array as delivered — PostgREST's ordering is an assumption living three
-      // repos away, so a defensive copy is sorted here rather than trusting
-      // transport order.
+      // liability_close is the ONE field that must not be summed, sorted, or
+      // re-accumulated. The Worker builds it (payments-worker/src/index.js) by
+      // walking months[] IN ARRAY ORDER and adding each row's flows to a single
+      // running balance. Addition is commutative, so the LAST row of a month —
+      // in array order — always carries that month's true close, regardless of
+      // what order the rows for different voucher types happen to fall in
+      // within the month. Sorting the rows first and taking the last one "by
+      // type" only agrees with that if the array already happened to be in
+      // type order; if it ever isn't, it silently reports a mid-month partial
+      // as the month's close — too low, and plausible-looking. So: fold
+      // straight over data.months as delivered, overwrite liability_close on
+      // every row, and let whichever row is last standing win.
       byMonth() {
-        const rows = [...(this.data?.months || [])].sort((a, b) =>
-          String(a.month).localeCompare(String(b.month)) ||
-          String(a.voucher_type_id).localeCompare(String(b.voucher_type_id)));
         const out = new Map();
-        for (const r of rows) {
+        for (const r of (this.data?.months || [])) {
           if (!out.has(r.month)) {
             out.set(r.month, {
               month: r.month,
@@ -828,7 +825,7 @@
             m.revenue[r.revenue_class] += Number(r.revenue) || 0;
             m.count[r.revenue_class] += Number(r.sold_count) || 0;
           } else {
-            console.warn(`voucher stats: unrecognised revenue_class "${r.revenue_class}" — excluded from the class bars, though it still counts toward sold_count`, r);
+            this.warnUnknownClass(r.revenue_class, r);
           }
           // Last row wins — never summed. A null/NaN close stays null rather
           // than being coerced to a lying zero (the Worker refuses to seed a
@@ -841,6 +838,15 @@
             : null;
         }
         return [...out.values()].sort((a, b) => String(a.month).localeCompare(String(b.month)));
+      },
+
+      // A bad revenue_class recurs on every row of every month it touches — up
+      // to 24 identical lines for one bad type over the default window. Warn
+      // once per class per page load, not once per row.
+      warnUnknownClass(cls, row) {
+        if (this.warnedClasses.has(cls)) return;
+        this.warnedClasses.add(cls);
+        console.warn(`voucher stats: unrecognised revenue_class "${cls}" — excluded from the class bars, though it still counts toward sold_count`, row);
       },
 
       hasRows() {
@@ -1129,15 +1135,23 @@
           const c = cohorts[ctx.index];
           return c && Number(c.cohort_age_days) < 365 ? '#c9c6c2' : INK_MUTED;
         };
-        // A cohort too young for a band has that band's value as null. Chart.js
-        // still hands the tooltip a baseline-height bar for it and never marks
-        // it skip, so without this filter the tooltip would report a fabricated
-        // "0.0% redeemed" for a band that has not matured yet. The afterBody
-        // "Too young for" line below is the honest version of that same fact.
-        cohortOpts.plugins.tooltip.filter = (item) => !self.isNil(item.raw);
+        // A cohort too young for a band has that band's value as null. BarElement
+        // never sets `skip`, so with `interaction: {mode:'index'}` Chart.js still
+        // hands the tooltip one item per band regardless — all four of them, for
+        // a cohort too young for every band. An earlier pass filtered those items
+        // out of the tooltip entirely, but `title`/`afterBody` are handed that
+        // same filtered array: once every item was filtered, `items[0]` was
+        // undefined and every hover over the newest cohort threw. So: keep every
+        // item (title/afterBody always get a dataIndex to work with), and instead
+        // have `label` itself return nothing for a null band — Chart.js then
+        // omits that line, and its colour swatch, with no fabricated "0.0%". A
+        // genuine 0 is a real number, not null, so its line still prints.
         cohortOpts.plugins.tooltip.callbacks = {
           title: (items) => self.monthLabelLong(cohorts[items[0].dataIndex]?.cohort_month),
-          label: (ctx) => `${ctx.dataset.label}: ${Number(ctx.raw).toFixed(1)}% redeemed`,
+          label: (ctx) => {
+            if (self.isNil(ctx.raw)) return null;   // too young for this band — no line, never "0.0%"
+            return `${ctx.dataset.label}: ${Number(ctx.raw).toFixed(1)}% redeemed`;
+          },
           afterBody: (items) => {
             const c = cohorts[items[0].dataIndex];
             if (!c) return '';
