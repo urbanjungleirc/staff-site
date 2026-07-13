@@ -1521,6 +1521,23 @@
             </div>
           </div>
 
+          <!-- Revenue class -->
+          <div>
+            <label class="block text-[0.67rem] font-semibold text-neutral-400 uppercase tracking-wider mb-1.5">Revenue class<span class="help-tip" tabindex="0" role="note" aria-label="Help">?<span class="help-bubble">What this type is, economically. sale — sold at full price. promo_sale — sold at a promotional price. credit — account credit, no money in. comp — given away. Only sale and promo_sale count as revenue in the stats.</span></span></label>
+            <div class="combo" @click.outside="revenueClassOpen = false" @keydown.escape.window="revenueClassOpen = false">
+              <button type="button" @click="revenueClassOpen = !revenueClassOpen" :aria-expanded="revenueClassOpen.toString()" class="combo-trigger">
+                <span x-text="typeForm.revenue_class"></span>
+                <svg class="combo-chevron" viewBox="0 0 24 24"><path d="m6 9 6 6 6-6"/></svg>
+              </button>
+              <div x-show="revenueClassOpen" x-transition.origin.top x-cloak class="combo-menu">
+                <button type="button" @click="typeForm.revenue_class = 'sale'; revenueClassOpen = false" :class="typeForm.revenue_class === 'sale' ? 'active' : ''" class="combo-option">sale</button>
+                <button type="button" @click="typeForm.revenue_class = 'promo_sale'; revenueClassOpen = false" :class="typeForm.revenue_class === 'promo_sale' ? 'active' : ''" class="combo-option">promo_sale</button>
+                <button type="button" @click="typeForm.revenue_class = 'credit'; revenueClassOpen = false" :class="typeForm.revenue_class === 'credit' ? 'active' : ''" class="combo-option">credit</button>
+                <button type="button" @click="typeForm.revenue_class = 'comp'; revenueClassOpen = false" :class="typeForm.revenue_class === 'comp' ? 'active' : ''" class="combo-option">comp</button>
+              </div>
+            </div>
+          </div>
+
           <!-- Expiry months -->
           <div>
             <label class="block text-[0.67rem] font-semibold text-neutral-400 uppercase tracking-wider mb-1.5">Expiry months<span class="help-tip" tabindex="0" role="note" aria-label="Help">?<span class="help-bubble">Months until an issued voucher expires. Blank = never. Drives the expiry date printed on the voucher.</span></span></label>
@@ -2130,6 +2147,7 @@
       itemForm: {},
       itemSaving: false,
       availabilityOpen: false,
+      revenueClassOpen: false,
       limitPeriodOpen: false,
       deactivateOpen: false,
       deactivateTarget: null,
@@ -3122,7 +3140,7 @@
       blankTypeForm() {
         return {
           type_id: '', display_name: '', description: '',
-          availability: 'both', expiry_months: '', max_per_customer: '',
+          availability: 'both', revenue_class: 'sale', expiry_months: '', max_per_customer: '',
           limit_period: '', promo_id: '', sort_order: 0,
           is_physical: false, is_active: true,
           email_subject: '', email_body: '',
@@ -3253,6 +3271,7 @@
           display_name: f.display_name.trim(),
           description: textOrNull(f.description),
           availability: f.availability,
+          revenue_class: f.revenue_class,
           expiry_months: numOrNull(f.expiry_months),
           max_per_customer: numOrNull(f.max_per_customer),
           limit_period: textOrNull(f.limit_period),   // '' -> null (enum check)
