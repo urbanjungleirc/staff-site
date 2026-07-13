@@ -629,9 +629,6 @@
     const AUD = new Intl.NumberFormat('en-AU', {
       style: 'currency', currency: 'AUD', minimumFractionDigits: 2, maximumFractionDigits: 2,
     });
-    const AUD_EXACT = new Intl.NumberFormat('en-AU', {
-      style: 'currency', currency: 'AUD', minimumFractionDigits: 2, maximumFractionDigits: 2,
-    });
     const MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
 
     const INK_MUTED = '#9ca3af';
@@ -777,6 +774,12 @@
           this.$nextTick(() => this.draw());
         } catch (e) {
           this.error = e.message;
+          // A failed refetch must not leave the previous slice on screen under
+          // a filter bar that no longer describes it — drop the data and the
+          // charts so the page shows the error state, not a mislabelled one.
+          this.data = null;
+          Object.values(this.charts).forEach((c) => c?.destroy());
+          this.charts = {};
         } finally {
           this.loading = false;
           this.refreshing = false;
@@ -796,14 +799,22 @@
       // row's value standing, which is the month's close — and unlike Math.max
       // that stays correct when a month's liability falls (redemptions outrunning
       // issuance), which is exactly what a quiet January looks like.
+      //
+      // "Last row" means last by (month, voucher_type_id), not merely last in the
+      // array as delivered — PostgREST's ordering is an assumption living three
+      // repos away, so a defensive copy is sorted here rather than trusting
+      // transport order.
       byMonth() {
+        const rows = [...(this.data?.months || [])].sort((a, b) =>
+          String(a.month).localeCompare(String(b.month)) ||
+          String(a.voucher_type_id).localeCompare(String(b.voucher_type_id)));
         const out = new Map();
-        for (const r of (this.data?.months || [])) {
+        for (const r of rows) {
           if (!out.has(r.month)) {
             out.set(r.month, {
               month: r.month,
               face_value_issued: 0, redeemed_value: 0, expired_value: 0,
-              liability_close: 0, sold_count: 0,
+              liability_close: null, sold_count: 0,
               revenue: { sale: 0, promo_sale: 0, credit: 0, comp: 0 },
               count: { sale: 0, promo_sale: 0, credit: 0, comp: 0 },
             });
@@ -816,8 +827,18 @@
           if (r.revenue_class in m.revenue) {
             m.revenue[r.revenue_class] += Number(r.revenue) || 0;
             m.count[r.revenue_class] += Number(r.sold_count) || 0;
+          } else {
+            console.warn(`voucher stats: unrecognised revenue_class "${r.revenue_class}" — excluded from the class bars, though it still counts toward sold_count`, r);
           }
-          m.liability_close = Number(r.liability_close) || 0;   // last row wins — never summed
+          // Last row wins — never summed. A null/NaN close stays null rather
+          // than being coerced to a lying zero (the Worker refuses to seed a
+          // zero here for the same reason; the client must not undo that).
+          // isNil is checked separately from Number.isFinite because
+          // Number(null) === 0, which IS finite — the exact trap this guards
+          // against.
+          m.liability_close = (!this.isNil(r.liability_close) && Number.isFinite(Number(r.liability_close)))
+            ? Number(r.liability_close)
+            : null;
         }
         return [...out.values()].sort((a, b) => String(a.month).localeCompare(String(b.month)));
       },
@@ -851,10 +872,6 @@
       money(v) {
         if (this.isNil(v) || !Number.isFinite(Number(v))) return '—';
         return AUD.format(Number(v));
-      },
-      moneyExact(v) {
-        if (this.isNil(v) || !Number.isFinite(Number(v))) return '—';
-        return AUD_EXACT.format(Number(v));
       },
       pctOrDash(v) {
         if (this.isNil(v) || !Number.isFinite(Number(v))) return '—';
@@ -1002,12 +1019,15 @@
         const moneyOpts = this.baseOptions(dollars ? this.axisMoney : ((v) => v));
         moneyOpts.scales.x.stacked = true;
         moneyOpts.scales.y.stacked = true;
+        // Count mode: vouchers are whole units — "2.5 vouchers" must never
+        // appear on the axis.
+        if (!dollars) moneyOpts.scales.y.ticks.precision = 0;
         moneyOpts.plugins.tooltip.callbacks = {
           title: titleCb,
           label: (ctx) => {
             const n = Number(ctx.raw) || 0;
             if (ctx.dataset.type === 'line' || dollars) {
-              return `${ctx.dataset.label}: ${self.moneyExact(n)}`;
+              return `${ctx.dataset.label}: ${self.money(n)}`;
             }
             return `${ctx.dataset.label}: ${Math.round(n)} voucher${Math.round(n) === 1 ? '' : 's'}`;
           },
@@ -1026,7 +1046,7 @@
         const liabOpts = this.baseOptions(this.axisMoney);
         liabOpts.plugins.tooltip.callbacks = {
           title: titleCb,
-          label: (ctx) => `${ctx.dataset.label}: ${self.moneyExact(ctx.raw)}`,
+          label: (ctx) => `${ctx.dataset.label}: ${self.money(ctx.raw)}`,
         };
         this.charts.liability?.destroy();
         this.charts.liability = new Chart(this.$refs.liabilityChart, {
@@ -1069,7 +1089,7 @@
         const redOpts = this.baseOptions(this.axisMoney);
         redOpts.plugins.tooltip.callbacks = {
           title: titleCb,
-          label: (ctx) => `${ctx.dataset.label}: ${self.moneyExact(ctx.raw)}`,
+          label: (ctx) => `${ctx.dataset.label}: ${self.money(ctx.raw)}`,
         };
         this.charts.redeemed?.destroy();
         this.charts.redeemed = new Chart(this.$refs.redeemedChart, {
@@ -1109,13 +1129,19 @@
           const c = cohorts[ctx.index];
           return c && Number(c.cohort_age_days) < 365 ? '#c9c6c2' : INK_MUTED;
         };
+        // A cohort too young for a band has that band's value as null. Chart.js
+        // still hands the tooltip a baseline-height bar for it and never marks
+        // it skip, so without this filter the tooltip would report a fabricated
+        // "0.0% redeemed" for a band that has not matured yet. The afterBody
+        // "Too young for" line below is the honest version of that same fact.
+        cohortOpts.plugins.tooltip.filter = (item) => !self.isNil(item.raw);
         cohortOpts.plugins.tooltip.callbacks = {
           title: (items) => self.monthLabelLong(cohorts[items[0].dataIndex]?.cohort_month),
           label: (ctx) => `${ctx.dataset.label}: ${Number(ctx.raw).toFixed(1)}% redeemed`,
           afterBody: (items) => {
             const c = cohorts[items[0].dataIndex];
             if (!c) return '';
-            const out = [`Issued: ${self.moneyExact(c.issued_value)}`, `Cohort age: ${c.cohort_age_days} days`];
+            const out = [`Issued: ${self.money(c.issued_value)}`, `Cohort age: ${c.cohort_age_days} days`];
             const missing = self.BANDS.filter((b) => self.isNil(c[b.key])).map((b) => b.label);
             if (missing.length) out.push(`Too young for: ${missing.join(', ')}`);
             return out;
