@@ -404,7 +404,7 @@
           <div class="text-[0.7rem] font-semibold uppercase tracking-[0.12em] text-white/65 leading-none mb-2">Staff Portal</div>
           <h1 class="text-3xl sm:text-4xl font-bold tracking-tight text-white leading-none">Vouchers</h1>
           <p class="text-sm text-white/75 mt-2">Search, create, redeem, and report on Urban Jungle vouchers.</p>
-          <span x-show="!secret"
+          <span x-show="!isAuthed()"
             class="inline-flex mt-3 text-[0.67rem] font-semibold bg-yellow-400 text-yellow-900 px-2.5 py-0.5 rounded-full tracking-wide">
             Not configured - see README
           </span>
@@ -2041,9 +2041,14 @@
 
   <script>
   function staffApp() {
-    const WORKER = 'https://uj-payments.urbanjungle.workers.dev';
+    // Production talks to the payments Worker through the same-origin proxy, so
+    // Cloudflare Access authenticates every call and no secret is needed.
+    // Localhost has no Access in front of it, so it keeps the shared-secret path.
+    const IS_LOCAL = ['localhost', '127.0.0.1'].includes(window.location.hostname);
+    const WORKER = IS_LOCAL ? 'https://uj-payments.urbanjungle.workers.dev' : '/api/payments';
     return {
       WORKER,
+      IS_LOCAL,
 
       // Auth
       secret: '',
@@ -2233,16 +2238,23 @@
 
       // ── Lifecycle ────────────────────────────────────────────────────────
       async init() {
-        // URL hash seeds the secret on first visit: /vouchers/#<secret>
-        const hash = window.location.hash.slice(1);
-        if (hash) {
-          localStorage.setItem('uj_staff_secret', hash);
-          history.replaceState(null, '', window.location.pathname + window.location.search);
+        // Localhost only: the URL hash seeds the dev secret (/vouchers/#<secret>).
+        // In production, Cloudflare Access is the login and there is no secret.
+        if (this.IS_LOCAL) {
+          const hash = window.location.hash.slice(1);
+          if (hash) {
+            localStorage.setItem('uj_staff_secret', hash);
+            history.replaceState(null, '', window.location.pathname + window.location.search);
+          }
+          this.secret = localStorage.getItem('uj_staff_secret') || '';
+        } else {
+          // Stale copy from the old hash-seeding flow; it is no longer sent anywhere.
+          localStorage.removeItem('uj_staff_secret');
+          this.secret = '';
         }
-        this.secret = localStorage.getItem('uj_staff_secret') || '';
         this.createIssuer = localStorage.getItem('uj_voucher_created_by') || '';
-        // Cloudflare Access identity (audit only — the API can't verify it, so
-        // it never gates anything). Same-origin endpoint; absent on localhost.
+        // Cloudflare Access identity, for the "signed in as" hint only. The API
+        // verifies the JWT itself and never trusts this value.
         fetch('/cdn-cgi/access/get-identity')
           .then((r) => (r.ok ? r.json() : null))
           .then((d) => { if (d && d.email) this.accessEmail = d.email; })
@@ -2252,7 +2264,7 @@
         const onTip = (e) => { const t = e.target.closest && e.target.closest('.help-tip'); if (t) this.positionTip(t); };
         document.addEventListener('mouseover', onTip);
         document.addEventListener('focusin', onTip);
-        if (this.secret) {
+        if (this.isAuthed()) {
           await this.search();
           this.loadDashStats(); // fire and forget — don't block the search
         }
@@ -2288,18 +2300,43 @@
         this.results = [];
         this.voucher = null;
         this.report = null;
+        // In production the real session is the Cloudflare Access one — clearing
+        // local state alone would leave the user still signed in.
+        if (!this.IS_LOCAL) window.location.href = '/cdn-cgi/access/logout';
       },
 
       // ── Core API helper ──────────────────────────────────────────────────
+      // "Can I call the API?" In production, reaching this page at all means
+      // Cloudflare Access already signed you in, so the answer is always yes.
+      // On localhost, it means we hold the dev secret.
+      isAuthed() {
+        return this.IS_LOCAL ? !!this.secret : true;
+      },
+
+      // In production, Cloudflare Access authenticates the request and the proxy
+      // forwards the signed JWT — nothing to add here. Localhost sends the secret.
+      authHeaders() {
+        return {
+          'Content-Type': 'application/json',
+          ...(this.IS_LOCAL ? { 'X-Staff-Secret': this.secret } : {}),
+        };
+      },
+
       async api(path, options = {}) {
         const res = await fetch(this.WORKER + path, {
           ...options,
-          headers: {
-            'Content-Type': 'application/json',
-            'X-Staff-Secret': this.secret,
-            ...(options.headers || {}),
-          },
+          // When the Access session lapses, Cloudflare answers with a redirect to
+          // a cross-origin login page. redirect:'manual' turns that into an
+          // opaqueredirect we can recognise, rather than a confusing JSON error.
+          redirect: 'manual',
+          headers: { ...this.authHeaders(), ...(options.headers || {}) },
         });
+        if (res.type === 'opaqueredirect') {
+          throw Object.assign(
+            new Error('Your session expired — reload the page to sign in again.'),
+            { status: 401 },
+          );
+        }
         const data = await res.json().catch(() => ({}));
         if (!res.ok) {
           const err = Object.assign(new Error(data.error || 'HTTP ' + res.status), { status: res.status });
@@ -2334,7 +2371,10 @@
           this.view = 'search';
         } catch (e) {
           this.searchError = e.message;
-          if (e.status === 401) {
+          // A 401 on localhost means the dev secret is wrong — drop it so the
+          // "not configured" hint shows. In production it means the Access
+          // session lapsed, and only a reload can fix that.
+          if (e.status === 401 && this.IS_LOCAL) {
             this.secret = '';
             localStorage.removeItem('uj_staff_secret');
           }
@@ -2501,7 +2541,6 @@
             body: JSON.stringify({
               restored_by: this.createIssuer || 'staff',
               reason: this.restoreReason.trim(),
-              access_email: this.accessEmail,
             }),
           });
           this.restoreOpen = false;
@@ -2534,7 +2573,6 @@
             body: JSON.stringify({
               cancelled_by: this.createIssuer || 'staff',
               reason: this.cancelReason.trim(),
-              access_email: this.accessEmail,
             }),
           });
           this.cancelOpen = false;
@@ -2689,7 +2727,7 @@
         try {
           const res = await fetch(this.WORKER + '/v1/staff/voucher-types/preview', {
             method: 'POST',
-            headers: { 'Content-Type': 'application/json', 'X-Staff-Secret': this.secret },
+            headers: this.authHeaders(),
             body: JSON.stringify({ ...t, _sample: sample }),
           });
           this.createPreviewHtml = res.ok
@@ -2852,7 +2890,7 @@
       // Quietly re-fetch what's on screen: no spinners, no pagination reset,
       // never while a modal is open or the create form is in use.
       async refreshData() {
-        if (!this.secret) return;
+        if (!this.isAuthed()) return;
         if (Date.now() - this._lastRefresh < 60 * 1000) return;
         if (this._anyModalOpen() || this.view === 'create') return;
         this._lastRefresh = Date.now();
@@ -3155,7 +3193,7 @@
         try {
           const res = await fetch(this.WORKER + '/v1/staff/voucher-types/preview', {
             method: 'POST',
-            headers: { 'Content-Type': 'application/json', 'X-Staff-Secret': this.secret },
+            headers: this.authHeaders(),
             body: JSON.stringify(this.typeForm),
           });
           this.previewHtml = res.ok
