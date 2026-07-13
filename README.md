@@ -6,6 +6,8 @@ This repository hosts the Urban Jungle staff tools hub. The root `index.html` re
 
 The site is intended for Urban Jungle team members only. Access is enforced through Cloudflare Zero Trust; make sure the final deployment domain is protected by the appropriate Zero Trust application policy before sharing the link.
 
+Zero Trust is not just a doormat here — the voucher portal *authenticates* against it. Cloudflare Access runs in front of Workers routes on this zone, so a signed identity token reaches the API. Removing or loosening the Zero Trust application would not merely expose the pages; it would break voucher staff auth. See [Voucher Portal](#voucher-portal-vouchers).
+
 ## Managing Tools
 
 - Update `tools.json` to add, edit, re-order, or remove entries. The file exposes a single `entries` array; items render in the same order they are listed.
@@ -109,33 +111,57 @@ Any static file server (such as `python3 -m http.server` or `npx serve`) can be 
 
 ## Voucher Portal (`vouchers/`)
 
-The voucher management portal lives at `ujstaff.happyk.au/vouchers/`. It connects to the `uj-payments` Cloudflare Worker using a shared staff secret for API authentication.
+The voucher management portal lives at `ujstaff.happyk.au/vouchers/`.
 
-### First-time setup (per browser / per device)
+### Access — there is no setup
 
-The portal uses a URL-hash seeding approach so staff never see a login screen. The secret is stored in `localStorage` after the first visit and never prompts again. The secret value lives **only** in the team password manager ("UJ Staff Voucher Secret") — never write it into this repo, which is public.
+Sign in to `ujstaff.happyk.au` and open the portal. That's it. Cloudflare Zero
+Trust *is* the login: there is no second password, no secret to paste, and
+nothing to configure per browser or per device.
 
-**Step 1 — get the setup URL** (from the password manager entry "UJ Staff Voucher Secret"):
+(This replaced a URL-hash seeding flow — `#<secret>` pasted once per device —
+in July 2026. If you find that documented anywhere else, it is stale.)
 
+### How it authenticates
+
+```text
+Browser  ──►  ujstaff.happyk.au/api/payments/*   (same-origin; Access authenticates)
+              │  Access injects a signed Cf-Access-Jwt-Assertion header
+              ▼
+         uj-payments-proxy      (cloudflare-payments-proxy/, this repo)
+              │  forwards the token verbatim; holds no secrets
+              ▼
+         uj-payments            (Worker, separate Cloudflare account)
+                 verifies the JWT signature against the
+                 happyk.cloudflareaccess.com JWKS
 ```
-https://ujstaff.happyk.au/vouchers/#<STAFF_SHARED_SECRET>
-```
 
-**Step 2 — open that URL in the browser.** The page loads normally, stores the secret in `localStorage`, and strips the hash from the address bar automatically.
+Because the token is verified server-side, the signed-in email is a trustworthy
+audit fact — it is recorded against every redeem, undo, cancel, and restore.
 
-**Step 3 — bookmark `https://ujstaff.happyk.au/vouchers/`** (without the hash) for everyday use.
-
-After step 2 the hash URL is no longer needed. If a device is reset or `localStorage` is cleared, repeat step 2.
+The proxy is a ~50-line Worker in `cloudflare-payments-proxy/`. Deploy it with
+`npx wrangler deploy` from that directory; its route
+(`ujstaff.happyk.au/api/payments/*`) is declared in its `wrangler.toml`. It
+must be deployed from the **happyk** Cloudflare account, which owns the
+`happyk.au` zone — not the account that owns `uj-payments`.
 
 ### Local development
 
-The `uj-payments` Worker allows any `localhost` or `127.0.0.1` origin so any port works locally. To test with a real secret, visit:
+Localhost has no Cloudflare Access in front of it, so the page falls back to the
+shared secret and calls the production Worker directly (which allows any
+`localhost` / `127.0.0.1` origin):
 
 ```
 http://127.0.0.1:<port>/vouchers/#<STAFF_SHARED_SECRET>
 ```
 
-The `STAFF_SHARED_SECRET` value is in the team password manager under "UJ Staff Voucher Secret".
+The `STAFF_SHARED_SECRET` value is in the team password manager under "UJ Staff
+Voucher Secret". Never write it into this repo, which is public.
+
+That same secret is the **break-glass path** if Access is ever misconfigured and
+locks the portal out: call `uj-payments.urbanjungle.workers.dev` directly with an
+`X-Staff-Secret` header, bypassing both Access and the proxy. It is no longer
+used by staff in normal operation.
 
 ---
 

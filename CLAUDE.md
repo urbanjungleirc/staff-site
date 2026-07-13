@@ -15,6 +15,8 @@ index.html              - hub homepage; renders cards/groups from tools.json
 tools.json              - source of truth for hub entries
 roster.html             - daily staff roster, pulled from Deputy via Cloudflare Worker
 cloudflare-worker/      - Worker for roster API and tools.json editor API
+cloudflare-payments-proxy/ - Worker bridging vouchers/ to uj-payments with the Access JWT
+vouchers/               - voucher management portal (auth = Cloudflare Access)
 hvt/                    - High-volume Training tool copy
 slideshow/              - Google Drive TV slideshow tool
 sls_tv.html             - Summer Lead Series TV display
@@ -111,6 +113,36 @@ Important Worker vars:
 - `ALLOWED_ORIGIN` - CORS origin for the staff site
 
 The Worker still contains a legacy `/api/ics` route, but `roster.html` should use `/api/roster`.
+
+## Voucher Portal Auth
+
+`vouchers/` authenticates via Cloudflare Access — there is no shared secret in
+normal use. The page calls `/api/payments/*` same-origin; Access injects a
+signed `Cf-Access-Jwt-Assertion` header; `cloudflare-payments-proxy/` forwards
+it to the `uj-payments` Worker, which verifies the signature against the
+`happyk.cloudflareaccess.com` JWKS. The verified email is written to the audit
+trail.
+
+Two things to know before changing any of this:
+
+- **Access runs in front of Workers routes on this zone.** That is what makes
+  the proxy work despite `uj-payments` living in a *different* Cloudflare
+  account. Weakening the Zero Trust app breaks voucher auth, not just page
+  privacy.
+- **The proxy allowlists paths** (`/v1/vouchers`, `/v1/voucher-types`,
+  `/v1/staff/`). It must never relay `/v1/checkout/sessions`, or it becomes an
+  open relay for creating Stripe sessions. It also forwards `X-Manager-Secret`,
+  the second factor on cancel/restore.
+
+`X-Staff-Secret` survives only for localhost dev and as a break-glass path. A
+present-but-invalid JWT fails closed rather than falling back to it.
+
+Deploy the proxy from the **happyk** Cloudflare account (it owns `happyk.au`):
+
+```bash
+cd cloudflare-payments-proxy
+npx wrangler deploy      # route is declared in its wrangler.toml
+```
 
 ## Local Development
 
