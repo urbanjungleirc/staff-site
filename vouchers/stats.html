@@ -908,6 +908,22 @@
       ],
 
       async init() {
+        // Same bootstrap as the hub (vouchers/index.html). Localhost only: the URL
+        // hash seeds the dev secret (/vouchers/stats.html#<secret>), which is then
+        // shared with the hub through localStorage on the same origin — seed it on
+        // either page and both work. In production Cloudflare Access IS the login,
+        // no secret is sent, and any stale copy left by an older dev session is
+        // cleared rather than left lying in storage.
+        if (this.IS_LOCAL) {
+          const hash = window.location.hash.slice(1);
+          if (hash) {
+            localStorage.setItem('uj_staff_secret', hash);
+            history.replaceState(null, '', window.location.pathname + window.location.search);
+          }
+        } else {
+          localStorage.removeItem('uj_staff_secret');
+        }
+
         Chart.defaults.font.family = 'Inter, "Segoe UI", system-ui, -apple-system, sans-serif';
         Chart.defaults.font.size = 11;
         Chart.defaults.color = INK_MUTED;
