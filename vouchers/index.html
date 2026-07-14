@@ -533,7 +533,7 @@
                 <svg class="stat-chevron ml-auto" viewBox="0 0 24 24"><path d="m9 6 6 6-6 6"/></svg>
               </div>
               <div class="text-3xl font-bold text-uj tabular-nums tracking-tight"
-                x-text="'$' + Number(dashStats?.active_total_value ?? 0).toFixed(0)"></div>
+                x-text="Number(dashStats?.active_total_value ?? 0).toLocaleString('en-AU', { style: 'currency', currency: 'AUD', maximumFractionDigits: 0 })"></div>
               <div class="text-[0.8rem] text-neutral-500 mt-1"
                 x-text="'across ' + (dashStats?.active_count ?? 0) + ' active voucher' + ((dashStats?.active_count ?? 0) === 1 ? '' : 's')"></div>
             </button>
