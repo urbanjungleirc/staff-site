@@ -135,10 +135,22 @@ confusion that tile has already caused once.
 
 ## Follow-up
 
-An **expiring-soon drill-down** needs an `expiring_soon` filter added to the
-voucher search endpoint (payments Worker + Supabase query) before the expiring row
-can link anywhere. Worth doing — it's the row most likely to prompt action — but it
-is a backend change and belongs in its own piece of work.
+Two items, both blocked on the same backend gap — the voucher search endpoint.
+They belong together in one piece of work.
+
+1. **Expiring-soon drill-down.** The expiring row can't link anywhere until an
+   `expiring_soon` filter exists on the search endpoint (payments Worker + Supabase
+   query). It's the row most likely to prompt staff action, so it's worth doing.
+
+2. **The Outstanding card can over-promise.** The search endpoint caps results at
+   100. Click a card reading "142 active vouchers" and you land on a list of 100,
+   under a banner advising you to *"narrow your search by name, email, or voucher
+   code"* — advice that makes no sense to someone who arrived by clicking a card
+   rather than typing a search. This is an inherited limitation (staff already hit
+   it by picking "Active" and pressing Search), but the card promotes it to a
+   one-click path and makes the shortfall visible. It needs paging or a raised cap
+   on the endpoint; a frontend-only patch just swaps one misleading message for
+   another, since the full 142 still aren't fetched.
 
 ## Verification
 
