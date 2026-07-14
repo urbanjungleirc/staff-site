@@ -356,6 +356,37 @@
       border: 1px solid rgba(139, 28, 35, 0.12);
       box-shadow: none;
     }
+    /* Clickable stat regions — drill into the view that explains the number. */
+    .stat-action {
+      display: block;
+      width: 100%;
+      text-align: left;
+      cursor: pointer;
+      transition: background-color 0.15s ease;
+    }
+    .stat-action:hover {
+      background: rgba(139, 28, 35, 0.05);
+    }
+    .stat-action:focus-visible {
+      outline: 2px solid var(--uj);
+      outline-offset: -2px;
+    }
+    .stat-chevron {
+      width: 16px;
+      height: 16px;
+      flex-shrink: 0;
+      fill: none;
+      stroke: currentColor;
+      stroke-width: 2;
+      stroke-linecap: round;
+      stroke-linejoin: round;
+      color: rgba(139, 28, 35, 0.35);
+      transition: transform 0.15s ease, color 0.15s ease;
+    }
+    .stat-action:hover .stat-chevron {
+      color: var(--uj);
+      transform: translateX(2px);
+    }
     /* Hub card shadow */
     .hub-card {
       box-shadow: none;
@@ -495,16 +526,17 @@
 
           <!-- Outstanding: what's on the book, and what's about to lapse -->
           <div class="stat-card rounded-[16px] sm:col-span-3 flex flex-col">
-            <div class="p-4 pb-3">
+            <button type="button" @click="showActiveVouchers()" class="stat-action p-4 pb-3 rounded-t-[16px]">
               <div class="flex items-center gap-2 mb-3">
                 <span class="stat-icon"><svg viewBox="0 0 24 24"><path d="M3.5 8.5a2 2 0 0 1 2-2h13a2 2 0 0 1 2 2v2.1a2.4 2.4 0 0 0 0 4.8v2.1a2 2 0 0 1-2 2h-13a2 2 0 0 1-2-2v-2.1a2.4 2.4 0 0 0 0-4.8V8.5z"/><path d="M9 9.25v5.5"/></svg></span>
                 <span class="text-[0.67rem] font-semibold text-neutral-400 uppercase tracking-wider">Outstanding</span>
+                <svg class="stat-chevron ml-auto" viewBox="0 0 24 24"><path d="m9 6 6 6-6 6"/></svg>
               </div>
               <div class="text-3xl font-bold text-uj tabular-nums tracking-tight"
                 x-text="'$' + Number(dashStats?.active_total_value ?? 0).toFixed(0)"></div>
               <div class="text-[0.8rem] text-neutral-500 mt-1"
                 x-text="'across ' + (dashStats?.active_count ?? 0) + ' active voucher' + ((dashStats?.active_count ?? 0) === 1 ? '' : 's')"></div>
-            </div>
+            </button>
 
             <div class="border-t border-[rgba(139,28,35,0.10)] mx-4"></div>
 
@@ -521,10 +553,11 @@
           </div>
 
           <!-- Today: what happened on the counter -->
-          <div class="stat-card rounded-[16px] p-4 sm:col-span-2">
+          <button type="button" @click="showTodayReport()" class="stat-card stat-action rounded-[16px] p-4 sm:col-span-2">
             <div class="flex items-center gap-2 mb-3">
               <span class="stat-icon"><svg viewBox="0 0 24 24"><path d="M7 3.75v3"/><path d="M17 3.75v3"/><rect x="4" y="5.5" width="16" height="14" rx="2"/><path d="M4 10h16"/></svg></span>
               <span class="text-[0.67rem] font-semibold text-neutral-400 uppercase tracking-wider">Today</span>
+              <svg class="stat-chevron ml-auto" viewBox="0 0 24 24"><path d="m9 6 6 6-6 6"/></svg>
             </div>
             <div class="flex items-start gap-7">
               <div>
@@ -536,7 +569,7 @@
                 <div class="text-[0.67rem] font-semibold text-neutral-400 uppercase tracking-wider mt-1">Redeemed</div>
               </div>
             </div>
-          </div>
+          </button>
 
         </div>
       </div>
@@ -2958,6 +2991,19 @@
         } finally {
           this.reportLoading = false;
         }
+      },
+
+      // ── Dashboard drill-downs ────────────────────────────────────────────
+      // The summary cards link to the view that explains the number they show.
+      async showActiveVouchers() {
+        this.q = '';
+        this.statusFilter = 'active';
+        await this.search();   // search() switches to the Search view itself
+      },
+
+      async showTodayReport() {
+        this.reportTab = 'today';
+        await this.goReport();
       },
 
       async loadDashStats() {
