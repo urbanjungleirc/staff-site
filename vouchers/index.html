@@ -1859,10 +1859,10 @@
         <button @click="cancelRevenueClassChange()" class="text-neutral-400 hover:text-neutral-700 text-xl leading-none">&times;</button>
       </div>
       <p class="text-sm text-neutral-700 mb-6">
-        Changing the revenue class restates all historical revenue for this type. Vouchers already
-        issued under it will be re-counted under the new class in every report — the stats page has
-        no "as of" date, it always reflects the type's current class. This is sometimes the right
-        call (correcting a misclassification), it just must never happen by accident.
+        This changes how vouchers of this type are counted <span class="font-semibold">from now on</span>.
+        Vouchers already issued keep the class they were sold under, so past reports will not move —
+        but from here, every new voucher of this type lands in the new class. If the type is currently
+        earning revenue and you move it to a comp or a credit, the revenue line stops growing.
       </p>
       <div class="flex gap-2.5">
         <button @click="cancelRevenueClassChange()"
@@ -3193,9 +3193,9 @@
       openTypeEditor(t = null) {
         this.typeEditorError = '';
         this.editingExisting = !!t;
-        // Snapshot the class as loaded, so saveVoucherType() can tell a genuine
-        // edit from a no-op re-save. Only set for an existing type — a brand
-        // new type has no history to restate.
+        // Remember the class as loaded, so saveVoucherType() can tell a genuine
+        // edit from a no-op re-save. Only set for an existing type — a brand new
+        // type has no vouchers, so changing its class before it exists is free.
         this._typeFormOriginalRevenueClass = t ? (t.revenue_class ?? null) : null;
         if (t) {
           // Merge onto a blank so any column the API omitted still has a sane default.
@@ -3333,12 +3333,12 @@
           redemption_warning: textOrNull(f.redemption_warning),
         };
 
-        // revenue_class is read at query time, not snapshotted per voucher: every
-        // report re-counts every voucher ever issued under this type using
-        // whichever class it holds right now. Changing it on an existing type is
-        // a legitimate correction, but it silently restates history with no
-        // audit row -- so it must never happen by accident. New types have no
-        // history to restate, so they skip straight to saving.
+        // revenue_class is snapshotted onto each voucher at issue (migration 015), so
+        // this does NOT restate history -- vouchers already sold keep the class they
+        // were sold under. What it does change is every voucher issued from here on:
+        // moving a type out of sale/promo_sale means its future vouchers stop counting
+        // as revenue. That is a real decision about the books, so confirm it. New types
+        // have no vouchers at all, so they skip straight to saving.
         if (this.editingExisting && this._typeFormOriginalRevenueClass !== null
             && payload.revenue_class !== this._typeFormOriginalRevenueClass) {
           this._pendingTypeSave = payload;
