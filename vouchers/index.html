@@ -202,6 +202,17 @@
       background: rgba(245, 158, 11, 0.09);
       border-color: rgba(245, 158, 11, 0.18);
     }
+    /* Bare inline icon (not in a .stat-icon tile) — takes its colour from the parent. */
+    .stat-inline-icon {
+      width: 15px;
+      height: 15px;
+      flex-shrink: 0;
+      fill: none;
+      stroke: currentColor;
+      stroke-width: 2;
+      stroke-linecap: round;
+      stroke-linejoin: round;
+    }
     .section-icon {
       width: 28px;
       height: 28px;
@@ -465,42 +476,68 @@
     <!-- ── Search ───────────────────────────────────────────────────────── -->
     <div x-show="view==='search'">
 
-      <!-- Summary stats -->
+      <!-- Summary stats — two cards: the outstanding book, and today's activity -->
       <div class="mb-5">
-        <div x-show="dashStatsLoading" class="grid grid-cols-2 sm:grid-cols-5 gap-3">
-          <template x-for="i in 5">
-            <div class="stat-card rounded-[16px] p-4 animate-pulse"><div class="h-7 w-10 bg-neutral-200/80 rounded mb-2"></div><div class="h-2.5 w-16 bg-neutral-100 rounded"></div></div>
-          </template>
+        <div x-show="dashStatsLoading" class="grid grid-cols-1 sm:grid-cols-5 gap-3">
+          <div class="stat-card rounded-[16px] p-4 sm:col-span-3 animate-pulse">
+            <div class="h-[30px] w-[30px] bg-neutral-200/70 rounded-[10px] mb-3"></div>
+            <div class="h-8 w-28 bg-neutral-200/80 rounded mb-2"></div>
+            <div class="h-2.5 w-40 bg-neutral-100 rounded"></div>
+          </div>
+          <div class="stat-card rounded-[16px] p-4 sm:col-span-2 animate-pulse">
+            <div class="h-[30px] w-[30px] bg-neutral-200/70 rounded-[10px] mb-3"></div>
+            <div class="h-8 w-20 bg-neutral-200/80 rounded mb-2"></div>
+            <div class="h-2.5 w-24 bg-neutral-100 rounded"></div>
+          </div>
         </div>
-        <div x-show="dashStats && !dashStatsLoading" class="grid grid-cols-2 sm:grid-cols-5 gap-3">
-          <div class="stat-card rounded-[16px] p-4">
-            <div class="stat-icon mb-3"><svg viewBox="0 0 24 24"><path d="M3.5 8.5a2 2 0 0 1 2-2h13a2 2 0 0 1 2 2v2.1a2.4 2.4 0 0 0 0 4.8v2.1a2 2 0 0 1-2 2h-13a2 2 0 0 1-2-2v-2.1a2.4 2.4 0 0 0 0-4.8V8.5z"/><path d="M9 9.25v5.5"/></svg></div>
-            <div class="text-2xl font-bold text-uj tabular-nums tracking-tight" x-text="dashStats?.active_count ?? 0"></div>
-            <div class="text-[0.67rem] font-semibold text-neutral-400 uppercase tracking-wider mt-1">Active vouchers</div>
+
+        <div x-show="dashStats && !dashStatsLoading" class="grid grid-cols-1 sm:grid-cols-5 gap-3">
+
+          <!-- Outstanding: what's on the book, and what's about to lapse -->
+          <div class="stat-card rounded-[16px] sm:col-span-3 flex flex-col">
+            <div class="p-4 pb-3">
+              <div class="flex items-center gap-2 mb-3">
+                <span class="stat-icon"><svg viewBox="0 0 24 24"><path d="M3.5 8.5a2 2 0 0 1 2-2h13a2 2 0 0 1 2 2v2.1a2.4 2.4 0 0 0 0 4.8v2.1a2 2 0 0 1-2 2h-13a2 2 0 0 1-2-2v-2.1a2.4 2.4 0 0 0 0-4.8V8.5z"/><path d="M9 9.25v5.5"/></svg></span>
+                <span class="text-[0.67rem] font-semibold text-neutral-400 uppercase tracking-wider">Outstanding</span>
+              </div>
+              <div class="text-3xl font-bold text-uj tabular-nums tracking-tight"
+                x-text="'$' + Number(dashStats?.active_total_value ?? 0).toFixed(0)"></div>
+              <div class="text-[0.8rem] text-neutral-500 mt-1"
+                x-text="'across ' + (dashStats?.active_count ?? 0) + ' active voucher' + ((dashStats?.active_count ?? 0) === 1 ? '' : 's')"></div>
+            </div>
+
+            <div class="border-t border-[rgba(139,28,35,0.10)] mx-4"></div>
+
+            <!-- Not a click target: there is no expiring-soon filter on the search API. -->
+            <div class="px-4 py-3 text-[0.8rem] flex items-center gap-2"
+              :class="(dashStats?.expiring_soon_count ?? 0) > 0 ? 'text-amber-600' : 'text-neutral-400'">
+              <svg class="stat-inline-icon" viewBox="0 0 24 24"><circle cx="12" cy="12" r="7.5"/><path d="M12 7.75v4.5l2.75 1.65"/></svg>
+              <span x-show="(dashStats?.expiring_soon_count ?? 0) > 0">
+                <strong class="font-semibold tabular-nums" x-text="dashStats?.expiring_soon_count ?? 0"></strong><span
+                  x-text="(dashStats?.expiring_soon_count ?? 0) === 1 ? ' voucher expiring in the next 30 days' : ' vouchers expiring in the next 30 days'"></span>
+              </span>
+              <span x-show="(dashStats?.expiring_soon_count ?? 0) === 0">No vouchers expiring in the next 30 days</span>
+            </div>
           </div>
-          <div class="stat-card rounded-[16px] p-4">
-            <div class="stat-icon mb-3"><svg viewBox="0 0 24 24"><path d="M5 7.5h14a2 2 0 0 1 2 2v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-9.5a2 2 0 0 1 2-2h12"/><path d="M17 13h.01"/><path d="M12 9.5v7"/></svg></div>
-            <div class="text-xl font-bold text-neutral-700 tabular-nums tracking-tight"
-              x-text="'$' + Number(dashStats?.active_total_value ?? 0).toFixed(0)"></div>
-            <div class="text-[0.67rem] font-semibold text-neutral-400 uppercase tracking-wider mt-1">Total active value</div>
+
+          <!-- Today: what happened on the counter -->
+          <div class="stat-card rounded-[16px] p-4 sm:col-span-2">
+            <div class="flex items-center gap-2 mb-3">
+              <span class="stat-icon"><svg viewBox="0 0 24 24"><path d="M7 3.75v3"/><path d="M17 3.75v3"/><rect x="4" y="5.5" width="16" height="14" rx="2"/><path d="M4 10h16"/></svg></span>
+              <span class="text-[0.67rem] font-semibold text-neutral-400 uppercase tracking-wider">Today</span>
+            </div>
+            <div class="flex items-start gap-7">
+              <div>
+                <div class="text-2xl font-bold text-neutral-700 tabular-nums tracking-tight" x-text="dashStats?.today_issued ?? 0"></div>
+                <div class="text-[0.67rem] font-semibold text-neutral-400 uppercase tracking-wider mt-1">Issued</div>
+              </div>
+              <div>
+                <div class="text-2xl font-bold text-emerald-600 tabular-nums tracking-tight" x-text="dashStats?.today_redeemed ?? 0"></div>
+                <div class="text-[0.67rem] font-semibold text-neutral-400 uppercase tracking-wider mt-1">Redeemed</div>
+              </div>
+            </div>
           </div>
-          <div class="stat-card rounded-[16px] p-4">
-            <div class="stat-icon warning mb-3"><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="7.5"/><path d="M12 7.75v4.5l2.75 1.65"/></svg></div>
-            <div class="text-2xl font-bold tabular-nums tracking-tight"
-              :class="(dashStats?.expiring_soon_count ?? 0) > 0 ? 'text-amber-500' : 'text-neutral-400'"
-              x-text="dashStats?.expiring_soon_count ?? 0"></div>
-            <div class="text-[0.67rem] font-semibold text-neutral-400 uppercase tracking-wider mt-1">Expiring in 30 days</div>
-          </div>
-          <div class="stat-card rounded-[16px] p-4">
-            <div class="stat-icon mb-3"><svg viewBox="0 0 24 24"><path d="M7 3.75v3"/><path d="M17 3.75v3"/><rect x="4" y="5.5" width="16" height="14" rx="2"/><path d="M4 10h16"/><path d="M12 13v4"/><path d="M10 15h4"/></svg></div>
-            <div class="text-2xl font-bold text-neutral-700 tabular-nums tracking-tight" x-text="dashStats?.today_issued ?? 0"></div>
-            <div class="text-[0.67rem] font-semibold text-neutral-400 uppercase tracking-wider mt-1">Issued today</div>
-          </div>
-          <div class="stat-card rounded-[16px] p-4">
-            <div class="stat-icon success mb-3"><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="7.5"/><path d="m8.75 12.25 2.1 2.1 4.6-4.85"/></svg></div>
-            <div class="text-2xl font-bold text-emerald-600 tabular-nums tracking-tight" x-text="dashStats?.today_redeemed ?? 0"></div>
-            <div class="text-[0.67rem] font-semibold text-neutral-400 uppercase tracking-wider mt-1">Redeemed today</div>
-          </div>
+
         </div>
       </div>
 
