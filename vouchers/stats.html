@@ -29,49 +29,67 @@
     [x-cloak] { display: none !important; }
 
     /* ── Chart colour roles ───────────────────────────────────────────────
-       Five hues, anchored on the brand maroon, and each one means the same
-       thing wherever it appears on the page:
+       Burgundy is the anchor and the principal series colour; everything else
+       is a muted warm or cool support, so the charts read as the same designed
+       system as the header and the controls. Six visible data colours, and each
+       one means the same thing wherever it appears:
 
-         red   #b3242d  money the gym took        (sale, revenue taken)
-         gold  #c8801f  money it gave up          (promo discount, breakage)
-         blue  #2a78d6  money it still owes       (credit, outstanding balance)
-         plum  #7d3363  money that never existed  (comp)
-         green #12855f  value handed back         (redeemed)
+         burgundy      #9F2F38  money the gym took        (sale, revenue taken)
+         dark burgundy #63242A  face value / oldest band  (issued line, by 12m)
+         dusty rose    #D2757C  secondary red series      (comp, by 3 months)
+         warm ochre    #C08430  money it gave up          (promo, breakage)
+         muted sage    #688C7A  value handed back         (redeemed)
+         slate blue    #58758D  money it still owes       (credit, balance)
 
-       Every hex was checked with the data-viz palette validator (light surface
-       #ffffff, categorical mode):
+       The balance line is slate rather than burgundy on purpose — burgundy
+       everywhere would leave every chart predominantly red and stop the anchor
+       meaning anything.
 
-         revenue classes  #b3242d #c8801f #2a78d6 #7d3363
-           lightness band PASS · chroma floor PASS · CVD PASS (worst adjacent
-           ΔE 28.4, deutan) · contrast PASS (all >= 3:1)
+       Checked with the data-viz palette validator (light surface #ffffff):
 
-         redeemed vs revenue  #b3242d #12855f   — all four checks PASS
-         liability vs expiry  #2a78d6 #c8801f   — all four checks PASS
-         cohort ordinal ramp  #86b6ef #5598e7 #2a78d6 #184f95
-           (--ordinal: monotone lightness, single hue, light end clears 2:1)
+         revenue classes  #9F2F38 #C08430 #58758D #D2757C
+           lightness band PASS · CVD PASS (worst adjacent ΔE 21.3, protan) ·
+           contrast PASS (all >= 3:1) · chroma floor FAIL on slate — see below
 
-       Sale keeps the brand red, one step lighter than the header's #8b1c23 so
-       it sits inside the validator's lightness band. Gold and plum are warm
-       enough to sit beside that maroon; the earlier orange/indigo pair passed
-       the same checks but read as borrowed from another product. Colour follows
-       the entity: a class keeps its hue no matter which classes a filter leaves
-       standing. */
+         redeemed vs revenue  #9F2F38 #688C7A   (CVD ΔE 25.5)
+         liability vs expiry  #58758D #C08430   (CVD ΔE 67.9)
+         cohort ordinal ramp  #DFA9AD #D2757C #9F2F38 #63242A — ALL PASS
+           (--ordinal: monotone lightness, one hue, light end clears 2:1). The
+           bands are ordered by time, so they get an ordered ramp: pale to dark
+           says "later" without the legend having to.
+
+       Two deliberate deviations, both recorded rather than hidden:
+
+       1. Slate (chroma 0.05) and sage (0.049) sit under the validator's 0.1
+          chroma floor. That floor guards against a series reading as chrome —
+          but this page's chrome is pale warm grey (gridline #E9E3E1, axis
+          #817476), and slate and sage are mid-dark cool tones that cannot be
+          confused with it. Muted is the design intent; the floor is declined
+          knowingly, and the CVD margins above are the reason it is safe to.
+       2. Ochre, rose and the palest cohort band were each darkened a hair from
+          the brief (#C98B3C -> #C08430, #D77B80 -> #D2757C, #E4B5B8 -> #DFA9AD)
+          purely to clear the contrast floors — 2.9:1 and 1.81:1 respectively.
+          The hue is unchanged; only the legibility is.
+
+       Colour follows the entity: a class keeps its hue no matter which classes
+       a filter leaves standing. */
     :root {
       --uj: #8b1c23;
       --border-soft: rgba(31, 41, 55, 0.08);
 
-      --series-sale:       #b3242d;
-      --series-promo:      #c8801f;
-      --series-credit:     #2a78d6;
-      --series-comp:       #7d3363;
-      --series-redeemed:   #12855f;
-      --series-liability:  #2a78d6;
-      --series-expired:    #c8801f;
+      --series-sale:       #9F2F38;
+      --series-promo:      #C08430;
+      --series-credit:     #58758D;
+      --series-comp:       #D2757C;
+      --series-redeemed:   #688C7A;
+      --series-liability:  #58758D;
+      --series-expired:    #C08430;
+      --series-face:       #63242A;
 
       --ink-primary:   #111827;
       --ink-secondary: #4b5563;
-      --ink-muted:     #9ca3af;
-      --gridline:      #e9e7e4;
+      --ink-muted:     #817476;
+      --gridline:      #E9E3E1;
       --surface:       #ffffff;
     }
 
@@ -833,10 +851,27 @@
       'July', 'August', 'September', 'October', 'November', 'December'];
     const YM = /^(\d{4})-(\d{2})$/;
 
-    const INK_MUTED = '#9ca3af';
-    const INK_SECONDARY = '#4b5563';
-    const GRIDLINE = '#e9e7e4';
+    // Chart chrome. The axis ink and gridlines are warm greys, not the cool
+    // neutral-400/500 the rest of the page uses for body text — chart chrome sits
+    // behind the data and has to recede into the warm surface, not sit on it.
+    const INK_MUTED = '#817476';       // axis ticks
+    const INK_SECONDARY = '#4b5563';   // legend labels
+    const GRIDLINE = '#E9E3E1';
     const SURFACE = '#ffffff';
+    const TOOLTIP_BG = '#44272A';      // near-black burgundy, not slate grey
+
+    // The six visible data colours. Every dataset below draws from this and
+    // nothing else — a raw hex in a chart definition is a bug.
+    const C = {
+      burgundy:     '#9F2F38',
+      burgundyDark: '#63242A',
+      rose:         '#D2757C',
+      roseLight:    '#DFA9AD',
+      ochre:        '#C08430',
+      sage:         '#688C7A',
+      slate:        '#58758D',
+      slateFill:    'rgba(88, 117, 141, 0.14)',
+    };
 
     const REDUCED_MOTION = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
 
@@ -894,17 +929,17 @@
       // Revenue classes, in the order they stack. Colour follows the class, not
       // its rank, so filtering never repaints the survivors.
       CLASSES: [
-        { key: 'sale',       label: 'Sale',       colour: '#b3242d' },
-        { key: 'promo_sale', label: 'Promo sale', colour: '#c8801f' },
-        { key: 'credit',     label: 'Credit',     colour: '#2a78d6' },
-        { key: 'comp',       label: 'Comp',       colour: '#7d3363' },
+        { key: 'sale',       label: 'Sale',       colour: C.burgundy },
+        { key: 'promo_sale', label: 'Promo sale', colour: C.ochre },
+        { key: 'credit',     label: 'Credit',     colour: C.slate },
+        { key: 'comp',       label: 'Comp',       colour: C.rose },
       ],
       // An ordered ramp, because the bands are ordered: one hue, light to dark.
       BANDS: [
-        { key: 'redeemed_by_1m',  label: 'by 1 month',   colour: '#86b6ef' },
-        { key: 'redeemed_by_3m',  label: 'by 3 months',  colour: '#5598e7' },
-        { key: 'redeemed_by_6m',  label: 'by 6 months',  colour: '#2a78d6' },
-        { key: 'redeemed_by_12m', label: 'by 12 months', colour: '#184f95' },
+        { key: 'redeemed_by_1m',  label: 'by 1 month',   colour: C.roseLight },
+        { key: 'redeemed_by_3m',  label: 'by 3 months',  colour: C.rose },
+        { key: 'redeemed_by_6m',  label: 'by 6 months',  colour: C.burgundy },
+        { key: 'redeemed_by_12m', label: 'by 12 months', colour: C.burgundyDark },
       ],
 
       async init() {
@@ -1242,7 +1277,7 @@
               },
             },
             tooltip: {
-              backgroundColor: '#1f2937',
+              backgroundColor: TOOLTIP_BG,
               padding: 10,
               cornerRadius: 8,
               displayColors: true,
@@ -1310,8 +1345,10 @@
             type: 'line',
             label: 'Face value issued (sale + promo)',
             data: rows.map((r) => r.face_value_issued_revenue),
-            borderColor: '#111827',
-            backgroundColor: '#111827',
+            // Dark burgundy, not black: the line belongs to the same family as the
+            // bars it is measured against, and reads as deliberate rather than ink.
+            borderColor: C.burgundyDark,
+            backgroundColor: C.burgundyDark,
             borderWidth: 2,
             borderDash: [5, 4],
             pointRadius: 0,
@@ -1366,8 +1403,8 @@
                 type: 'line',
                 label: 'Outstanding at month end',
                 data: rows.map((r) => r.liability_close),
-                borderColor: '#2a78d6',
-                backgroundColor: 'rgba(42, 120, 214, 0.08)',
+                borderColor: C.slate,
+                backgroundColor: C.slateFill,
                 borderWidth: 2,
                 pointRadius: 0,
                 pointHoverRadius: 4,
@@ -1381,7 +1418,7 @@
               {
                 label: 'Expired unspent (breakage)',
                 data: rows.map((r) => r.expired_value),
-                backgroundColor: '#c8801f',
+                backgroundColor: C.ochre,
                 borderRadius: 4,
                 borderSkipped: 'bottom',
                 order: 2,
@@ -1408,14 +1445,14 @@
               {
                 label: 'Revenue taken',
                 data: rows.map((r) => self.totalRevenue(r)),
-                backgroundColor: '#b3242d',
+                backgroundColor: C.burgundy,
                 borderRadius: 4,
                 borderSkipped: 'bottom',
               },
               {
                 label: 'Value redeemed',
                 data: rows.map((r) => r.redeemed_value),
-                backgroundColor: '#12855f',
+                backgroundColor: C.sage,
                 borderRadius: 4,
                 borderSkipped: 'bottom',
               },
