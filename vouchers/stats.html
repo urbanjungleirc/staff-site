@@ -29,32 +29,44 @@
     [x-cloak] { display: none !important; }
 
     /* ── Chart colour roles ───────────────────────────────────────────────
-       Every hex below was checked with the data-viz palette validator
-       (light surface #ffffff, categorical mode):
+       Five hues, anchored on the brand maroon, and each one means the same
+       thing wherever it appears on the page:
 
-         revenue classes  #b3242d #c2703a #2a78d6 #4a3aa7
+         red   #b3242d  money the gym took        (sale, revenue taken)
+         gold  #c8801f  money it gave up          (promo discount, breakage)
+         blue  #2a78d6  money it still owes       (credit, outstanding balance)
+         plum  #7d3363  money that never existed  (comp)
+         green #12855f  value handed back         (redeemed)
+
+       Every hex was checked with the data-viz palette validator (light surface
+       #ffffff, categorical mode):
+
+         revenue classes  #b3242d #c8801f #2a78d6 #7d3363
            lightness band PASS · chroma floor PASS · CVD PASS (worst adjacent
-           ΔE 16.1, deutan) · contrast PASS (all >= 3:1)
+           ΔE 28.4, deutan) · contrast PASS (all >= 3:1)
 
          redeemed vs revenue  #b3242d #12855f   — all four checks PASS
-         liability vs expiry  #2a78d6 #c2703a   — all four checks PASS
+         liability vs expiry  #2a78d6 #c8801f   — all four checks PASS
          cohort ordinal ramp  #86b6ef #5598e7 #2a78d6 #184f95
            (--ordinal: monotone lightness, single hue, light end clears 2:1)
 
        Sale keeps the brand red, one step lighter than the header's #8b1c23 so
-       it sits inside the validator's lightness band. Colour follows the entity:
-       a class keeps its hue no matter which classes a filter leaves standing. */
+       it sits inside the validator's lightness band. Gold and plum are warm
+       enough to sit beside that maroon; the earlier orange/indigo pair passed
+       the same checks but read as borrowed from another product. Colour follows
+       the entity: a class keeps its hue no matter which classes a filter leaves
+       standing. */
     :root {
       --uj: #8b1c23;
       --border-soft: rgba(31, 41, 55, 0.08);
 
       --series-sale:       #b3242d;
-      --series-promo:      #c2703a;
+      --series-promo:      #c8801f;
       --series-credit:     #2a78d6;
-      --series-comp:       #4a3aa7;
+      --series-comp:       #7d3363;
       --series-redeemed:   #12855f;
       --series-liability:  #2a78d6;
-      --series-expired:    #c2703a;
+      --series-expired:    #c8801f;
 
       --ink-primary:   #111827;
       --ink-secondary: #4b5563;
@@ -135,31 +147,158 @@
     .stat-value { font-size: 1.75rem; font-weight: 700; line-height: 1.1; color: var(--ink-primary); }
     .stat-value.is-empty { color: var(--ink-muted); font-weight: 600; }
 
+    /* Filter controls are the staff portal's, not this page's own — the label,
+       the trigger and the menu below are lifted from vouchers/index.html so the
+       two pages read as one tool. Keep them in sync. */
     .field-label {
       display: block;
-      font-size: 0.66rem;
+      font-size: 0.67rem;
       font-weight: 600;
       text-transform: uppercase;
-      letter-spacing: 0.08em;
-      color: #6b7280;
-      margin-bottom: 5px;
+      letter-spacing: 0.05em;
+      color: #9ca3af;
+      margin-bottom: 6px;
     }
-    .field-input {
+    /* Combobox — the staff portal's dropdown. A native <select> renders with the
+       OS chevron and OS menu, which is exactly what the main voucher page threw
+       out; this page must not reintroduce it. */
+    .combo { position: relative; }
+    .combo-trigger {
       width: 100%;
       min-height: 40px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 12px;
       padding: 0.5rem 0.75rem;
       border-radius: 12px;
       border: 1px solid rgba(31, 41, 55, 0.12);
       background: #fff;
       color: #1f2937;
       font-size: 0.875rem;
-      transition: border-color 150ms ease, box-shadow 150ms ease;
+      line-height: 1.35;
+      text-align: left;
+      transition: border-color 150ms ease, box-shadow 150ms ease, background-color 150ms ease;
     }
-    .field-input:focus {
+    .combo-trigger:hover {
+      border-color: rgba(139, 28, 35, 0.32);
+      background: rgba(255, 255, 255, 0.94);
+    }
+    .combo-trigger:focus {
       outline: none;
       border-color: var(--uj);
       box-shadow: 0 0 0 3px rgba(139, 28, 35, 0.14);
     }
+    .combo-trigger > span {
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+    .combo-chevron {
+      width: 16px;
+      height: 16px;
+      flex-shrink: 0;
+      color: #6b7280;
+      fill: none;
+      stroke: currentColor;
+      stroke-width: 2;
+      stroke-linecap: round;
+      stroke-linejoin: round;
+      transition: transform 150ms ease;
+    }
+    .combo-trigger[aria-expanded="true"] .combo-chevron { transform: rotate(180deg); }
+    .combo-menu {
+      position: absolute;
+      z-index: 40;
+      left: 0;
+      right: 0;
+      top: calc(100% + 6px);
+      max-height: min(60vh, 560px);
+      overflow: auto;
+      padding: 6px;
+      border-radius: 14px;
+      border: 1px solid rgba(139, 28, 35, 0.14);
+      background: #fff;
+      box-shadow: 0 18px 36px -26px rgba(15, 23, 42, 0.75);
+    }
+    .combo-option {
+      width: 100%;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 10px;
+      border: 0;
+      border-radius: 10px;
+      padding: 8px 10px;
+      background: transparent;
+      color: #1f2937;
+      font-size: 0.875rem;
+      text-align: left;
+      cursor: pointer;
+    }
+    .combo-option:hover,
+    .combo-option.active {
+      background: rgba(139, 28, 35, 0.08);
+      color: var(--uj);
+    }
+    .combo-option.active { font-weight: 700; }
+
+    /* Month picker — a year header over a 12-cell grid, in the same menu shell as
+       the dropdowns above. A native <input type="month"> draws its own popup that
+       no stylesheet can reach, which is the one thing on this row that could not
+       be made to match; so the input is gone and this is the control. */
+    .month-menu { padding: 10px; }
+    .month-nav {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 8px;
+      padding: 2px 2px 9px;
+    }
+    .month-nav-year {
+      font-size: 0.85rem;
+      font-weight: 700;
+      color: #1f2937;
+      font-variant-numeric: tabular-nums;
+    }
+    .month-nav-btn {
+      width: 28px;
+      height: 28px;
+      border-radius: 9px;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      color: #6b7280;
+      transition: background-color 120ms ease, color 120ms ease;
+    }
+    .month-nav-btn:hover { background: rgba(139, 28, 35, 0.08); color: var(--uj); }
+    .month-nav-btn:focus-visible { outline: 2px solid var(--uj); outline-offset: 1px; }
+    .month-nav-btn svg {
+      width: 16px; height: 16px;
+      fill: none; stroke: currentColor;
+      stroke-width: 2; stroke-linecap: round; stroke-linejoin: round;
+    }
+    .month-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 4px; }
+    .month-cell {
+      border-radius: 10px;
+      padding: 8px 4px;
+      background: transparent;
+      color: #4b5563;
+      font-size: 0.8rem;
+      font-weight: 600;
+      cursor: pointer;
+      transition: background-color 120ms ease, color 120ms ease;
+    }
+    .month-cell:hover:not(:disabled) { background: rgba(139, 28, 35, 0.08); color: var(--uj); }
+    .month-cell.active,
+    .month-cell.active:hover { background: var(--uj); color: #fff; }
+    /* This month, ringed rather than filled — the filled cell is the selection,
+       and two filled cells would read as two selections. */
+    .month-cell.is-current:not(.active) { box-shadow: inset 0 0 0 1px rgba(139, 28, 35, 0.3); }
+    /* A month that would put "from" after "to" is unpickable rather than pickable
+       and then scolded. The range error below stays as the guard, not the teacher. */
+    .month-cell:disabled { color: #d1d5db; cursor: not-allowed; }
+    .month-cell:focus-visible { outline: 2px solid var(--uj); outline-offset: 1px; }
     .btn-primary {
       min-height: 40px;
       padding: 0.5rem 1.15rem;
@@ -283,31 +422,85 @@
            table on the page renders against this same slice. -->
       <form class="grid grid-cols-2 md:grid-cols-[repeat(4,minmax(0,1fr))_auto] gap-3 items-end"
             @submit.prevent="apply()">
+        <template x-for="f in [{ key: 'from', label: 'From' }, { key: 'to', label: 'To' }]" :key="f.key">
+          <div>
+            <span class="field-label" :id="`f-${f.key}-label`" x-text="f.label"></span>
+            <div class="combo" @click.outside="monthOpen[f.key] = false" @keydown.escape.window="monthOpen[f.key] = false">
+              <button type="button" class="combo-trigger" @click="toggleMonthPicker(f.key)"
+                :aria-expanded="monthOpen[f.key].toString()" aria-haspopup="dialog" :aria-labelledby="`f-${f.key}-label`">
+                <span x-text="monthFieldLabel(filters[f.key])"></span>
+                <svg class="combo-chevron" viewBox="0 0 24 24"><path d="m6 9 6 6 6-6"/></svg>
+              </button>
+              <div x-show="monthOpen[f.key]" x-transition.origin.top x-cloak
+                class="combo-menu month-menu" role="dialog" :aria-label="`Choose the ${f.label.toLowerCase()} month`">
+                <div class="month-nav">
+                  <button type="button" class="month-nav-btn" @click="monthYear[f.key]--" aria-label="Previous year">
+                    <svg viewBox="0 0 24 24"><path d="M15 6l-6 6 6 6"/></svg>
+                  </button>
+                  <span class="month-nav-year" x-text="monthYear[f.key]"></span>
+                  <button type="button" class="month-nav-btn" @click="monthYear[f.key]++" aria-label="Next year">
+                    <svg viewBox="0 0 24 24"><path d="M9 6l6 6-6 6"/></svg>
+                  </button>
+                </div>
+                <div class="month-grid">
+                  <template x-for="(name, i) in MONTHS_LIST" :key="i">
+                    <button type="button" class="month-cell" x-text="name"
+                      @click="pickMonth(f.key, i)"
+                      :disabled="isMonthDisabled(f.key, i)"
+                      :aria-pressed="isMonthSelected(f.key, i)"
+                      :class="[isMonthSelected(f.key, i) ? 'active' : '', isCurrentMonth(f.key, i) ? 'is-current' : '']"></button>
+                  </template>
+                </div>
+              </div>
+            </div>
+          </div>
+        </template>
         <div>
-          <label class="field-label" for="f-from">From</label>
-          <input id="f-from" type="month" class="field-input" x-model="filters.from" max="9999-12">
+          <span class="field-label" id="f-type-label">Voucher type</span>
+          <div class="combo" @click.outside="typeOpen = false" @keydown.escape.window="typeOpen = false">
+            <button type="button" @click="toggleMenu('typeOpen')" :aria-expanded="typeOpen.toString()"
+              aria-haspopup="listbox" aria-labelledby="f-type-label" class="combo-trigger">
+              <span x-text="typeLabel()"></span>
+              <svg class="combo-chevron" viewBox="0 0 24 24"><path d="m6 9 6 6 6-6"/></svg>
+            </button>
+            <div x-show="typeOpen" x-transition.origin.top x-cloak class="combo-menu" role="listbox">
+              <button type="button" role="option" :aria-selected="filters.type === ''"
+                @click="filters.type = ''; typeOpen = false"
+                :class="filters.type === '' ? 'active' : ''" class="combo-option">All types</button>
+              <template x-for="t in types" :key="t.type_id">
+                <button type="button" role="option" :aria-selected="filters.type === t.type_id"
+                  @click="filters.type = t.type_id; typeOpen = false"
+                  :class="filters.type === t.type_id ? 'active' : ''" class="combo-option">
+                  <span x-text="t.display_name || t.type_id"></span>
+                </button>
+              </template>
+            </div>
+          </div>
         </div>
         <div>
-          <label class="field-label" for="f-to">To</label>
-          <input id="f-to" type="month" class="field-input" x-model="filters.to" max="9999-12">
-        </div>
-        <div>
-          <label class="field-label" for="f-type">Voucher type</label>
-          <select id="f-type" class="field-input" x-model="filters.type">
-            <option value="">All types</option>
-            <template x-for="t in types" :key="t.type_id">
-              <option :value="t.type_id" x-text="t.display_name || t.type_id"></option>
-            </template>
-          </select>
-        </div>
-        <div>
-          <label class="field-label" for="f-class">Revenue class</label>
-          <select id="f-class" class="field-input" x-model="filters.class">
-            <option value="">All classes</option>
-            <template x-for="c in CLASSES" :key="c.key">
-              <option :value="c.key" x-text="c.label"></option>
-            </template>
-          </select>
+          <span class="field-label" id="f-class-label">Revenue class</span>
+          <div class="combo" @click.outside="classOpen = false" @keydown.escape.window="classOpen = false">
+            <button type="button" @click="toggleMenu('classOpen')" :aria-expanded="classOpen.toString()"
+              aria-haspopup="listbox" aria-labelledby="f-class-label" class="combo-trigger">
+              <span x-text="classLabel()"></span>
+              <svg class="combo-chevron" viewBox="0 0 24 24"><path d="m6 9 6 6 6-6"/></svg>
+            </button>
+            <div x-show="classOpen" x-transition.origin.top x-cloak class="combo-menu" role="listbox">
+              <button type="button" role="option" :aria-selected="filters.class === ''"
+                @click="filters.class = ''; classOpen = false"
+                :class="filters.class === '' ? 'active' : ''" class="combo-option">All classes</button>
+              <template x-for="c in CLASSES" :key="c.key">
+                <button type="button" role="option" :aria-selected="filters.class === c.key"
+                  @click="filters.class = c.key; classOpen = false"
+                  :class="filters.class === c.key ? 'active' : ''" class="combo-option">
+                  <span x-text="c.label"></span>
+                  <!-- The swatch is the same hue the class wears in the bars, so the
+                       filter and the chart teach each other. -->
+                  <span class="legend-dot" :style="`background:${c.colour}`"></span>
+                </button>
+              </template>
+            </div>
+          </div>
         </div>
         <div class="col-span-2 md:col-span-1">
           <button type="submit" class="btn-primary w-full md:w-auto" :disabled="loading">
@@ -636,6 +829,9 @@
       style: 'currency', currency: 'AUD', minimumFractionDigits: 2, maximumFractionDigits: 2,
     });
     const MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+    const MONTHS_LONG = ['January', 'February', 'March', 'April', 'May', 'June',
+      'July', 'August', 'September', 'October', 'November', 'December'];
+    const YM = /^(\d{4})-(\d{2})$/;
 
     const INK_MUTED = '#9ca3af';
     const INK_SECONDARY = '#4b5563';
@@ -686,14 +882,22 @@
       warnedClasses: new Set(),
       moneyMode: 'dollars',
       filters: { from: '', to: '', type: '', class: '' },
+      typeOpen: false,
+      classOpen: false,
+      // Both month pickers are one x-for over ['from','to'], so their state is
+      // keyed the same way rather than duplicated as fromOpen/toOpen.
+      monthOpen: { from: false, to: false },
+      monthYear: { from: 0, to: 0 },
+      currentYm: '',
+      MONTHS_LIST: MONTHS,
 
       // Revenue classes, in the order they stack. Colour follows the class, not
       // its rank, so filtering never repaints the survivors.
       CLASSES: [
         { key: 'sale',       label: 'Sale',       colour: '#b3242d' },
-        { key: 'promo_sale', label: 'Promo sale', colour: '#c2703a' },
+        { key: 'promo_sale', label: 'Promo sale', colour: '#c8801f' },
         { key: 'credit',     label: 'Credit',     colour: '#2a78d6' },
-        { key: 'comp',       label: 'Comp',       colour: '#4a3aa7' },
+        { key: 'comp',       label: 'Comp',       colour: '#7d3363' },
       ],
       // An ordered ramp, because the bands are ordered: one hue, light to dark.
       BANDS: [
@@ -713,6 +917,9 @@
         const now = this.perthNow();
         this.filters.to = this.ym(now.getFullYear(), now.getMonth());
         this.filters.from = this.ym(now.getFullYear(), now.getMonth() - 23);
+        // Resolved once: the grid asks "is this cell this month?" 12 times per
+        // open, and perthNow() builds an Intl formatter every call.
+        this.currentYm = this.filters.to;
 
         try {
           this.types = await this.api('/v1/staff/voucher-types');
@@ -754,6 +961,71 @@
           throw new Error(msg);
         }
         return res.json();
+      },
+
+      // ── Month picker ───────────────────────────────────────────────────
+
+      // Opening one menu closes the others: two popups open at once in a single
+      // filter row overlap each other and the chart beneath.
+      toggleMonthPicker(key) {
+        const wasOpen = this.monthOpen[key];
+        this.closeMenus();
+        if (wasOpen) return;
+        this.monthYear[key] = this.yearOf(this.filters[key]);
+        this.monthOpen[key] = true;
+      },
+      closeMenus() {
+        this.monthOpen.from = false;
+        this.monthOpen.to = false;
+        this.typeOpen = false;
+        this.classOpen = false;
+      },
+      toggleMenu(name) {
+        const wasOpen = this[name];
+        this.closeMenus();
+        this[name] = !wasOpen;
+      },
+
+      yearOf(v) {
+        const m = YM.exec(String(v || ''));
+        return m ? Number(m[1]) : this.perthNow().getFullYear();
+      },
+      monthFieldLabel(v) {
+        const m = YM.exec(String(v || ''));
+        if (!m) return 'Pick a month';
+        return `${MONTHS_LONG[Number(m[2]) - 1] || m[2]} ${m[1]}`;
+      },
+      pickMonth(key, monthIndex) {
+        this.filters[key] = this.ym(this.monthYear[key], monthIndex);
+        this.monthOpen[key] = false;
+        this.rangeError = '';
+      },
+      isMonthSelected(key, monthIndex) {
+        return this.filters[key] === this.ym(this.monthYear[key], monthIndex);
+      },
+      isCurrentMonth(key, monthIndex) {
+        return this.ym(this.monthYear[key], monthIndex) === this.currentYm;
+      },
+      // 'YYYY-MM' is fixed-width and zero-padded, so a string compare IS a date
+      // compare — no parsing, and no timezone to get wrong.
+      isMonthDisabled(key, monthIndex) {
+        const v = this.ym(this.monthYear[key], monthIndex);
+        return key === 'from'
+          ? !!this.filters.to && v > this.filters.to
+          : !!this.filters.from && v < this.filters.from;
+      },
+
+      // The trigger shows the current selection, so it has to survive a type list
+      // that failed to load: a type_id with no matching row still names itself
+      // rather than silently reverting the trigger to "All types".
+      typeLabel() {
+        if (!this.filters.type) return 'All types';
+        const t = this.types.find((x) => x.type_id === this.filters.type);
+        return t ? (t.display_name || t.type_id) : this.filters.type;
+      },
+      classLabel() {
+        if (!this.filters.class) return 'All classes';
+        return this.CLASSES.find((c) => c.key === this.filters.class)?.label || this.filters.class;
       },
 
       apply() {
@@ -1093,7 +1365,7 @@
               {
                 label: 'Expired unspent (breakage)',
                 data: rows.map((r) => r.expired_value),
-                backgroundColor: '#c2703a',
+                backgroundColor: '#c8801f',
                 borderRadius: 4,
                 borderSkipped: 'bottom',
                 order: 2,
