@@ -15,7 +15,7 @@
       "name": "TV slideshow",
       "description": "Chromecasting content of Google Drive folder.",
       "shortName": "TV",
-      "path": "slideshow/",
+      "path": "https://tools.urbanjungleirc.com/slideshow/",
       "category": "Utility"
     },
     {
