@@ -344,6 +344,93 @@
     .combo-option.active {
       font-weight: 700;
     }
+    /* Day picker.
+       Native <input type="date"> renders OS-supplied chrome that no stylesheet
+       can reach — beside the custom status combo it reads as a broken page. So
+       the input is gone and this is the control, mirroring the month picker in
+       stats.html: same trigger, same panel, same nav row, a 7-column grid
+       instead of 3, and the nav stepping month rather than year. */
+    .day-menu { padding: 10px; width: 268px; left: auto; right: auto; }
+    .day-nav {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 8px;
+      padding: 2px 2px 9px;
+    }
+    .day-nav-label {
+      font-size: 0.85rem;
+      font-weight: 700;
+      color: #1f2937;
+      font-variant-numeric: tabular-nums;
+    }
+    .day-nav-btn {
+      width: 28px;
+      height: 28px;
+      border-radius: 9px;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      color: #6b7280;
+      transition: background-color 120ms ease, color 120ms ease;
+    }
+    .day-nav-btn:hover { background: rgba(139, 28, 35, 0.08); color: var(--uj); }
+    .day-nav-btn:focus-visible { outline: 2px solid var(--uj); outline-offset: 1px; }
+    .day-nav-btn svg {
+      width: 16px; height: 16px;
+      fill: none; stroke: currentColor;
+      stroke-width: 2; stroke-linecap: round; stroke-linejoin: round;
+    }
+    .day-dow {
+      display: grid;
+      grid-template-columns: repeat(7, minmax(0, 1fr));
+      gap: 4px;
+      padding-bottom: 4px;
+    }
+    .day-dow span {
+      text-align: center;
+      font-size: 0.62rem;
+      font-weight: 700;
+      letter-spacing: 0.04em;
+      text-transform: uppercase;
+      color: #9ca3af;
+    }
+    .day-grid { display: grid; grid-template-columns: repeat(7, minmax(0, 1fr)); gap: 4px; }
+    .day-cell {
+      border-radius: 9px;
+      padding: 7px 0;
+      background: transparent;
+      color: #4b5563;
+      font-size: 0.78rem;
+      font-weight: 600;
+      font-variant-numeric: tabular-nums;
+      cursor: pointer;
+      transition: background-color 120ms ease, color 120ms ease;
+    }
+    .day-cell.is-blank { visibility: hidden; pointer-events: none; }
+    .day-cell:hover:not(:disabled):not(.is-blank) { background: rgba(139, 28, 35, 0.08); color: var(--uj); }
+    .day-cell.active,
+    .day-cell.active:hover { background: var(--uj); color: #fff; }
+    /* Today, ringed rather than filled — the filled cell is the selection, and
+       two filled cells would read as two selections. */
+    .day-cell.is-today:not(.active) { box-shadow: inset 0 0 0 1px rgba(139, 28, 35, 0.3); }
+    /* A day that would put "from" after "to" is unpickable rather than pickable
+       and then scolded. */
+    .day-cell:disabled { color: #d1d5db; cursor: not-allowed; }
+    .day-cell:focus-visible { outline: 2px solid var(--uj); outline-offset: 1px; }
+    .day-clear {
+      width: 100%;
+      margin-top: 8px;
+      border-top: 1px solid rgba(31, 41, 55, 0.08);
+      padding-top: 8px;
+      background: transparent;
+      color: #6b7280;
+      font-size: 0.78rem;
+      font-weight: 600;
+      cursor: pointer;
+      border-radius: 8px;
+    }
+    .day-clear:hover { color: var(--uj); }
     .empty-icon {
       margin: 0 auto 12px;
       opacity: 0.75;
