@@ -661,27 +661,73 @@
         </div>
       </div>
 
-      <form @submit.prevent="search()" class="flex gap-2 flex-wrap mb-5">
-        <input type="search" x-model="q" placeholder="Name, email or voucher code…"
-          class="flex-1 min-w-[200px] border border-neutral-200 rounded-xl px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-uj/20 focus:border-uj bg-white placeholder-neutral-400" />
-        <div class="combo min-w-[150px]" @click.outside="statusOpen = false" @keydown.escape.window="statusOpen = false">
-          <button type="button" @click="statusOpen = !statusOpen" :aria-expanded="statusOpen.toString()"
-            class="combo-trigger">
-            <span x-text="statusOptions.find(o => o.value === statusFilter)?.label || 'All statuses'"></span>
-            <svg class="combo-chevron" viewBox="0 0 24 24"><path d="m6 9 6 6 6-6"/></svg>
-          </button>
-          <div x-show="statusOpen" x-transition.origin.top x-cloak class="combo-menu">
-            <template x-for="option in statusOptions" :key="option.value">
-              <button type="button" @click="statusFilter = option.value; statusOpen = false"
-                :class="statusFilter === option.value ? 'active' : ''"
-                class="combo-option">
-                <span x-text="option.label"></span>
-              </button>
-            </template>
+      <form @submit.prevent="search()" class="mb-5">
+        <div class="flex gap-2 flex-wrap mb-2">
+          <input type="search" x-model="q" placeholder="Name, email, code, receipt or phone…"
+            class="flex-1 min-w-[200px] border border-neutral-200 rounded-xl px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-uj/20 focus:border-uj bg-white placeholder-neutral-400" />
+          <div class="combo min-w-[150px]" @click.outside="statusOpen = false" @keydown.escape.window="statusOpen = false">
+            <button type="button" @click="statusOpen = !statusOpen" :aria-expanded="statusOpen.toString()"
+              class="combo-trigger">
+              <span x-text="statusOptions.find(o => o.value === statusFilter)?.label || 'All statuses'"></span>
+              <svg class="combo-chevron" viewBox="0 0 24 24"><path d="m6 9 6 6 6-6"/></svg>
+            </button>
+            <div x-show="statusOpen" x-transition.origin.top x-cloak class="combo-menu">
+              <template x-for="option in statusOptions" :key="option.value">
+                <button type="button" @click="statusFilter = option.value; statusOpen = false"
+                  :class="statusFilter === option.value ? 'active' : ''"
+                  class="combo-option">
+                  <span x-text="option.label"></span>
+                </button>
+              </template>
+            </div>
           </div>
         </div>
-        <button type="submit"
-          class="bg-uj hover:bg-uj-dark text-white px-4 py-2 rounded-xl text-sm font-semibold transition-colors">Search</button>
+
+        <!-- Purchase date range. Custom pickers, not native date inputs — see the
+             .day-menu CSS note. -->
+        <div class="flex gap-2 flex-wrap items-start">
+          <template x-for="f in [{ key: 'from', label: 'From' }, { key: 'to', label: 'To' }]" :key="f.key">
+            <div class="combo w-[150px]" @click.outside="dayOpen[f.key] = false" @keydown.escape.window="dayOpen[f.key] = false">
+              <button type="button" class="combo-trigger" @click="toggleDayPicker(f.key)"
+                :aria-expanded="dayOpen[f.key].toString()" aria-haspopup="dialog"
+                :aria-label="`Purchased ${f.label.toLowerCase()}`">
+                <span x-text="dayFieldLabel(dateFrom, dateTo, f.key)"></span>
+                <svg class="combo-chevron" viewBox="0 0 24 24"><path d="m6 9 6 6 6-6"/></svg>
+              </button>
+              <div x-show="dayOpen[f.key]" x-transition.origin.top x-cloak
+                class="combo-menu day-menu" role="dialog"
+                :aria-label="`Choose the ${f.label.toLowerCase()} date`">
+                <div class="day-nav">
+                  <button type="button" class="day-nav-btn" @click="stepMonth(f.key, -1)" aria-label="Previous month">
+                    <svg viewBox="0 0 24 24"><path d="M15 6l-6 6 6 6"/></svg>
+                  </button>
+                  <span class="day-nav-label" x-text="dayNavLabel(f.key)"></span>
+                  <button type="button" class="day-nav-btn" @click="stepMonth(f.key, 1)" aria-label="Next month">
+                    <svg viewBox="0 0 24 24"><path d="M9 6l6 6-6 6"/></svg>
+                  </button>
+                </div>
+                <div class="day-dow">
+                  <template x-for="(d, i) in DOW_LIST" :key="i"><span x-text="d"></span></template>
+                </div>
+                <div class="day-grid">
+                  <template x-for="(day, i) in dayCells(f.key)" :key="i">
+                    <button type="button" class="day-cell" x-text="day || ''"
+                      @click="day && pickDay(f.key, day)"
+                      :disabled="!day || isDayDisabled(f.key, day)"
+                      :aria-pressed="!!day && isDaySelected(f.key, day)"
+                      :class="[!day ? 'is-blank' : '', day && isDaySelected(f.key, day) ? 'active' : '', day && isToday(f.key, day) ? 'is-today' : '']"></button>
+                  </template>
+                </div>
+                <button type="button" class="day-clear" @click="clearDay(f.key)">Clear</button>
+              </div>
+            </div>
+          </template>
+          <button type="submit"
+            class="bg-uj hover:bg-uj-dark text-white px-4 py-2 rounded-xl text-sm font-semibold transition-colors">Search</button>
+        </div>
+
+        <p x-show="rangeError" x-cloak x-text="rangeError"
+          class="mt-2 text-sm text-red-600"></p>
       </form>
 
       <!-- Default landing list: most recent vouchers, capped below the search limit so no truncation warning fires. -->
@@ -690,7 +736,7 @@
         <svg class="w-4 h-4 shrink-0 text-neutral-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
           <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 8v4m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"/>
         </svg>
-        Showing the <strong>99 most recent</strong> vouchers. Search by name, email, or voucher code to find a specific one.
+        Showing the <strong>99 most recent</strong> vouchers. Search by name, email, code, Clubworx receipt or phone — or filter by purchase date — to find a specific one.
       </div>
 
       <!-- Active search that hit the result cap. -->
@@ -700,7 +746,7 @@
           <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 9v2m0 4h.01M10.29 3.86L1.82 18a2 2 0 001.71 3h16.94a2 2 0 001.71-3L13.71 3.86a2 2 0 00-3.42 0z"/>
         </svg>
         Showing the first <strong x-text="results.length"></strong> results — there may be more.
-        Narrow your search by name, email, or voucher code to find a specific voucher.
+        Narrow your search by name, email, code, Clubworx receipt or phone — or filter by purchase date — to find a specific voucher.
       </div>
 
       <div x-show="searchError"
@@ -716,7 +762,7 @@
       <div x-show="!searchLoading && !results.length && !searchError"
         class="text-center py-16 text-neutral-400 text-sm">
         <div class="icon-tile empty-icon"><svg viewBox="0 0 24 24"><path d="M3.5 8.5a2 2 0 0 1 2-2h13a2 2 0 0 1 2 2v2.1a2.4 2.4 0 0 0 0 4.8v2.1a2 2 0 0 1-2 2h-13a2 2 0 0 1-2-2v-2.1a2.4 2.4 0 0 0 0-4.8V8.5z"/><path d="M9 9.25v5.5"/></svg></div>
-        Enter a name, email, or voucher code and press Search.
+        Enter a name, email, code, Clubworx receipt or phone — or pick a purchase date range — and press Search.
       </div>
 
       <div x-show="!searchLoading && results.length > 0"
@@ -867,6 +913,7 @@
                 <div><dt class="text-[0.62rem] font-semibold text-neutral-400 uppercase tracking-wider mb-1">Email</dt><dd class="text-neutral-700" x-text="voucher?.customer_email || '—'"></dd></div>
                 <div><dt class="text-[0.62rem] font-semibold text-neutral-400 uppercase tracking-wider mb-1">Phone</dt><dd class="text-neutral-700" x-text="voucher?.customer_phone || '—'"></dd></div>
                 <div><dt class="text-[0.62rem] font-semibold text-neutral-400 uppercase tracking-wider mb-1">Type</dt><dd class="text-neutral-700" x-text="voucher?._type_name || voucher?.voucher_type_id || '—'"></dd></div>
+                <div x-show="voucher?._item_name || voucher?.voucher_item_id"><dt class="text-[0.62rem] font-semibold text-neutral-400 uppercase tracking-wider mb-1">Item</dt><dd class="text-neutral-700" x-text="voucher?._item_name || voucher?.voucher_item_id"></dd></div>
                 <div><dt class="text-[0.62rem] font-semibold text-neutral-400 uppercase tracking-wider mb-1">Issued</dt><dd class="text-neutral-700" x-text="fmtDate(voucher?.issued_date)"></dd></div>
                 <div><dt class="text-[0.62rem] font-semibold text-neutral-400 uppercase tracking-wider mb-1">Expires</dt><dd class="text-neutral-700" x-text="fmtDate(voucher?.expiry_date)"></dd></div>
                 <div x-show="voucher?.last_redeemed_date"><dt class="text-[0.62rem] font-semibold text-neutral-400 uppercase tracking-wider mb-1">Last redeemed</dt><dd class="text-neutral-700" x-text="fmtDateTime(voucher?.last_redeemed_date)"></dd></div>
@@ -2434,6 +2481,13 @@
       // Pagination & sorting
       PAGE_SIZE: 20,
       searchSort: { col: 'issued_date', dir: 'desc' },
+      // Purchase-date range (issued_date). Empty string means "no bound".
+      dateFrom: '',
+      dateTo: '',
+      dayOpen: { from: false, to: false },
+      dayView: { from: '', to: '' },   // 'YYYY-MM' — the month each panel is showing
+      rangeError: '',
+      DOW_LIST: ['M', 'T', 'W', 'T', 'F', 'S', 'S'],
       searchPage: 1,
       reportIssuedSort: { col: 'issued_date', dir: 'desc' },
       reportIssuedPage: 1,
@@ -2568,15 +2622,30 @@
       async search() {
         this.searchLoading = true;
         this.searchError = '';
+        this.rangeError = '';
+
+        if (this.dateFrom && this.dateTo && this.dateFrom > this.dateTo) {
+          this.rangeError = 'The from date must not be after the to date.';
+          this.searchLoading = false;
+          return;
+        }
+
         // Default landing view (no query/filter) shows the most recent vouchers.
         // Cap it at 99 — one below the worker's 100 limit — so the "first 100"
         // truncation warning never fires and we show a friendly message instead.
-        const recent = !this.q.trim() && !this.statusFilter;
+        //
+        // The date bounds MUST be part of this test. Without them, a staff member
+        // who sets only a date range gets the recent listing back under a
+        // "showing the 99 most recent" banner, looking exactly as though the date
+        // filter did nothing.
+        const recent = !this.q.trim() && !this.statusFilter && !this.dateFrom && !this.dateTo;
         this.recentListing = recent;
         try {
           const p = new URLSearchParams();
           if (this.q) p.set('q', this.q);
           if (this.statusFilter) p.set('status', this.statusFilter);
+          if (this.dateFrom) p.set('from', this.dateFrom);
+          if (this.dateTo) p.set('to', this.dateTo);
           if (recent) p.set('limit', '99');
           this.results = await this.api('/v1/vouchers/search?' + p.toString());
           this.searchPage = 1;
@@ -3122,10 +3191,12 @@
         this.loadDashStats();
         try {
           if (this.view === 'search') {
-            const recent = !this.q.trim() && !this.statusFilter;
+            const recent = !this.q.trim() && !this.statusFilter && !this.dateFrom && !this.dateTo;
             const p = new URLSearchParams();
             if (this.q) p.set('q', this.q);
             if (this.statusFilter) p.set('status', this.statusFilter);
+            if (this.dateFrom) p.set('from', this.dateFrom);
+            if (this.dateTo) p.set('to', this.dateTo);
             if (recent) p.set('limit', '99');
             this.results = await this.api('/v1/vouchers/search?' + p.toString());
             this.recentListing = recent;
@@ -3154,6 +3225,101 @@
       },
 
       // Search
+      // ── Date range picker ────────────────────────────────────────────────
+      // 'YYYY-MM-DD' is fixed-width and zero-padded, so a string compare IS a
+      // date compare — no parsing, and no timezone to get wrong.
+
+      // "Today" in Perth regardless of the machine clock: the front-desk laptop
+      // is in Perth, but a manager on a plane should still see Perth dates.
+      perthToday() {
+        const parts = new Intl.DateTimeFormat('en-AU', {
+          timeZone: 'Australia/Perth', year: 'numeric', month: '2-digit', day: '2-digit',
+        }).formatToParts(new Date());
+        const get = (t) => parts.find((p) => p.type === t).value;
+        return `${get('year')}-${get('month')}-${get('day')}`;
+      },
+
+      toggleDayPicker(key) {
+        const wasOpen = this.dayOpen[key];
+        this.dayOpen.from = false;
+        this.dayOpen.to = false;
+        if (wasOpen) return;
+        const current = key === 'from' ? this.dateFrom : this.dateTo;
+        this.dayView[key] = (current || this.perthToday()).slice(0, 7);
+        this.dayOpen[key] = true;
+      },
+
+      dayNavLabel(key) {
+        const [y, m] = (this.dayView[key] || this.perthToday().slice(0, 7)).split('-');
+        const names = ['January', 'February', 'March', 'April', 'May', 'June',
+          'July', 'August', 'September', 'October', 'November', 'December'];
+        return `${names[Number(m) - 1]} ${y}`;
+      },
+
+      stepMonth(key, delta) {
+        const [y, m] = this.dayView[key].split('-').map(Number);
+        const d = new Date(y, m - 1 + delta, 1);
+        this.dayView[key] = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
+      },
+
+      // Leading blanks pad the grid so the 1st lands under its weekday. The week
+      // starts Monday, matching how the gym reads a roster; JS getDay() is
+      // Sunday-based, hence the (+6) % 7 shift.
+      dayCells(key) {
+        const [y, m] = this.dayView[key].split('-').map(Number);
+        const firstDow = (new Date(y, m - 1, 1).getDay() + 6) % 7;
+        const daysInMonth = new Date(y, m, 0).getDate();
+        const cells = [];
+        for (let i = 0; i < firstDow; i++) cells.push(null);
+        for (let d = 1; d <= daysInMonth; d++) cells.push(d);
+        return cells;
+      },
+
+      dayValue(key, day) {
+        return `${this.dayView[key]}-${String(day).padStart(2, '0')}`;
+      },
+
+      pickDay(key, day) {
+        const v = this.dayValue(key, day);
+        if (key === 'from') this.dateFrom = v; else this.dateTo = v;
+        this.dayOpen[key] = false;
+        this.rangeError = '';
+      },
+
+      clearDay(key) {
+        if (key === 'from') this.dateFrom = ''; else this.dateTo = '';
+        this.dayOpen[key] = false;
+        this.rangeError = '';
+      },
+
+      isDaySelected(key, day) {
+        const current = key === 'from' ? this.dateFrom : this.dateTo;
+        return !!current && current === this.dayValue(key, day);
+      },
+
+      isToday(key, day) {
+        return this.dayValue(key, day) === this.perthToday();
+      },
+
+      // A day that would put "from" after "to" is unpickable rather than
+      // pickable and then scolded.
+      isDayDisabled(key, day) {
+        const v = this.dayValue(key, day);
+        return key === 'from'
+          ? !!this.dateTo && v > this.dateTo
+          : !!this.dateFrom && v < this.dateFrom;
+      },
+
+      // The trigger reads "From"/"To" when empty and the formatted date when set.
+      dayFieldLabel(from, to, key) {
+        const v = key === 'from' ? from : to;
+        if (!v) return key === 'from' ? 'From' : 'To';
+        const [y, m, d] = v.split('-');
+        const names = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun',
+          'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+        return `${Number(d)} ${names[Number(m) - 1]} ${y}`;
+      },
+
       sortSearch(col) {
         if (this.searchSort.col === col) {
           this.searchSort.dir = this.searchSort.dir === 'asc' ? 'desc' : 'asc';
