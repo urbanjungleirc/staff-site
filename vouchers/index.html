@@ -344,6 +344,37 @@
     .combo-option.active {
       font-weight: 700;
     }
+    /* Secondary filter row — status and the date range. Deliberately quieter and
+       smaller than the search box above it: these are used occasionally, the
+       text box is used every time. */
+    .filter-row {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      flex-wrap: wrap;
+    }
+    .filter-heading {
+      font-size: 0.62rem;
+      font-weight: 600;
+      letter-spacing: 0.08em;
+      text-transform: uppercase;
+      color: #9ca3af;
+      flex-shrink: 0;
+    }
+    .combo-sm .combo-trigger {
+      min-height: 34px;
+      padding: 0.3rem 0.6rem;
+      gap: 6px;
+      font-size: 0.8rem;
+      border-radius: 10px;
+    }
+    .combo-sm .combo-chevron { width: 14px; height: 14px; }
+    /* The panel keeps its own width — a 124px trigger must not squeeze the
+       calendar grid, and .combo-menu's left:0/right:0 stretch would do exactly
+       that. .day-menu already opts out; the status menu needs a floor. */
+    .combo-sm .combo-menu { min-width: 100%; width: max-content; }
+    .combo-sm .day-menu { width: 268px; }
+
     /* Day picker.
        Native <input type="date"> renders OS-supplied chrome that no stylesheet
        can reach — beside the custom status combo it reads as a broken page. So
@@ -661,69 +692,76 @@
         </div>
       </div>
 
+      <!-- The text box is the control staff reach for every time; status and the
+           date range are occasional. So the box and its button own the primary
+           row, and the rest sits below under a quieter "Filter" heading. -->
       <form @submit.prevent="search()" class="mb-5">
-        <div class="flex gap-2 flex-wrap mb-2">
+        <div class="flex gap-2 flex-wrap mb-3">
           <input type="search" x-model="q" placeholder="Name, email, code, receipt or phone…"
-            class="flex-1 min-w-[200px] border border-neutral-200 rounded-xl px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-uj/20 focus:border-uj bg-white placeholder-neutral-400" />
-          <div class="combo min-w-[150px]" @click.outside="statusOpen = false" @keydown.escape.window="statusOpen = false">
-            <button type="button" @click="statusOpen = !statusOpen" :aria-expanded="statusOpen.toString()"
-              class="combo-trigger">
-              <span x-text="statusOptions.find(o => o.value === statusFilter)?.label || 'All statuses'"></span>
-              <svg class="combo-chevron" viewBox="0 0 24 24"><path d="m6 9 6 6 6-6"/></svg>
-            </button>
-            <div x-show="statusOpen" x-transition.origin.top x-cloak class="combo-menu">
-              <template x-for="option in statusOptions" :key="option.value">
-                <button type="button" @click="statusFilter = option.value; statusOpen = false"
-                  :class="statusFilter === option.value ? 'active' : ''"
-                  class="combo-option">
-                  <span x-text="option.label"></span>
-                </button>
-              </template>
-            </div>
-          </div>
+            class="flex-1 min-w-[200px] border border-neutral-200 rounded-xl px-3.5 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-uj/20 focus:border-uj bg-white placeholder-neutral-400" />
+          <button type="submit"
+            class="bg-uj hover:bg-uj-dark text-white px-10 py-2.5 rounded-xl text-sm font-semibold transition-colors shrink-0">Search</button>
         </div>
 
-        <!-- Purchase date range. Custom pickers, not native date inputs — see the
-             .day-menu CSS note. -->
-        <div class="flex gap-2 flex-wrap items-start">
-          <template x-for="f in [{ key: 'from', label: 'From' }, { key: 'to', label: 'To' }]" :key="f.key">
-            <div class="combo w-[150px]" @click.outside="dayOpen[f.key] = false" @keydown.escape.window="dayOpen[f.key] = false">
-              <button type="button" class="combo-trigger" @click="toggleDayPicker(f.key)"
-                :aria-expanded="dayOpen[f.key].toString()" aria-haspopup="dialog"
-                :aria-label="`Purchased ${f.label.toLowerCase()}`">
-                <span x-text="dayFieldLabel(dateFrom, dateTo, f.key)"></span>
+        <div class="filter-row">
+          <span class="filter-heading">Filter</span>
+          <div class="flex gap-2 flex-wrap items-start">
+            <div class="combo combo-sm w-[132px]" @click.outside="statusOpen = false" @keydown.escape.window="statusOpen = false">
+              <button type="button" @click="statusOpen = !statusOpen" :aria-expanded="statusOpen.toString()"
+                class="combo-trigger" aria-label="Filter by status">
+                <span x-text="statusOptions.find(o => o.value === statusFilter)?.label || 'All statuses'"></span>
                 <svg class="combo-chevron" viewBox="0 0 24 24"><path d="m6 9 6 6 6-6"/></svg>
               </button>
-              <div x-show="dayOpen[f.key]" x-transition.origin.top x-cloak
-                class="combo-menu day-menu" role="dialog"
-                :aria-label="`Choose the ${f.label.toLowerCase()} date`">
-                <div class="day-nav">
-                  <button type="button" class="day-nav-btn" @click="stepMonth(f.key, -1)" aria-label="Previous month">
-                    <svg viewBox="0 0 24 24"><path d="M15 6l-6 6 6 6"/></svg>
+              <div x-show="statusOpen" x-transition.origin.top x-cloak class="combo-menu">
+                <template x-for="option in statusOptions" :key="option.value">
+                  <button type="button" @click="statusFilter = option.value; statusOpen = false"
+                    :class="statusFilter === option.value ? 'active' : ''"
+                    class="combo-option">
+                    <span x-text="option.label"></span>
                   </button>
-                  <span class="day-nav-label" x-text="dayNavLabel(f.key)"></span>
-                  <button type="button" class="day-nav-btn" @click="stepMonth(f.key, 1)" aria-label="Next month">
-                    <svg viewBox="0 0 24 24"><path d="M9 6l6 6-6 6"/></svg>
-                  </button>
-                </div>
-                <div class="day-dow">
-                  <template x-for="(d, i) in DOW_LIST" :key="i"><span x-text="d"></span></template>
-                </div>
-                <div class="day-grid">
-                  <template x-for="(day, i) in dayCells(f.key)" :key="i">
-                    <button type="button" class="day-cell" x-text="day || ''"
-                      @click="day && pickDay(f.key, day)"
-                      :disabled="!day || isDayDisabled(f.key, day)"
-                      :aria-pressed="!!day && isDaySelected(f.key, day)"
-                      :class="[!day ? 'is-blank' : '', day && isDaySelected(f.key, day) ? 'active' : '', day && isToday(f.key, day) ? 'is-today' : '']"></button>
-                  </template>
-                </div>
-                <button type="button" class="day-clear" @click="clearDay(f.key)">Clear</button>
+                </template>
               </div>
             </div>
-          </template>
-          <button type="submit"
-            class="bg-uj hover:bg-uj-dark text-white px-4 py-2 rounded-xl text-sm font-semibold transition-colors">Search</button>
+
+            <!-- Purchase date range. Custom pickers, not native date inputs — see
+                 the .day-menu CSS note. -->
+            <template x-for="f in [{ key: 'from', label: 'From' }, { key: 'to', label: 'To' }]" :key="f.key">
+              <div class="combo combo-sm w-[124px]" @click.outside="dayOpen[f.key] = false" @keydown.escape.window="dayOpen[f.key] = false">
+                <button type="button" class="combo-trigger" @click="toggleDayPicker(f.key)"
+                  :aria-expanded="dayOpen[f.key].toString()" aria-haspopup="dialog"
+                  :aria-label="`Purchased ${f.label.toLowerCase()}`">
+                  <span x-text="dayFieldLabel(dateFrom, dateTo, f.key)"></span>
+                  <svg class="combo-chevron" viewBox="0 0 24 24"><path d="m6 9 6 6 6-6"/></svg>
+                </button>
+                <div x-show="dayOpen[f.key]" x-transition.origin.top x-cloak
+                  class="combo-menu day-menu" role="dialog"
+                  :aria-label="`Choose the ${f.label.toLowerCase()} date`">
+                  <div class="day-nav">
+                    <button type="button" class="day-nav-btn" @click="stepMonth(f.key, -1)" aria-label="Previous month">
+                      <svg viewBox="0 0 24 24"><path d="M15 6l-6 6 6 6"/></svg>
+                    </button>
+                    <span class="day-nav-label" x-text="dayNavLabel(f.key)"></span>
+                    <button type="button" class="day-nav-btn" @click="stepMonth(f.key, 1)" aria-label="Next month">
+                      <svg viewBox="0 0 24 24"><path d="M9 6l6 6-6 6"/></svg>
+                    </button>
+                  </div>
+                  <div class="day-dow">
+                    <template x-for="(d, i) in DOW_LIST" :key="i"><span x-text="d"></span></template>
+                  </div>
+                  <div class="day-grid">
+                    <template x-for="(day, i) in dayCells(f.key)" :key="i">
+                      <button type="button" class="day-cell" x-text="day || ''"
+                        @click="day && pickDay(f.key, day)"
+                        :disabled="!day || isDayDisabled(f.key, day)"
+                        :aria-pressed="!!day && isDaySelected(f.key, day)"
+                        :class="[!day ? 'is-blank' : '', day && isDaySelected(f.key, day) ? 'active' : '', day && isToday(f.key, day) ? 'is-today' : '']"></button>
+                    </template>
+                  </div>
+                  <button type="button" class="day-clear" @click="clearDay(f.key)">Clear</button>
+                </div>
+              </div>
+            </template>
+          </div>
         </div>
 
         <p x-show="rangeError" x-cloak x-text="rangeError"
