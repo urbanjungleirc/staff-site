@@ -225,6 +225,26 @@
       border: 1px solid rgba(139, 28, 35, 0.12);
       font-size: 16px;
     }
+    /* Detail field group. The enclosing card is .section-card — a brand-tinted
+       gradient, not white — so the groups lift *forward* out of it rather than
+       being wells sunk into it: near-white fill over the tint, brand-tinted
+       hairline to match the card's own border. */
+    .detail-group {
+      background: rgba(255, 255, 255, 0.72);
+      border: 1px solid rgba(139, 28, 35, 0.10);
+      border-radius: 14px;
+      padding: 14px 16px 16px;
+    }
+    /* Group heading. Muted brand tone, which separates it cleanly from the
+       neutral field labels below: brand = structure, neutral = data. */
+    .detail-group-title {
+      font-size: 0.7rem;
+      font-weight: 600;
+      color: rgba(139, 28, 35, 0.72);
+      text-transform: uppercase;
+      letter-spacing: 0.08em;
+      margin-bottom: 0.85rem;
+    }
     .detail-grid > div { min-width: 0; }
     .detail-grid dt {
       display: flex;
@@ -946,25 +966,66 @@
                 </div>
               </div>
 
-              <dl class="detail-grid grid grid-cols-2 gap-x-6 gap-y-3.5 text-sm pt-4 border-t border-neutral-100">
-                <div><dt class="text-[0.62rem] font-semibold text-neutral-400 uppercase tracking-wider mb-1">Customer</dt><dd class="font-medium text-neutral-800" x-text="voucher?.customer_name || '—'"></dd></div>
-                <div><dt class="text-[0.62rem] font-semibold text-neutral-400 uppercase tracking-wider mb-1">Email</dt><dd class="text-neutral-700" x-text="voucher?.customer_email || '—'"></dd></div>
-                <div><dt class="text-[0.62rem] font-semibold text-neutral-400 uppercase tracking-wider mb-1">Phone</dt><dd class="text-neutral-700" x-text="voucher?.customer_phone || '—'"></dd></div>
-                <div><dt class="text-[0.62rem] font-semibold text-neutral-400 uppercase tracking-wider mb-1">Type</dt><dd class="text-neutral-700" x-text="voucher?._type_name || voucher?.voucher_type_id || '—'"></dd></div>
-                <div x-show="voucher?._item_name || voucher?.voucher_item_id"><dt class="text-[0.62rem] font-semibold text-neutral-400 uppercase tracking-wider mb-1">Item</dt><dd class="text-neutral-700" x-text="voucher?._item_name || voucher?.voucher_item_id"></dd></div>
-                <div><dt class="text-[0.62rem] font-semibold text-neutral-400 uppercase tracking-wider mb-1">Issued</dt><dd class="text-neutral-700" x-text="fmtDate(voucher?.issued_date)"></dd></div>
-                <div><dt class="text-[0.62rem] font-semibold text-neutral-400 uppercase tracking-wider mb-1">Expires</dt><dd class="text-neutral-700" x-text="fmtDate(voucher?.expiry_date)"></dd></div>
-                <div x-show="voucher?.last_redeemed_date"><dt class="text-[0.62rem] font-semibold text-neutral-400 uppercase tracking-wider mb-1">Last redeemed</dt><dd class="text-neutral-700" x-text="fmtDateTime(voucher?.last_redeemed_date)"></dd></div>
-                <div x-show="voucher?.last_redeemed_by"><dt class="text-[0.62rem] font-semibold text-neutral-400 uppercase tracking-wider mb-1">Redeemed by</dt><dd class="text-neutral-700" x-text="voucher?.last_redeemed_by"></dd></div>
-                <div x-show="voucher?.clubworx_receipt"><dt class="text-[0.62rem] font-semibold text-neutral-400 uppercase tracking-wider mb-1">Clubworx receipt</dt><dd class="text-neutral-700" x-text="voucher?.clubworx_receipt"></dd></div>
-                <div x-show="voucher?.payment_reference"><dt class="text-[0.62rem] font-semibold text-neutral-400 uppercase tracking-wider mb-1">Payment ref</dt><dd class="text-xs break-all text-neutral-500 font-mono" x-text="voucher?.payment_reference"></dd></div>
-                <div x-show="voucher?.payment_platform"><dt class="text-[0.62rem] font-semibold text-neutral-400 uppercase tracking-wider mb-1">Platform</dt><dd class="capitalize text-neutral-700" x-text="voucher?.payment_platform"></dd></div>
-                <div x-show="voucher?.purchase_source"><dt class="text-[0.62rem] font-semibold text-neutral-400 uppercase tracking-wider mb-1">Source</dt><dd class="capitalize text-neutral-700" x-text="voucher?.purchase_source"></dd></div>
-                <div x-show="voucher?.reason" class="col-span-2"><dt class="text-[0.62rem] font-semibold text-neutral-400 uppercase tracking-wider mb-1">Reason</dt><dd class="text-neutral-700" x-text="voucher?.reason"></dd></div>
-                <div x-show="voucher?.gift_from" class="col-span-2"><dt class="text-[0.62rem] font-semibold text-neutral-400 uppercase tracking-wider mb-1">Gift from → to</dt><dd class="text-neutral-700" x-text="(voucher?.gift_from || '') + (voucher?.gift_to ? ' → ' + voucher.gift_to : '')"></dd></div>
-                <div x-show="voucher?.gift_message" class="col-span-2"><dt class="text-[0.62rem] font-semibold text-neutral-400 uppercase tracking-wider mb-1">Gift message</dt><dd class="italic text-neutral-600" x-text="voucher?.gift_message"></dd></div>
-                <div x-show="voucher?.redemption_notes" class="col-span-2"><dt class="text-[0.62rem] font-semibold text-neutral-400 uppercase tracking-wider mb-1">Redemption notes</dt><dd class="text-neutral-700" x-text="voucher?.redemption_notes"></dd></div>
-              </dl>
+              <!-- Field groups. Each is a labelled block; groups whose fields are all
+                   empty (gift, redemption, payment) hide entirely rather than
+                   leaving a bare heading behind. -->
+              <div class="detail-groups pt-4 space-y-3">
+
+                <!-- Customer -->
+                <section class="detail-group">
+                  <h4 class="detail-group-title">Customer</h4>
+                  <dl class="detail-grid grid grid-cols-2 gap-x-6 gap-y-3.5 text-sm">
+                    <div><dt class="text-[0.62rem] font-semibold text-neutral-400 uppercase tracking-wider mb-1">Name</dt><dd class="font-medium text-neutral-800" x-text="voucher?.customer_name || '—'"></dd></div>
+                    <div><dt class="text-[0.62rem] font-semibold text-neutral-400 uppercase tracking-wider mb-1">Email</dt><dd class="text-neutral-700 break-all" x-text="voucher?.customer_email || '—'"></dd></div>
+                    <div><dt class="text-[0.62rem] font-semibold text-neutral-400 uppercase tracking-wider mb-1">Phone</dt><dd class="text-neutral-700" x-text="voucher?.customer_phone || '—'"></dd></div>
+                  </dl>
+                </section>
+
+                <!-- Voucher -->
+                <section class="detail-group">
+                  <h4 class="detail-group-title">Voucher</h4>
+                  <dl class="detail-grid grid grid-cols-2 gap-x-6 gap-y-3.5 text-sm">
+                    <div><dt class="text-[0.62rem] font-semibold text-neutral-400 uppercase tracking-wider mb-1">Type</dt><dd class="text-neutral-700" x-text="voucher?._type_name || voucher?.voucher_type_id || '—'"></dd></div>
+                    <div x-show="voucher?._item_name || voucher?.voucher_item_id"><dt class="text-[0.62rem] font-semibold text-neutral-400 uppercase tracking-wider mb-1">Item</dt><dd class="text-neutral-700" x-text="voucher?._item_name || voucher?.voucher_item_id"></dd></div>
+                    <div><dt class="text-[0.62rem] font-semibold text-neutral-400 uppercase tracking-wider mb-1">Issued</dt><dd class="text-neutral-700" x-text="fmtDate(voucher?.issued_date)"></dd></div>
+                    <div><dt class="text-[0.62rem] font-semibold text-neutral-400 uppercase tracking-wider mb-1">Expires</dt><dd class="text-neutral-700" x-text="fmtDate(voucher?.expiry_date)"></dd></div>
+                    <div x-show="voucher?.reason"><dt class="text-[0.62rem] font-semibold text-neutral-400 uppercase tracking-wider mb-1">Reason</dt><dd class="text-neutral-700" x-text="voucher?.reason"></dd></div>
+                  </dl>
+                </section>
+
+                <!-- Redemption -->
+                <section class="detail-group" x-show="voucher?.last_redeemed_date || voucher?.last_redeemed_by || voucher?.redemption_notes">
+                  <h4 class="detail-group-title">Redemption</h4>
+                  <dl class="detail-grid grid grid-cols-2 gap-x-6 gap-y-3.5 text-sm">
+                    <div x-show="voucher?.last_redeemed_date"><dt class="text-[0.62rem] font-semibold text-neutral-400 uppercase tracking-wider mb-1">Last redeemed</dt><dd class="text-neutral-700" x-text="fmtDateTime(voucher?.last_redeemed_date)"></dd></div>
+                    <div x-show="voucher?.last_redeemed_amount"><dt class="text-[0.62rem] font-semibold text-neutral-400 uppercase tracking-wider mb-1">Last amount</dt><dd class="text-neutral-700 tabular-nums" x-text="fmtMoney(voucher?.last_redeemed_amount)"></dd></div>
+                    <div x-show="voucher?.last_redeemed_by"><dt class="text-[0.62rem] font-semibold text-neutral-400 uppercase tracking-wider mb-1">Redeemed by</dt><dd class="text-neutral-700" x-text="voucher?.last_redeemed_by"></dd></div>
+                    <div x-show="voucher?.redemption_notes"><dt class="text-[0.62rem] font-semibold text-neutral-400 uppercase tracking-wider mb-1">Redemption notes</dt><dd class="text-neutral-700" x-text="voucher?.redemption_notes"></dd></div>
+                  </dl>
+                </section>
+
+                <!-- Recipient (gift vouchers only) -->
+                <section class="detail-group" x-show="voucher?.gift_from || voucher?.gift_to || voucher?.gift_message">
+                  <h4 class="detail-group-title">Recipient</h4>
+                  <dl class="detail-grid grid grid-cols-2 gap-x-6 gap-y-3.5 text-sm">
+                    <div x-show="voucher?.gift_to"><dt class="text-[0.62rem] font-semibold text-neutral-400 uppercase tracking-wider mb-1">To</dt><dd class="font-medium text-neutral-800" x-text="voucher?.gift_to"></dd></div>
+                    <div x-show="voucher?.gift_from"><dt class="text-[0.62rem] font-semibold text-neutral-400 uppercase tracking-wider mb-1">From</dt><dd class="text-neutral-700" x-text="voucher?.gift_from"></dd></div>
+                    <div x-show="voucher?.gift_message"><dt class="text-[0.62rem] font-semibold text-neutral-400 uppercase tracking-wider mb-1">Gift message</dt><dd class="italic text-neutral-600" x-text="voucher?.gift_message"></dd></div>
+                  </dl>
+                </section>
+
+                <!-- Payment -->
+                <section class="detail-group" x-show="voucher?.clubworx_receipt || voucher?.payment_reference || voucher?.payment_platform || voucher?.purchase_source">
+                  <h4 class="detail-group-title">Payment</h4>
+                  <dl class="detail-grid grid grid-cols-2 gap-x-6 gap-y-3.5 text-sm">
+                    <div x-show="voucher?.clubworx_receipt"><dt class="text-[0.62rem] font-semibold text-neutral-400 uppercase tracking-wider mb-1">Clubworx receipt</dt><dd class="text-neutral-700" x-text="voucher?.clubworx_receipt"></dd></div>
+                    <div x-show="voucher?.payment_platform"><dt class="text-[0.62rem] font-semibold text-neutral-400 uppercase tracking-wider mb-1">Platform</dt><dd class="capitalize text-neutral-700" x-text="voucher?.payment_platform"></dd></div>
+                    <div x-show="voucher?.purchase_source"><dt class="text-[0.62rem] font-semibold text-neutral-400 uppercase tracking-wider mb-1">Source</dt><dd class="capitalize text-neutral-700" x-text="voucher?.purchase_source"></dd></div>
+                    <div x-show="voucher?.payment_reference"><dt class="text-[0.62rem] font-semibold text-neutral-400 uppercase tracking-wider mb-1">Payment ref</dt><dd class="text-xs break-all text-neutral-500 font-mono" x-text="voucher?.payment_reference"></dd></div>
+                  </dl>
+                </section>
+
+              </div>
             </div>
           </div>
 
