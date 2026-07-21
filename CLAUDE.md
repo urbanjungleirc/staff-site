@@ -187,3 +187,17 @@ npx wrangler deploy
 - Do not commit `.dev.vars` or any real API tokens.
 - `tools.json` is user-facing through the hub, so validate links after editing it.
 - Roster staff data comes from Deputy; avoid hard-coding staff names in `roster.html`.
+
+## Agent skills
+
+### Issue tracker
+
+Issues are tracked in GitHub Issues (via the `gh` CLI). See `docs/agents/issue-tracker.md`.
+
+### Triage labels
+
+Default canonical label vocabulary (needs-triage, needs-info, ready-for-agent, ready-for-human, wontfix). See `docs/agents/triage-labels.md`.
+
+### Domain docs
+
+Single-context layout (`CONTEXT.md` + `docs/adr/` at repo root). See `docs/agents/domain.md`.
