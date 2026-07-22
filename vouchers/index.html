@@ -1588,62 +1588,108 @@
         </div>
       </div>
 
-    </div>
+    <!-- ── Export ───────────────────────────────────────────────────────── -->
+    <div x-show="view==='export'" x-cloak>
 
-    <!-- ══ Export ═══════════════════════════════════════════════════════════ -->
-    <div x-show="view==='export'" x-cloak class="bg-white rounded-2xl shadow-sm p-5 sm:p-6">
-      <h2 class="text-lg font-semibold text-slate-800 mb-4">Export</h2>
+      <h2 class="flex items-center gap-2 text-[1.05rem] font-semibold text-neutral-800 mb-4">
+        <span class="section-icon"><svg viewBox="0 0 24 24"><path d="M12 3v12"/><path d="m8 11 4 4 4-4"/><path d="M4 17v2a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-2"/></svg></span>
+        Export
+      </h2>
 
+      <!-- Dataset. Segmented, matching the Reports sub-tabs — purchases and
+           redemptions are different row shapes, so they are separate exports. -->
       <div class="mb-5">
-        <div class="text-sm font-medium text-slate-600 mb-2">Dataset</div>
-        <div class="flex gap-2 flex-wrap">
-          <template x-for="ds in [['purchases','Purchases'],['redemptions','Redemptions']]" :key="ds[0]">
-            <button @click="exportDataset = ds[0]; restoreExportFields(ds[0]); exportManagerSecret=''; exportError=''; exportNotice=''"
-              :class="exportDataset===ds[0] ? 'bg-slate-800 text-white border-slate-800' : 'bg-white text-slate-700 border-slate-300 hover:bg-slate-50'"
-              class="px-4 py-2 rounded-xl border text-sm font-medium transition-all"
-              x-text="ds[1]"></button>
-          </template>
+        <div class="filter-heading mb-2">Dataset</div>
+        <div class="flex bg-white border border-neutral-200 rounded-xl overflow-hidden w-max max-w-full">
+          <button type="button" @click="setExportDataset('purchases')"
+            :class="exportDataset==='purchases' ? 'bg-uj text-white font-semibold' : 'text-neutral-600 hover:bg-neutral-50'"
+            class="px-3.5 py-1.5 text-[0.84rem] font-medium transition-colors">Purchases</button>
+          <button type="button" @click="setExportDataset('redemptions')"
+            :class="exportDataset==='redemptions' ? 'bg-uj text-white font-semibold' : 'text-neutral-600 hover:bg-neutral-50'"
+            class="px-3.5 py-1.5 text-[0.84rem] font-medium border-l border-neutral-200 transition-colors">Redemptions</button>
         </div>
       </div>
 
+      <!-- Period. "Last month" is the previous CALENDAR month, so it reconciles
+           against a monthly P&L rather than drifting like a rolling window. -->
       <div class="mb-5">
-        <div class="text-sm font-medium text-slate-600 mb-2">Period</div>
-        <div class="flex gap-2 flex-wrap">
-          <template x-for="p in [['thisMonth','This month'],['lastMonth','Last month'],['thisYear','This year'],['custom','Custom']]" :key="p[0]">
-            <button @click="exportPeriod = p[0]; applyExportPeriod()"
-              :class="exportPeriod===p[0] ? 'bg-slate-800 text-white border-slate-800' : 'bg-white text-slate-700 border-slate-300 hover:bg-slate-50'"
-              class="px-3 py-1.5 rounded-lg border text-sm font-medium transition-all"
-              x-text="p[1]"></button>
+        <div class="filter-heading mb-2">Period</div>
+        <div class="flex bg-white border border-neutral-200 rounded-xl overflow-hidden w-max max-w-full">
+          <template x-for="(p, i) in EXPORT_PERIODS" :key="p.key">
+            <button type="button" @click="exportPeriod = p.key; applyExportPeriod()"
+              :class="[exportPeriod===p.key ? 'bg-uj text-white font-semibold' : 'text-neutral-600 hover:bg-neutral-50', i > 0 ? 'border-l border-neutral-200' : '']"
+              class="px-3.5 py-1.5 text-[0.84rem] font-medium transition-colors" x-text="p.label"></button>
           </template>
         </div>
-        <div x-show="exportPeriod==='custom'" class="flex gap-2 items-center mt-3">
-          <input type="date" x-model="exportFrom" class="border border-slate-300 rounded-lg px-3 py-1.5 text-sm">
-          <span class="text-slate-400 text-sm">to</span>
-          <input type="date" x-model="exportTo" class="border border-slate-300 rounded-lg px-3 py-1.5 text-sm">
+
+        <!-- Custom range. Native <input type="date"> is banned here — see the
+             .day-menu CSS note — so these are the same custom pickers the
+             search filters use, scoped to the export range. -->
+        <div x-show="exportPeriod==='custom'" x-cloak class="filter-row mt-3">
+          <template x-for="f in [{ key: 'from', label: 'From' }, { key: 'to', label: 'To' }]" :key="f.key">
+            <div class="combo combo-sm w-[124px]" @click.outside="exportDayOpen[f.key] = false" @keydown.escape.window="exportDayOpen[f.key] = false">
+              <button type="button" class="combo-trigger" @click="toggleExportDay(f.key)"
+                :aria-expanded="exportDayOpen[f.key].toString()" aria-haspopup="dialog"
+                :aria-label="`Export range ${f.label.toLowerCase()}`">
+                <span x-text="exportDayFieldLabel(exportFrom, exportTo, f.key)"></span>
+                <svg class="combo-chevron" viewBox="0 0 24 24"><path d="m6 9 6 6 6-6"/></svg>
+              </button>
+              <div x-show="exportDayOpen[f.key]" x-transition.origin.top x-cloak
+                class="combo-menu day-menu" role="dialog"
+                :aria-label="`Choose the export ${f.label.toLowerCase()} date`">
+                <div class="day-nav">
+                  <button type="button" class="day-nav-btn" @click="stepExportMonth(f.key, -1)" aria-label="Previous month">
+                    <svg viewBox="0 0 24 24"><path d="M15 6l-6 6 6 6"/></svg>
+                  </button>
+                  <span class="day-nav-label" x-text="exportDayNavLabel(f.key)"></span>
+                  <button type="button" class="day-nav-btn" @click="stepExportMonth(f.key, 1)" aria-label="Next month">
+                    <svg viewBox="0 0 24 24"><path d="M9 6l6 6-6 6"/></svg>
+                  </button>
+                </div>
+                <div class="day-dow">
+                  <template x-for="(d, i) in DOW_LIST" :key="i"><span x-text="d"></span></template>
+                </div>
+                <div class="day-grid">
+                  <template x-for="(day, i) in exportDayCells(f.key)" :key="i">
+                    <button type="button" class="day-cell" x-text="day || ''"
+                      @click="day && pickExportDay(f.key, day)"
+                      :disabled="!day || isExportDayDisabled(f.key, day)"
+                      :aria-pressed="!!day && isExportDaySelected(f.key, day)"
+                      :class="[!day ? 'is-blank' : '', day && isExportDaySelected(f.key, day) ? 'active' : '', day && isExportToday(f.key, day) ? 'is-today' : '']"></button>
+                  </template>
+                </div>
+              </div>
+            </div>
+          </template>
         </div>
-        <div class="text-sm text-slate-500 mt-2" x-text="exportRangeLabel()"></div>
+
+        <div class="text-sm text-neutral-500 mt-2" x-text="exportRangeLabel()"></div>
       </div>
 
+      <!-- Fields -->
       <div class="mb-5">
         <div class="flex items-center justify-between mb-2">
-          <div class="text-sm font-medium text-slate-600">Fields</div>
-          <button @click="resetExportFields()"
-            class="text-xs text-slate-500 hover:text-slate-700 underline">Reset to defaults</button>
+          <div class="filter-heading">Fields</div>
+          <button type="button" @click="resetExportFields()"
+            class="text-[0.78rem] font-semibold text-neutral-500 hover:text-uj transition-colors">Reset to defaults</button>
         </div>
 
         <template x-for="group in exportGroups()" :key="group.name">
-          <div class="mb-3">
-            <div class="text-xs uppercase tracking-wide text-slate-400 mb-1.5 flex items-center gap-1.5">
-              <span x-text="group.name"></span>
-              <span x-show="group.pii" title="Manager password required">🔒</span>
+          <div class="section-card border rounded-xl px-3.5 py-3 mb-2.5">
+            <div class="flex items-center gap-1.5 mb-2">
+              <span class="filter-heading" x-text="group.name"></span>
+              <svg x-show="group.pii" class="w-3.5 h-3.5 text-uj shrink-0" viewBox="0 0 24 24"
+                fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"
+                role="img" aria-label="Manager password required"><title>Manager password required</title>
+                <rect x="4.5" y="10.5" width="15" height="10" rx="2"/><path d="M8 10.5V7a4 4 0 0 1 8 0v3.5"/></svg>
             </div>
-            <div class="flex flex-wrap gap-x-4 gap-y-1.5">
+            <div class="flex flex-wrap gap-x-5 gap-y-2">
               <template x-for="f in group.fields" :key="f.key">
-                <label class="inline-flex items-center gap-1.5 text-sm text-slate-700">
+                <label class="inline-flex items-center gap-2 text-sm text-neutral-700 cursor-pointer">
                   <input type="checkbox"
                     x-model="exportFields[exportDataset][f.key]"
                     @change="persistExportFields()"
-                    class="rounded border-slate-300">
+                    class="rounded border-neutral-300 text-uj focus:ring-uj/20" />
                   <span x-text="f.label"></span>
                 </label>
               </template>
@@ -1651,26 +1697,29 @@
           </div>
         </template>
 
-        <div x-show="exportNeedsManager()" class="mt-3 p-3 bg-amber-50 border border-amber-200 rounded-xl">
-          <label class="block text-sm font-medium text-amber-900 mb-1.5">
+        <div x-show="exportNeedsManager()" x-cloak class="section-card border rounded-xl px-3.5 py-3 mt-2.5">
+          <label class="block text-sm font-medium text-neutral-700 mb-1.5">
             Manager password — required for personal data fields
           </label>
           <input type="password" x-model="exportManagerSecret"
-            class="w-full sm:w-64 border border-amber-300 rounded-lg px-3 py-1.5 text-sm"
-            placeholder="Manager password">
+            class="w-full sm:w-64 border border-neutral-200 rounded-xl px-3 py-2 text-sm focus:outline-none focus:border-uj focus:ring-[3px] focus:ring-uj/[0.14]"
+            placeholder="Manager password" />
         </div>
       </div>
 
       <div class="flex items-center gap-3 flex-wrap">
-        <button @click="downloadExport()"
+        <button type="button" @click="downloadExport()"
           :disabled="exportLoading || !selectedExportKeys().length || !exportFrom || !exportTo"
-          class="px-5 py-2.5 rounded-xl bg-slate-800 text-white text-sm font-semibold transition-all hover:bg-slate-700 disabled:opacity-40 disabled:cursor-not-allowed inline-flex items-center gap-2">
+          class="px-5 py-2.5 rounded-xl bg-uj hover:bg-uj-dark text-white text-sm font-semibold transition-colors disabled:opacity-40 disabled:cursor-not-allowed inline-flex items-center gap-2">
           <span x-show="exportLoading" class="inline-block w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin"></span>
           <span x-text="exportLoading ? 'Preparing…' : 'Download CSV'"></span>
         </button>
-        <span x-show="exportNotice" class="text-sm text-slate-600" x-text="exportNotice"></span>
-        <span x-show="exportError" class="text-sm text-red-600" x-text="exportError"></span>
+        <span x-show="exportNotice" class="text-sm text-neutral-600" x-text="exportNotice"></span>
+        <span x-show="exportError" class="text-sm text-uj font-medium" x-text="exportError"></span>
       </div>
+
+    </div>
+
     </div>
   </main>
 
@@ -2590,6 +2639,17 @@
       exportPeriod: 'lastMonth',
       exportFrom: '',
       exportTo: '',
+      // Own day-picker state, keyed the same way the search filters' is. Kept
+      // separate rather than shared so changing the export range can never
+      // disturb a search the user has already set up.
+      exportDayOpen: { from: false, to: false },
+      exportDayView: { from: '', to: '' },   // 'YYYY-MM' — month each panel shows
+      EXPORT_PERIODS: [
+        { key: 'thisMonth', label: 'This month' },
+        { key: 'lastMonth', label: 'Last month' },
+        { key: 'thisYear', label: 'This year' },
+        { key: 'custom', label: 'Custom' },
+      ],
       exportFields: {},        // { [dataset]: { [key]: boolean } }
       exportRegistry: null,    // fetched from the Worker on first open
       exportManagerSecret: '',
@@ -2953,12 +3013,99 @@
 
       exportRangeLabel() {
         if (!this.exportFrom || !this.exportTo) return '';
-        const MONTHS = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
-        const fmt = (s) => {
-          const [yy, mm, dd] = s.split('-');
-          return `${Number(dd)} ${MONTHS[Number(mm) - 1]} ${yy}`;
-        };
-        return `${fmt(this.exportFrom)} – ${fmt(this.exportTo)}`;
+        return `${this.formatExportDay(this.exportFrom)} – ${this.formatExportDay(this.exportTo)}`;
+      },
+
+      formatExportDay(v) {
+        const MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun',
+          'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+        const [y, m, d] = v.split('-');
+        return `${Number(d)} ${MONTHS[Number(m) - 1]} ${y}`;
+      },
+
+      setExportDataset(dataset) {
+        this.exportDataset = dataset;
+        this.restoreExportFields(dataset);
+        this.exportManagerSecret = '';
+        this.exportError = '';
+        this.exportNotice = '';
+      },
+
+      // ── Export day picker ────────────────────────────────────────────────
+      // Mirrors the search filters' picker (same combo/day-menu markup and CSS)
+      // but bound to exportFrom/exportTo. Native <input type="date"> is not an
+      // option here — see the .day-menu CSS note.
+      toggleExportDay(key) {
+        const wasOpen = this.exportDayOpen[key];
+        this.exportDayOpen.from = false;
+        this.exportDayOpen.to = false;
+        if (wasOpen) return;
+        const current = key === 'from' ? this.exportFrom : this.exportTo;
+        this.exportDayView[key] = (current || this.perthToday()).slice(0, 7);
+        this.exportDayOpen[key] = true;
+      },
+
+      exportDayNavLabel(key) {
+        const [y, m] = (this.exportDayView[key] || this.perthToday().slice(0, 7)).split('-');
+        const names = ['January', 'February', 'March', 'April', 'May', 'June',
+          'July', 'August', 'September', 'October', 'November', 'December'];
+        return `${names[Number(m) - 1]} ${y}`;
+      },
+
+      stepExportMonth(key, delta) {
+        const [y, m] = this.exportDayView[key].split('-').map(Number);
+        const d = new Date(y, m - 1 + delta, 1);
+        this.exportDayView[key] = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
+      },
+
+      // Leading blanks pad the grid so the 1st lands under its weekday. The week
+      // starts Monday; JS getDay() is Sunday-based, hence the (+6) % 7 shift.
+      exportDayCells(key) {
+        const [y, m] = this.exportDayView[key].split('-').map(Number);
+        const firstDow = (new Date(y, m - 1, 1).getDay() + 6) % 7;
+        const daysInMonth = new Date(y, m, 0).getDate();
+        const cells = [];
+        for (let i = 0; i < firstDow; i++) cells.push(null);
+        for (let d = 1; d <= daysInMonth; d++) cells.push(d);
+        return cells;
+      },
+
+      exportDayValue(key, day) {
+        return `${this.exportDayView[key]}-${String(day).padStart(2, '0')}`;
+      },
+
+      pickExportDay(key, day) {
+        const v = this.exportDayValue(key, day);
+        if (key === 'from') this.exportFrom = v; else this.exportTo = v;
+        this.exportDayOpen[key] = false;
+        this.exportError = '';
+        this.exportNotice = '';
+      },
+
+      isExportDaySelected(key, day) {
+        const current = key === 'from' ? this.exportFrom : this.exportTo;
+        return !!current && current === this.exportDayValue(key, day);
+      },
+
+      isExportToday(key, day) {
+        return this.exportDayValue(key, day) === this.perthToday();
+      },
+
+      // A day that would put "from" after "to" is unpickable rather than
+      // pickable and then scolded.
+      isExportDayDisabled(key, day) {
+        const v = this.exportDayValue(key, day);
+        return key === 'from'
+          ? !!this.exportTo && v > this.exportTo
+          : !!this.exportFrom && v < this.exportFrom;
+      },
+
+      // Values are passed in rather than read off `this` so Alpine tracks the
+      // dependency from inside the x-for scope — same reason as dayFieldLabel.
+      exportDayFieldLabel(from, to, key) {
+        const v = key === 'from' ? from : to;
+        if (!v) return key === 'from' ? 'From' : 'To';
+        return this.formatExportDay(v);
       },
 
       async loadExportFields() {
