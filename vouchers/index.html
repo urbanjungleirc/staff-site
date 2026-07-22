@@ -1995,6 +1995,92 @@
           </label>
         </fieldset>
 
+        <!-- Public page -->
+        <fieldset class="grid sm:grid-cols-2 gap-x-4 gap-y-3 content-start">
+          <div class="col-span-full flex items-center gap-2.5 pb-2 mb-1 border-b border-neutral-200">
+            <div class="section-icon"><svg viewBox="0 0 24 24"><path d="M3 9h18M9 21V9M5 3h14a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2z"/></svg></div>
+            <span class="text-xs font-semibold text-neutral-600 uppercase tracking-wider">Public page</span>
+            <span class="text-[0.67rem] text-neutral-400 normal-case tracking-normal">Leave any field blank to use the Gift Certificate's</span>
+          </div>
+
+          <!-- Hero headline -->
+          <div>
+            <label class="block text-[0.67rem] font-semibold text-neutral-400 uppercase tracking-wider mb-1.5">Hero headline<span class="help-tip" tabindex="0" role="note" aria-label="Help">?<span class="help-bubble">Main heading on the public voucher page. Leave blank to use the Gift Certificate's.</span></span></label>
+            <input type="text" x-model="typeForm.hero_headline"
+              class="w-full border border-neutral-200 rounded-xl px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-uj/20 focus:border-uj" />
+          </div>
+
+          <!-- Hero subheadline -->
+          <div>
+            <label class="block text-[0.67rem] font-semibold text-neutral-400 uppercase tracking-wider mb-1.5">Hero subheadline<span class="help-tip" tabindex="0" role="note" aria-label="Help">?<span class="help-bubble">Supporting line under the headline. Leave blank to use the Gift Certificate's.</span></span></label>
+            <input type="text" x-model="typeForm.hero_subheadline"
+              class="w-full border border-neutral-200 rounded-xl px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-uj/20 focus:border-uj" />
+          </div>
+
+          <!-- Call-to-action label -->
+          <div>
+            <label class="block text-[0.67rem] font-semibold text-neutral-400 uppercase tracking-wider mb-1.5">Button label<span class="help-tip" tabindex="0" role="note" aria-label="Help">?<span class="help-bubble">Text on the hero button that scrolls down to the purchase options.</span></span></label>
+            <input type="text" x-model="typeForm.cta_label"
+              class="w-full border border-neutral-200 rounded-xl px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-uj/20 focus:border-uj" />
+          </div>
+
+          <!-- Features heading -->
+          <div>
+            <label class="block text-[0.67rem] font-semibold text-neutral-400 uppercase tracking-wider mb-1.5">Feature section heading<span class="help-tip" tabindex="0" role="note" aria-label="Help">?<span class="help-bubble">Heading above the feature cards.</span></span></label>
+            <input type="text" x-model="typeForm.features_heading"
+              class="w-full border border-neutral-200 rounded-xl px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-uj/20 focus:border-uj" />
+          </div>
+
+          <!-- Features subheading -->
+          <div class="col-span-full">
+            <label class="block text-[0.67rem] font-semibold text-neutral-400 uppercase tracking-wider mb-1.5">Feature section subheading<span class="help-tip" tabindex="0" role="note" aria-label="Help">?<span class="help-bubble">Smaller line under the feature section heading.</span></span></label>
+            <input type="text" x-model="typeForm.features_subheading"
+              class="w-full border border-neutral-200 rounded-xl px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-uj/20 focus:border-uj" />
+          </div>
+
+          <!-- Hero description -->
+          <div class="col-span-full">
+            <label class="block text-[0.67rem] font-semibold text-neutral-400 uppercase tracking-wider mb-1.5">Hero description (Markdown)<span class="help-tip" tabindex="0" role="note" aria-label="Help">?<span class="help-bubble">Optional intro paragraph under the subheadline. Supports the same Markdown as the terms. Leave blank to show nothing.</span></span></label>
+            <textarea x-model="typeForm.hero_description" rows="3"
+              class="w-full border border-neutral-200 rounded-xl px-3 py-2 text-sm font-mono focus:outline-none focus:ring-2 focus:ring-uj/20 focus:border-uj"></textarea>
+          </div>
+
+          <!-- Feature cards -->
+          <div class="col-span-full">
+            <label class="block text-[0.67rem] font-semibold text-neutral-400 uppercase tracking-wider mb-1.5">Feature cards (Markdown)<span class="help-tip" tabindex="0" role="note" aria-label="Help">?<span class="help-bubble">'## Heading' starts a card; the text under it is the card body. Leave blank to hide the section.</span></span></label>
+            <textarea x-model="typeForm.features_md" rows="6"
+              class="w-full border border-neutral-200 rounded-xl px-3 py-2 text-sm font-mono focus:outline-none focus:ring-2 focus:ring-uj/20 focus:border-uj"></textarea>
+          </div>
+
+          <!-- Hero artwork -->
+          <div>
+            <label class="block text-[0.67rem] font-semibold text-neutral-400 uppercase tracking-wider mb-1.5">Hero artwork URL<span class="help-tip" tabindex="0" role="note" aria-label="Help">?<span class="help-bubble">Artwork shown beside the hero copy. Leave blank for the default voucher image.</span></span></label>
+            <input type="url" x-model="typeForm.hero_image_url" placeholder="https://tools.urbanjungleirc.com/assets/img/…"
+              class="w-full border border-neutral-200 rounded-xl px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-uj/20 focus:border-uj" />
+            <div x-show="typeForm.hero_image_url" class="mt-2">
+              <img :src="typeForm.hero_image_url" alt=""
+                class="w-full h-24 object-cover rounded-lg border border-neutral-200"
+                x-on:load="$el.nextElementSibling.style.display = 'none'; $el.style.display = ''"
+                x-on:error="$el.style.display = 'none'; $el.nextElementSibling.style.display = ''" />
+              <p style="display:none" class="text-xs text-red-600 mt-1">Image didn't load — check the URL is public and points directly at an image file.</p>
+            </div>
+          </div>
+
+          <!-- Hero background image -->
+          <div>
+            <label class="block text-[0.67rem] font-semibold text-neutral-400 uppercase tracking-wider mb-1.5">Hero background URL<span class="help-tip" tabindex="0" role="note" aria-label="Help">?<span class="help-bubble">Photo behind the hero. Leave blank to use the accent colour gradient. Text sits over this — pick something that keeps white type readable.</span></span></label>
+            <input type="url" x-model="typeForm.hero_background_url" placeholder="https://tools.urbanjungleirc.com/assets/img/…"
+              class="w-full border border-neutral-200 rounded-xl px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-uj/20 focus:border-uj" />
+            <div x-show="typeForm.hero_background_url" class="mt-2">
+              <img :src="typeForm.hero_background_url" alt=""
+                class="w-full h-24 object-cover rounded-lg border border-neutral-200"
+                x-on:load="$el.nextElementSibling.style.display = 'none'; $el.style.display = ''"
+                x-on:error="$el.style.display = 'none'; $el.nextElementSibling.style.display = ''" />
+              <p style="display:none" class="text-xs text-red-600 mt-1">Image didn't load — check the URL is public and points directly at an image file.</p>
+            </div>
+          </div>
+        </fieldset>
+
         <!-- Staff -->
         <fieldset class="grid gap-3">
           <div class="col-span-full flex items-center gap-2.5 pb-2 mb-1 border-b border-neutral-200">
@@ -3621,6 +3707,9 @@
           accent_color: '#ae222a', voucher_label: 'Your Voucher',
           show_qr: true, show_value: true,
           redemption_warning: '',
+          hero_headline: '', hero_subheadline: '', hero_description: '',
+          cta_label: '', hero_image_url: '', hero_background_url: '',
+          features_heading: '', features_subheading: '', features_md: '',
         };
       },
 
@@ -3637,7 +3726,8 @@
           // Normalise nulls to '' for text inputs so x-model binds cleanly.
           for (const k of ['description','expiry_months','max_per_customer','limit_period','promo_id',
                            'email_subject','email_body','terms_conditions','usage_info',
-                           'redemption_instructions','voucher_label','redemption_warning','accent_color']) {
+                           'redemption_instructions','voucher_label','redemption_warning','accent_color',
+                           'hero_headline','hero_subheadline','hero_description','cta_label','hero_image_url','hero_background_url','features_heading','features_subheading','features_md']) {
             if (this.typeForm[k] === null || this.typeForm[k] === undefined) this.typeForm[k] = '';
           }
           if (this.typeForm.sort_order === null || this.typeForm.sort_order === undefined) this.typeForm.sort_order = 0;
@@ -3650,7 +3740,8 @@
           if (gv) {
             for (const k of ['availability','expiry_months','max_per_customer','limit_period','is_physical',
                              'email_subject','email_body','terms_conditions','accent_color','voucher_label',
-                             'redemption_instructions','usage_info','redemption_warning','show_qr','show_value']) {
+                             'redemption_instructions','usage_info','redemption_warning','show_qr','show_value',
+                             'hero_headline','hero_subheadline','hero_description','cta_label','hero_image_url','hero_background_url','features_heading','features_subheading','features_md']) {
               if (gv[k] !== null && gv[k] !== undefined) this.typeForm[k] = gv[k];
             }
           }
@@ -3765,6 +3856,15 @@
           show_qr: !!f.show_qr,
           show_value: !!f.show_value,
           redemption_warning: textOrNull(f.redemption_warning),
+          hero_headline: textOrNull(f.hero_headline),
+          hero_subheadline: textOrNull(f.hero_subheadline),
+          hero_description: textOrNull(f.hero_description),
+          cta_label: textOrNull(f.cta_label),
+          hero_image_url: textOrNull(f.hero_image_url),
+          hero_background_url: textOrNull(f.hero_background_url),
+          features_heading: textOrNull(f.features_heading),
+          features_subheading: textOrNull(f.features_subheading),
+          features_md: textOrNull(f.features_md),
         };
 
         // revenue_class is snapshotted onto each voucher at issue (migration 015), so
