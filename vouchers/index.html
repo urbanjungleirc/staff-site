@@ -482,6 +482,53 @@
       border-radius: 8px;
     }
     .day-clear:hover { color: var(--uj); }
+    /* Tick control. The native checkbox is kept — it carries the label
+       association, the x-model binding and all keyboard behaviour — but is
+       sized to nothing and painted over by the .tick box next to it. Zero-size
+       rather than absolutely positioned: several of these live inside modals
+       with no positioned ancestor, where an absolute input would drift. */
+    .tick-input {
+      appearance: none;
+      -webkit-appearance: none;
+      width: 0;
+      height: 0;
+      margin: 0;
+      padding: 0;
+      border: 0;
+      opacity: 0;
+      flex-shrink: 0;
+    }
+    .tick {
+      display: grid;
+      place-items: center;
+      width: 18px;
+      height: 18px;
+      flex-shrink: 0;
+      border-radius: 6px;
+      border: 1.5px solid rgba(31, 41, 55, 0.22);
+      background: #fff;
+      color: #fff;
+      cursor: pointer;
+      transition: background-color 120ms ease, border-color 120ms ease;
+    }
+    .tick:hover { border-color: rgba(139, 28, 35, 0.45); }
+    .tick-input:checked + .tick { background: var(--uj); border-color: var(--uj); }
+    .tick-input:focus-visible + .tick { outline: 2px solid var(--uj); outline-offset: 2px; }
+    .tick-mark {
+      width: 13px;
+      height: 13px;
+      fill: none;
+      stroke: currentColor;
+      /* Heavier than the 2 the other icons use — at 13px a hairline tick reads
+         as a smudge against the filled accent. */
+      stroke-width: 3;
+      stroke-linecap: round;
+      stroke-linejoin: round;
+      opacity: 0;
+      transform: scale(0.6);
+      transition: opacity 120ms ease, transform 120ms ease;
+    }
+    .tick-input:checked + .tick .tick-mark { opacity: 1; transform: none; }
     .empty-icon {
       margin: 0 auto 12px;
       opacity: 0.75;
@@ -1658,6 +1705,7 @@
                       :class="[!day ? 'is-blank' : '', day && isExportDaySelected(f.key, day) ? 'active' : '', day && isExportToday(f.key, day) ? 'is-today' : '']"></button>
                   </template>
                 </div>
+                <button type="button" class="day-clear" @click="clearExportDay(f.key)">Clear</button>
               </div>
             </div>
           </template>
@@ -1689,7 +1737,8 @@
                   <input type="checkbox"
                     x-model="exportFields[exportDataset][f.key]"
                     @change="persistExportFields()"
-                    class="rounded border-neutral-300 text-uj focus:ring-uj/20" />
+                    class="tick-input" />
+                  <span class="tick"><svg class="tick-mark" viewBox="0 0 24 24"><path d="M5 12.5 9.5 17 19 7"/></svg></span>
                   <span x-text="f.label"></span>
                 </label>
               </template>
@@ -2029,15 +2078,15 @@
 
           <!-- Physical voucher -->
           <label class="flex items-center gap-2.5 text-sm text-neutral-700">
-            <input type="checkbox" x-model="typeForm.is_physical"
-              class="rounded border-neutral-300 text-uj focus:ring-uj/20" />
+            <input type="checkbox" x-model="typeForm.is_physical" class="tick-input" />
+            <span class="tick"><svg class="tick-mark" viewBox="0 0 24 24"><path d="M5 12.5 9.5 17 19 7"/></svg></span>
             Physical voucher<span class="help-tip" tabindex="0" role="note" aria-label="Help">?<span class="help-bubble">No email is sent — vouchers of this type are physical cards, and are flagged 'Physical' in staff views.</span></span>
           </label>
 
           <!-- Active -->
           <label class="flex items-center gap-2.5 text-sm text-neutral-700">
-            <input type="checkbox" x-model="typeForm.is_active"
-              class="rounded border-neutral-300 text-uj focus:ring-uj/20" />
+            <input type="checkbox" x-model="typeForm.is_active" class="tick-input" />
+            <span class="tick"><svg class="tick-mark" viewBox="0 0 24 24"><path d="M5 12.5 9.5 17 19 7"/></svg></span>
             Active<span class="help-tip" tabindex="0" role="note" aria-label="Help">?<span class="help-bubble">Turns this type on or off. Inactive types are hidden from customers and the staff Create dropdown.</span></span>
           </label>
         </fieldset>
@@ -2120,15 +2169,15 @@
 
           <!-- Show QR code -->
           <label class="flex items-center gap-2.5 text-sm text-neutral-700">
-            <input type="checkbox" x-model="typeForm.show_qr"
-              class="rounded border-neutral-300 text-uj focus:ring-uj/20" />
+            <input type="checkbox" x-model="typeForm.show_qr" class="tick-input" />
+            <span class="tick"><svg class="tick-mark" viewBox="0 0 24 24"><path d="M5 12.5 9.5 17 19 7"/></svg></span>
             Show QR code<span class="help-tip" tabindex="0" role="note" aria-label="Help">?<span class="help-bubble">Show the scannable QR code on the voucher email. Turn off for types redeemed by hand.</span></span>
           </label>
 
           <!-- Show value -->
           <label class="flex items-center gap-2.5 text-sm text-neutral-700">
-            <input type="checkbox" x-model="typeForm.show_value"
-              class="rounded border-neutral-300 text-uj focus:ring-uj/20" />
+            <input type="checkbox" x-model="typeForm.show_value" class="tick-input" />
+            <span class="tick"><svg class="tick-mark" viewBox="0 0 24 24"><path d="M5 12.5 9.5 17 19 7"/></svg></span>
             Show value<span class="help-tip" tabindex="0" role="note" aria-label="Help">?<span class="help-bubble">Show the dollar value + expiry box on the voucher email. Turn off to hide the amount.</span></span>
           </label>
         </fieldset>
@@ -2334,7 +2383,8 @@
               </div>
               <div class="flex items-end pb-2">
                 <label class="flex items-center gap-2 text-sm text-neutral-700 cursor-pointer">
-                  <input type="checkbox" x-model="itemForm.is_active" class="rounded" />
+                  <input type="checkbox" x-model="itemForm.is_active" class="tick-input" />
+                  <span class="tick"><svg class="tick-mark" viewBox="0 0 24 24"><path d="M5 12.5 9.5 17 19 7"/></svg></span>
                   Active<span class="help-tip" tabindex="0" role="note" aria-label="Help">?<span class="help-bubble">Whether this item can be purchased. Inactive items are hidden from customers but kept for records.</span></span>
                 </label>
               </div>
@@ -2589,7 +2639,10 @@
 
       <!-- Second confirmation gate -->
       <label class="flex items-start gap-2.5 text-sm text-neutral-700 mb-6 cursor-pointer">
-        <input type="checkbox" x-model="deleteItemConfirmed" class="mt-0.5 rounded border-neutral-300 text-uj focus:ring-uj/20" />
+        <input type="checkbox" x-model="deleteItemConfirmed" class="tick-input" />
+        <!-- mt-0.5 sits on the box, not the input: the label wraps, so the tick
+             aligns to the first line rather than the centre of the block. -->
+        <span class="tick mt-0.5"><svg class="tick-mark" viewBox="0 0 24 24"><path d="M5 12.5 9.5 17 19 7"/></svg></span>
         Yes, I'm sure — permanently delete this item.
       </label>
 
@@ -3012,7 +3065,12 @@
       },
 
       exportRangeLabel() {
-        if (!this.exportFrom || !this.exportTo) return '';
+        // A half-cleared range is a state the Clear button can reach, and the
+        // disabled Download button needs explaining — so name the missing
+        // bound rather than going blank and looking broken.
+        if (!this.exportFrom && !this.exportTo) return 'Choose a start and end date.';
+        if (!this.exportFrom) return 'Choose a start date.';
+        if (!this.exportTo) return 'Choose an end date.';
         return `${this.formatExportDay(this.exportFrom)} – ${this.formatExportDay(this.exportTo)}`;
       },
 
@@ -3077,6 +3135,13 @@
       pickExportDay(key, day) {
         const v = this.exportDayValue(key, day);
         if (key === 'from') this.exportFrom = v; else this.exportTo = v;
+        this.exportDayOpen[key] = false;
+        this.exportError = '';
+        this.exportNotice = '';
+      },
+
+      clearExportDay(key) {
+        if (key === 'from') this.exportFrom = ''; else this.exportTo = '';
         this.exportDayOpen[key] = false;
         this.exportError = '';
         this.exportNotice = '';
