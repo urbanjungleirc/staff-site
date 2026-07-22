@@ -482,6 +482,53 @@
       border-radius: 8px;
     }
     .day-clear:hover { color: var(--uj); }
+    /* Tick control. The native checkbox is kept — it carries the label
+       association, the x-model binding and all keyboard behaviour — but is
+       sized to nothing and painted over by the .tick box next to it. Zero-size
+       rather than absolutely positioned: several of these live inside modals
+       with no positioned ancestor, where an absolute input would drift. */
+    .tick-input {
+      appearance: none;
+      -webkit-appearance: none;
+      width: 0;
+      height: 0;
+      margin: 0;
+      padding: 0;
+      border: 0;
+      opacity: 0;
+      flex-shrink: 0;
+    }
+    .tick {
+      display: grid;
+      place-items: center;
+      width: 18px;
+      height: 18px;
+      flex-shrink: 0;
+      border-radius: 6px;
+      border: 1.5px solid rgba(31, 41, 55, 0.22);
+      background: #fff;
+      color: #fff;
+      cursor: pointer;
+      transition: background-color 120ms ease, border-color 120ms ease;
+    }
+    .tick:hover { border-color: rgba(139, 28, 35, 0.45); }
+    .tick-input:checked + .tick { background: var(--uj); border-color: var(--uj); }
+    .tick-input:focus-visible + .tick { outline: 2px solid var(--uj); outline-offset: 2px; }
+    .tick-mark {
+      width: 13px;
+      height: 13px;
+      fill: none;
+      stroke: currentColor;
+      /* Heavier than the 2 the other icons use — at 13px a hairline tick reads
+         as a smudge against the filled accent. */
+      stroke-width: 3;
+      stroke-linecap: round;
+      stroke-linejoin: round;
+      opacity: 0;
+      transform: scale(0.6);
+      transition: opacity 120ms ease, transform 120ms ease;
+    }
+    .tick-input:checked + .tick .tick-mark { opacity: 1; transform: none; }
     .empty-icon {
       margin: 0 auto 12px;
       opacity: 0.75;
@@ -627,6 +674,12 @@
           class="px-3 py-2 rounded-xl text-[0.84rem] font-medium transition-all inline-flex items-center gap-1.5">
           <span class="nav-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="4" width="18" height="16" rx="2"/><path d="M3 10h18M8 4v16"/></svg></span>
           Voucher Types
+        </button>
+        <button @click="goExport()"
+          :class="view==='export' ? 'bg-white/[0.16] text-white font-semibold' : 'text-white/70 hover:text-white hover:bg-white/10'"
+          class="px-3 py-2 rounded-xl text-[0.84rem] font-medium transition-all inline-flex items-center gap-1.5">
+          <span class="nav-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 3v12"/><path d="m8 11 4 4 4-4"/><path d="M4 17v2a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-2"/></svg></span>
+          Export
         </button>
         <a href="/vouchers/stats.html"
           class="px-3 py-2 rounded-xl text-[0.84rem] font-medium transition-all inline-flex items-center gap-1.5 text-white/70 hover:text-white hover:bg-white/10">
@@ -1582,6 +1635,140 @@
         </div>
       </div>
 
+    <!-- ── Export ───────────────────────────────────────────────────────── -->
+    <div x-show="view==='export'" x-cloak>
+
+      <h2 class="flex items-center gap-2 text-[1.05rem] font-semibold text-neutral-800 mb-4">
+        <span class="section-icon"><svg viewBox="0 0 24 24"><path d="M12 3v12"/><path d="m8 11 4 4 4-4"/><path d="M4 17v2a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-2"/></svg></span>
+        Export
+      </h2>
+
+      <!-- Dataset. Segmented, matching the Reports sub-tabs — purchases and
+           redemptions are different row shapes, so they are separate exports. -->
+      <div class="mb-5">
+        <div class="filter-heading mb-2">Dataset</div>
+        <div class="flex bg-white border border-neutral-200 rounded-xl overflow-hidden w-max max-w-full">
+          <button type="button" @click="setExportDataset('purchases')"
+            :class="exportDataset==='purchases' ? 'bg-uj text-white font-semibold' : 'text-neutral-600 hover:bg-neutral-50'"
+            class="px-3.5 py-1.5 text-[0.84rem] font-medium transition-colors">Purchases</button>
+          <button type="button" @click="setExportDataset('redemptions')"
+            :class="exportDataset==='redemptions' ? 'bg-uj text-white font-semibold' : 'text-neutral-600 hover:bg-neutral-50'"
+            class="px-3.5 py-1.5 text-[0.84rem] font-medium border-l border-neutral-200 transition-colors">Redemptions</button>
+        </div>
+      </div>
+
+      <!-- Period. "Last month" is the previous CALENDAR month, so it reconciles
+           against a monthly P&L rather than drifting like a rolling window. -->
+      <div class="mb-5">
+        <div class="filter-heading mb-2">Period</div>
+        <div class="flex bg-white border border-neutral-200 rounded-xl overflow-hidden w-max max-w-full">
+          <template x-for="(p, i) in EXPORT_PERIODS" :key="p.key">
+            <button type="button" @click="exportPeriod = p.key; applyExportPeriod()"
+              :class="[exportPeriod===p.key ? 'bg-uj text-white font-semibold' : 'text-neutral-600 hover:bg-neutral-50', i > 0 ? 'border-l border-neutral-200' : '']"
+              class="px-3.5 py-1.5 text-[0.84rem] font-medium transition-colors" x-text="p.label"></button>
+          </template>
+        </div>
+
+        <!-- Custom range. Native <input type="date"> is banned here — see the
+             .day-menu CSS note — so these are the same custom pickers the
+             search filters use, scoped to the export range. -->
+        <div x-show="exportPeriod==='custom'" x-cloak class="filter-row mt-3">
+          <template x-for="f in [{ key: 'from', label: 'From' }, { key: 'to', label: 'To' }]" :key="f.key">
+            <div class="combo combo-sm w-[124px]" @click.outside="exportDayOpen[f.key] = false" @keydown.escape.window="exportDayOpen[f.key] = false">
+              <button type="button" class="combo-trigger" @click="toggleExportDay(f.key)"
+                :aria-expanded="exportDayOpen[f.key].toString()" aria-haspopup="dialog"
+                :aria-label="`Export range ${f.label.toLowerCase()}`">
+                <span x-text="exportDayFieldLabel(exportFrom, exportTo, f.key)"></span>
+                <svg class="combo-chevron" viewBox="0 0 24 24"><path d="m6 9 6 6 6-6"/></svg>
+              </button>
+              <div x-show="exportDayOpen[f.key]" x-transition.origin.top x-cloak
+                class="combo-menu day-menu" role="dialog"
+                :aria-label="`Choose the export ${f.label.toLowerCase()} date`">
+                <div class="day-nav">
+                  <button type="button" class="day-nav-btn" @click="stepExportMonth(f.key, -1)" aria-label="Previous month">
+                    <svg viewBox="0 0 24 24"><path d="M15 6l-6 6 6 6"/></svg>
+                  </button>
+                  <span class="day-nav-label" x-text="exportDayNavLabel(f.key)"></span>
+                  <button type="button" class="day-nav-btn" @click="stepExportMonth(f.key, 1)" aria-label="Next month">
+                    <svg viewBox="0 0 24 24"><path d="M9 6l6 6-6 6"/></svg>
+                  </button>
+                </div>
+                <div class="day-dow">
+                  <template x-for="(d, i) in DOW_LIST" :key="i"><span x-text="d"></span></template>
+                </div>
+                <div class="day-grid">
+                  <template x-for="(day, i) in exportDayCells(f.key)" :key="i">
+                    <button type="button" class="day-cell" x-text="day || ''"
+                      @click="day && pickExportDay(f.key, day)"
+                      :disabled="!day || isExportDayDisabled(f.key, day)"
+                      :aria-pressed="!!day && isExportDaySelected(f.key, day)"
+                      :class="[!day ? 'is-blank' : '', day && isExportDaySelected(f.key, day) ? 'active' : '', day && isExportToday(f.key, day) ? 'is-today' : '']"></button>
+                  </template>
+                </div>
+                <button type="button" class="day-clear" @click="clearExportDay(f.key)">Clear</button>
+              </div>
+            </div>
+          </template>
+        </div>
+
+        <div class="text-sm text-neutral-500 mt-2" x-text="exportRangeLabel()"></div>
+      </div>
+
+      <!-- Fields -->
+      <div class="mb-5">
+        <div class="flex items-center justify-between mb-2">
+          <div class="filter-heading">Fields</div>
+          <button type="button" @click="resetExportFields()"
+            class="text-[0.78rem] font-semibold text-neutral-500 hover:text-uj transition-colors">Reset to defaults</button>
+        </div>
+
+        <template x-for="group in exportGroups()" :key="group.name">
+          <div class="section-card border rounded-xl px-3.5 py-3 mb-2.5">
+            <div class="flex items-center gap-1.5 mb-2">
+              <span class="filter-heading" x-text="group.name"></span>
+              <svg x-show="group.pii" class="w-3.5 h-3.5 text-uj shrink-0" viewBox="0 0 24 24"
+                fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"
+                role="img" aria-label="Manager password required"><title>Manager password required</title>
+                <rect x="4.5" y="10.5" width="15" height="10" rx="2"/><path d="M8 10.5V7a4 4 0 0 1 8 0v3.5"/></svg>
+            </div>
+            <div class="flex flex-wrap gap-x-5 gap-y-2">
+              <template x-for="f in group.fields" :key="f.key">
+                <label class="inline-flex items-center gap-2 text-sm text-neutral-700 cursor-pointer">
+                  <input type="checkbox"
+                    x-model="exportFields[exportDataset][f.key]"
+                    @change="persistExportFields()"
+                    class="tick-input" />
+                  <span class="tick"><svg class="tick-mark" viewBox="0 0 24 24"><path d="M5 12.5 9.5 17 19 7"/></svg></span>
+                  <span x-text="f.label"></span>
+                </label>
+              </template>
+            </div>
+          </div>
+        </template>
+
+        <div x-show="exportNeedsManager()" x-cloak class="section-card border rounded-xl px-3.5 py-3 mt-2.5">
+          <label class="block text-sm font-medium text-neutral-700 mb-1.5">
+            Manager password — required for personal data fields
+          </label>
+          <input type="password" x-model="exportManagerSecret"
+            class="w-full sm:w-64 border border-neutral-200 rounded-xl px-3 py-2 text-sm focus:outline-none focus:border-uj focus:ring-[3px] focus:ring-uj/[0.14]"
+            placeholder="Manager password" />
+        </div>
+      </div>
+
+      <div class="flex items-center gap-3 flex-wrap">
+        <button type="button" @click="downloadExport()"
+          :disabled="exportLoading || !selectedExportKeys().length || !exportFrom || !exportTo"
+          class="px-5 py-2.5 rounded-xl bg-uj hover:bg-uj-dark text-white text-sm font-semibold transition-colors disabled:opacity-40 disabled:cursor-not-allowed inline-flex items-center gap-2">
+          <span x-show="exportLoading" class="inline-block w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin"></span>
+          <span x-text="exportLoading ? 'Preparing…' : 'Download CSV'"></span>
+        </button>
+        <span x-show="exportNotice" class="text-sm text-neutral-600" x-text="exportNotice"></span>
+        <span x-show="exportError" class="text-sm text-uj font-medium" x-text="exportError"></span>
+      </div>
+
+    </div>
+
     </div>
   </main>
 
@@ -1891,15 +2078,15 @@
 
           <!-- Physical voucher -->
           <label class="flex items-center gap-2.5 text-sm text-neutral-700">
-            <input type="checkbox" x-model="typeForm.is_physical"
-              class="rounded border-neutral-300 text-uj focus:ring-uj/20" />
+            <input type="checkbox" x-model="typeForm.is_physical" class="tick-input" />
+            <span class="tick"><svg class="tick-mark" viewBox="0 0 24 24"><path d="M5 12.5 9.5 17 19 7"/></svg></span>
             Physical voucher<span class="help-tip" tabindex="0" role="note" aria-label="Help">?<span class="help-bubble">No email is sent — vouchers of this type are physical cards, and are flagged 'Physical' in staff views.</span></span>
           </label>
 
           <!-- Active -->
           <label class="flex items-center gap-2.5 text-sm text-neutral-700">
-            <input type="checkbox" x-model="typeForm.is_active"
-              class="rounded border-neutral-300 text-uj focus:ring-uj/20" />
+            <input type="checkbox" x-model="typeForm.is_active" class="tick-input" />
+            <span class="tick"><svg class="tick-mark" viewBox="0 0 24 24"><path d="M5 12.5 9.5 17 19 7"/></svg></span>
             Active<span class="help-tip" tabindex="0" role="note" aria-label="Help">?<span class="help-bubble">Turns this type on or off. Inactive types are hidden from customers and the staff Create dropdown.</span></span>
           </label>
         </fieldset>
@@ -1982,15 +2169,15 @@
 
           <!-- Show QR code -->
           <label class="flex items-center gap-2.5 text-sm text-neutral-700">
-            <input type="checkbox" x-model="typeForm.show_qr"
-              class="rounded border-neutral-300 text-uj focus:ring-uj/20" />
+            <input type="checkbox" x-model="typeForm.show_qr" class="tick-input" />
+            <span class="tick"><svg class="tick-mark" viewBox="0 0 24 24"><path d="M5 12.5 9.5 17 19 7"/></svg></span>
             Show QR code<span class="help-tip" tabindex="0" role="note" aria-label="Help">?<span class="help-bubble">Show the scannable QR code on the voucher email. Turn off for types redeemed by hand.</span></span>
           </label>
 
           <!-- Show value -->
           <label class="flex items-center gap-2.5 text-sm text-neutral-700">
-            <input type="checkbox" x-model="typeForm.show_value"
-              class="rounded border-neutral-300 text-uj focus:ring-uj/20" />
+            <input type="checkbox" x-model="typeForm.show_value" class="tick-input" />
+            <span class="tick"><svg class="tick-mark" viewBox="0 0 24 24"><path d="M5 12.5 9.5 17 19 7"/></svg></span>
             Show value<span class="help-tip" tabindex="0" role="note" aria-label="Help">?<span class="help-bubble">Show the dollar value + expiry box on the voucher email. Turn off to hide the amount.</span></span>
           </label>
         </fieldset>
@@ -2196,7 +2383,8 @@
               </div>
               <div class="flex items-end pb-2">
                 <label class="flex items-center gap-2 text-sm text-neutral-700 cursor-pointer">
-                  <input type="checkbox" x-model="itemForm.is_active" class="rounded" />
+                  <input type="checkbox" x-model="itemForm.is_active" class="tick-input" />
+                  <span class="tick"><svg class="tick-mark" viewBox="0 0 24 24"><path d="M5 12.5 9.5 17 19 7"/></svg></span>
                   Active<span class="help-tip" tabindex="0" role="note" aria-label="Help">?<span class="help-bubble">Whether this item can be purchased. Inactive items are hidden from customers but kept for records.</span></span>
                 </label>
               </div>
@@ -2451,7 +2639,10 @@
 
       <!-- Second confirmation gate -->
       <label class="flex items-start gap-2.5 text-sm text-neutral-700 mb-6 cursor-pointer">
-        <input type="checkbox" x-model="deleteItemConfirmed" class="mt-0.5 rounded border-neutral-300 text-uj focus:ring-uj/20" />
+        <input type="checkbox" x-model="deleteItemConfirmed" class="tick-input" />
+        <!-- mt-0.5 sits on the box, not the input: the label wraps, so the tick
+             aligns to the first line rather than the centre of the block. -->
+        <span class="tick mt-0.5"><svg class="tick-mark" viewBox="0 0 24 24"><path d="M5 12.5 9.5 17 19 7"/></svg></span>
         Yes, I'm sure — permanently delete this item.
       </label>
 
@@ -2495,6 +2686,29 @@
 
       // Navigation
       view: 'search',
+
+      // Export
+      exportDataset: 'purchases',
+      exportPeriod: 'lastMonth',
+      exportFrom: '',
+      exportTo: '',
+      // Own day-picker state, keyed the same way the search filters' is. Kept
+      // separate rather than shared so changing the export range can never
+      // disturb a search the user has already set up.
+      exportDayOpen: { from: false, to: false },
+      exportDayView: { from: '', to: '' },   // 'YYYY-MM' — month each panel shows
+      EXPORT_PERIODS: [
+        { key: 'thisMonth', label: 'This month' },
+        { key: 'lastMonth', label: 'Last month' },
+        { key: 'thisYear', label: 'This year' },
+        { key: 'custom', label: 'Custom' },
+      ],
+      exportFields: {},        // { [dataset]: { [key]: boolean } }
+      exportRegistry: null,    // fetched from the Worker on first open
+      exportManagerSecret: '',
+      exportLoading: false,
+      exportError: '',
+      exportNotice: '',
 
       // Search
       q: '',
@@ -2794,6 +3008,283 @@
           throw err;
         }
         return data;
+      },
+
+      // Sibling to api() for non-JSON responses. api() always parses JSON, so it
+      // cannot carry a CSV body. Same Access-redirect handling, blob out.
+      async apiBlob(path, options = {}) {
+        const res = await fetch(this.WORKER + path, {
+          ...options,
+          redirect: 'manual',
+          headers: { ...this.authHeaders(), ...(options.headers || {}) },
+        });
+        if (res.type === 'opaqueredirect') {
+          throw Object.assign(
+            new Error('Your session expired — reload the page to sign in again.'),
+            { status: 401 },
+          );
+        }
+        if (!res.ok) {
+          // Errors still come back as JSON even from a CSV endpoint.
+          const data = await res.json().catch(() => ({}));
+          throw Object.assign(new Error(data.error || 'HTTP ' + res.status), { status: res.status });
+        }
+        const disposition = res.headers.get('Content-Disposition') || '';
+        const match = disposition.match(/filename="([^"]+)"/);
+        return { blob: await res.blob(), filename: match ? match[1] : 'export.csv' };
+      },
+
+      // ── Export ───────────────────────────────────────────────────────────
+      goExport() {
+        this.view = 'export';
+        this.stopScannerIfActive();
+        this.applyExportPeriod();
+        if (!this.exportRegistry) this.loadExportFields();
+      },
+
+      // "Last month" means the previous CALENDAR month — complete, stable, and
+      // reconcilable against a monthly P&L. Deliberately not a rolling 30 days,
+      // which is partial at both ends and answers differently every day.
+      applyExportPeriod() {
+        const now = new Date();
+        const y = now.getFullYear();
+        const m = now.getMonth();
+        const pad = (n) => String(n).padStart(2, '0');
+        const iso = (d) => `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
+        if (this.exportPeriod === 'thisMonth') {
+          this.exportFrom = iso(new Date(y, m, 1));
+          this.exportTo = iso(new Date(y, m + 1, 0));
+        } else if (this.exportPeriod === 'lastMonth') {
+          this.exportFrom = iso(new Date(y, m - 1, 1));
+          this.exportTo = iso(new Date(y, m, 0));
+        } else if (this.exportPeriod === 'thisYear') {
+          this.exportFrom = iso(new Date(y, 0, 1));
+          this.exportTo = iso(new Date(y, 11, 31));
+        }
+        // 'custom' leaves whatever the date inputs hold.
+      },
+
+      exportRangeLabel() {
+        // A half-cleared range is a state the Clear button can reach, and the
+        // disabled Download button needs explaining — so name the missing
+        // bound rather than going blank and looking broken.
+        if (!this.exportFrom && !this.exportTo) return 'Choose a start and end date.';
+        if (!this.exportFrom) return 'Choose a start date.';
+        if (!this.exportTo) return 'Choose an end date.';
+        return `${this.formatExportDay(this.exportFrom)} – ${this.formatExportDay(this.exportTo)}`;
+      },
+
+      formatExportDay(v) {
+        const MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun',
+          'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+        const [y, m, d] = v.split('-');
+        return `${Number(d)} ${MONTHS[Number(m) - 1]} ${y}`;
+      },
+
+      setExportDataset(dataset) {
+        this.exportDataset = dataset;
+        this.restoreExportFields(dataset);
+        this.exportManagerSecret = '';
+        this.exportError = '';
+        this.exportNotice = '';
+      },
+
+      // ── Export day picker ────────────────────────────────────────────────
+      // Mirrors the search filters' picker (same combo/day-menu markup and CSS)
+      // but bound to exportFrom/exportTo. Native <input type="date"> is not an
+      // option here — see the .day-menu CSS note.
+      toggleExportDay(key) {
+        const wasOpen = this.exportDayOpen[key];
+        this.exportDayOpen.from = false;
+        this.exportDayOpen.to = false;
+        if (wasOpen) return;
+        const current = key === 'from' ? this.exportFrom : this.exportTo;
+        this.exportDayView[key] = (current || this.perthToday()).slice(0, 7);
+        this.exportDayOpen[key] = true;
+      },
+
+      exportDayNavLabel(key) {
+        const [y, m] = (this.exportDayView[key] || this.perthToday().slice(0, 7)).split('-');
+        const names = ['January', 'February', 'March', 'April', 'May', 'June',
+          'July', 'August', 'September', 'October', 'November', 'December'];
+        return `${names[Number(m) - 1]} ${y}`;
+      },
+
+      stepExportMonth(key, delta) {
+        const [y, m] = this.exportDayView[key].split('-').map(Number);
+        const d = new Date(y, m - 1 + delta, 1);
+        this.exportDayView[key] = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
+      },
+
+      // Leading blanks pad the grid so the 1st lands under its weekday. The week
+      // starts Monday; JS getDay() is Sunday-based, hence the (+6) % 7 shift.
+      exportDayCells(key) {
+        const [y, m] = this.exportDayView[key].split('-').map(Number);
+        const firstDow = (new Date(y, m - 1, 1).getDay() + 6) % 7;
+        const daysInMonth = new Date(y, m, 0).getDate();
+        const cells = [];
+        for (let i = 0; i < firstDow; i++) cells.push(null);
+        for (let d = 1; d <= daysInMonth; d++) cells.push(d);
+        return cells;
+      },
+
+      exportDayValue(key, day) {
+        return `${this.exportDayView[key]}-${String(day).padStart(2, '0')}`;
+      },
+
+      pickExportDay(key, day) {
+        const v = this.exportDayValue(key, day);
+        if (key === 'from') this.exportFrom = v; else this.exportTo = v;
+        this.exportDayOpen[key] = false;
+        this.exportError = '';
+        this.exportNotice = '';
+      },
+
+      clearExportDay(key) {
+        if (key === 'from') this.exportFrom = ''; else this.exportTo = '';
+        this.exportDayOpen[key] = false;
+        this.exportError = '';
+        this.exportNotice = '';
+      },
+
+      isExportDaySelected(key, day) {
+        const current = key === 'from' ? this.exportFrom : this.exportTo;
+        return !!current && current === this.exportDayValue(key, day);
+      },
+
+      isExportToday(key, day) {
+        return this.exportDayValue(key, day) === this.perthToday();
+      },
+
+      // A day that would put "from" after "to" is unpickable rather than
+      // pickable and then scolded.
+      isExportDayDisabled(key, day) {
+        const v = this.exportDayValue(key, day);
+        return key === 'from'
+          ? !!this.exportTo && v > this.exportTo
+          : !!this.exportFrom && v < this.exportFrom;
+      },
+
+      // Values are passed in rather than read off `this` so Alpine tracks the
+      // dependency from inside the x-for scope — same reason as dayFieldLabel.
+      exportDayFieldLabel(from, to, key) {
+        const v = key === 'from' ? from : to;
+        if (!v) return key === 'from' ? 'From' : 'To';
+        return this.formatExportDay(v);
+      },
+
+      async loadExportFields() {
+        try {
+          this.exportRegistry = await this.api('/v1/vouchers/export/fields');
+          for (const ds of Object.keys(this.exportRegistry)) {
+            if (!this.exportFields[ds]) this.restoreExportFields(ds);
+          }
+        } catch (e) {
+          this.exportError = e.message;
+        }
+      },
+
+      restoreExportFields(dataset) {
+        const registry = this.exportRegistry?.[dataset] || [];
+        const selection = {};
+        for (const f of registry) selection[f.key] = !!f.default;
+
+        const stored = localStorage.getItem('ujExportFields:' + dataset);
+        if (stored) {
+          try {
+            const parsed = JSON.parse(stored);
+            for (const f of registry) {
+              // PII is never restored from storage — see persistExportFields.
+              if (!f.pii && f.key in parsed) selection[f.key] = !!parsed[f.key];
+            }
+          } catch { /* corrupt entry — fall back to defaults */ }
+        }
+        this.exportFields[dataset] = selection;
+      },
+
+      // PII selections are deliberately NOT persisted: on a shared front-desk
+      // terminal a manager's unlock must not linger into the next staff member's
+      // session.
+      persistExportFields() {
+        const ds = this.exportDataset;
+        const selection = this.exportFields[ds] || {};
+        const safe = {};
+        for (const f of (this.exportRegistry?.[ds] || [])) {
+          if (!f.pii) safe[f.key] = !!selection[f.key];
+        }
+        localStorage.setItem('ujExportFields:' + ds, JSON.stringify(safe));
+      },
+
+      resetExportFields() {
+        localStorage.removeItem('ujExportFields:' + this.exportDataset);
+        this.restoreExportFields(this.exportDataset);
+      },
+
+      exportGroups() {
+        const groups = [];
+        for (const f of (this.exportRegistry?.[this.exportDataset] || [])) {
+          let g = groups.find((x) => x.name === f.group);
+          if (!g) { g = { name: f.group, pii: !!f.pii, fields: [] }; groups.push(g); }
+          g.fields.push(f);
+        }
+        return groups;
+      },
+
+      selectedExportKeys() {
+        const selection = this.exportFields[this.exportDataset] || {};
+        return Object.keys(selection).filter((k) => selection[k]);
+      },
+
+      exportNeedsManager() {
+        const selected = new Set(this.selectedExportKeys());
+        return (this.exportRegistry?.[this.exportDataset] || [])
+          .some((f) => f.pii && selected.has(f.key));
+      },
+
+      async downloadExport() {
+        const keys = this.selectedExportKeys();
+        if (!keys.length) return;
+        this.exportLoading = true;
+        this.exportError = '';
+        this.exportNotice = '';
+        try {
+          const params = new URLSearchParams({
+            dataset: this.exportDataset,
+            from: this.exportFrom,
+            to: this.exportTo,
+            fields: keys.join(','),
+          });
+          const headers = this.exportNeedsManager()
+            ? { 'X-Manager-Secret': this.exportManagerSecret }
+            : {};
+          const { blob, filename } = await this.apiBlob(
+            '/v1/vouchers/export?' + params.toString(), { headers },
+          );
+
+          // Count before the blob is consumed by the download.
+          const rows = (await blob.text()).trim().split('\r\n').length - 1;
+
+          const url = URL.createObjectURL(blob);
+          const a = document.createElement('a');
+          a.href = url;
+          a.download = filename;
+          document.body.appendChild(a);
+          a.click();
+          a.remove();
+          URL.revokeObjectURL(url);
+
+          // A header-only file is honest about an empty period, but say so —
+          // otherwise it reads as a broken button.
+          this.exportNotice = rows === 0
+            ? 'Downloaded — no rows for this period.'
+            : `Downloaded ${rows} row${rows === 1 ? '' : 's'}.`;
+        } catch (e) {
+          this.exportError = e.status === 403
+            ? 'Manager password required for personal data fields.'
+            : e.message;
+        } finally {
+          this.exportLoading = false;
+        }
       },
 
       // ── Toast ────────────────────────────────────────────────────────────
