@@ -1,0 +1,684 @@
+<!DOCTYPE html>
+<html lang="en-AU">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Voucher email unsubscribes - staff portal</title>
+  <link rel="icon" type="image/svg+xml" href="data:image/svg+xml,%3Csvg%20xmlns='http://www.w3.org/2000/svg'%20viewBox='0%200%2024%2024'%3E%3Crect%20width='24'%20height='24'%20rx='6'%20fill='%238b1c23'/%3E%3Cg%20fill='none'%20stroke='%23fff'%20stroke-width='2'%20stroke-linecap='round'%20stroke-linejoin='round'%3E%3Cpath%20d='M4%208l8%205%208-5'/%3E%3Crect%20x='4'%20y='6'%20width='16'%20height='12'%20rx='2'/%3E%3C/g%3E%3C/svg%3E">
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script>
+    tailwind.config = {
+      theme: {
+        extend: {
+          colors: {
+            uj: { DEFAULT: '#8b1c23', dark: '#6b181e', light: '#ab2930' }
+          },
+          fontFamily: {
+            sans: ['"Inter"', '"Segoe UI"', 'system-ui', '-apple-system', 'sans-serif'],
+          },
+          borderRadius: {
+            card: '18px',
+          }
+        }
+      }
+    }
+  </script>
+  <script defer src="https://cdn.jsdelivr.net/npm/alpinejs@3.x.x/dist/cdn.min.js"></script>
+  <style>
+    [x-cloak] { display: none !important; }
+
+    /* Design tokens, the combobox and the header shell are lifted from
+       vouchers/stats.html so the three voucher pages read as one tool.
+       Keep them in sync. */
+    :root {
+      --uj: #8b1c23;
+      --border-soft: rgba(31, 41, 55, 0.08);
+
+      --ink-primary:   #111827;
+      --ink-secondary: #4b5563;
+      --ink-muted:     #817476;
+      --surface:       #ffffff;
+
+      /* Clubworx is the one source this page cannot edit, so it gets the ochre
+         "not ours to change" tone rather than another burgundy. Burgundy stays
+         the anchor and means "acted on here". */
+      --source-ours:    #9F2F38;
+      --source-clubworx:#C08430;
+    }
+
+    .hub-header {
+      background:
+        radial-gradient(circle at 20% -20%, rgba(171, 49, 57, 0.32), transparent 55%),
+        linear-gradient(145deg, rgba(107, 24, 30, 0.95), rgba(139, 28, 35, 0.92));
+    }
+    .voucher-panel {
+      background: #fff;
+      border: 1px solid var(--border-soft);
+      border-radius: 18px;
+      box-shadow: 0 12px 30px -24px rgba(15, 23, 42, 1);
+      padding: 28px 32px;
+    }
+    .header-icon {
+      width: 58px;
+      height: 58px;
+      border-radius: 18px;
+      color: var(--uj);
+      background: linear-gradient(135deg, #f4d4d8, #e0a9b0);
+      border: 1px solid rgba(255, 255, 255, 0.55);
+      box-shadow: 0 12px 24px -10px rgba(0, 0, 0, 0.5), inset 0 1px 0 rgba(255, 255, 255, 0.55);
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      flex-shrink: 0;
+    }
+    .header-icon svg { width: 28px; height: 28px; fill: none; stroke: currentColor; stroke-width: 1.9; stroke-linecap: round; stroke-linejoin: round; }
+    .nav-icon { display: inline-flex; align-items: center; justify-content: center; flex-shrink: 0; font-size: 15px; }
+    .nav-icon svg { width: 1em; height: 1em; fill: none; stroke: currentColor; stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round; }
+
+    .field-label {
+      display: block;
+      font-size: 0.67rem;
+      font-weight: 600;
+      text-transform: uppercase;
+      letter-spacing: 0.05em;
+      color: #9ca3af;
+      margin-bottom: 6px;
+    }
+    .text-input {
+      width: 100%;
+      min-height: 40px;
+      padding: 0.5rem 0.75rem;
+      border-radius: 12px;
+      border: 1px solid rgba(31, 41, 55, 0.12);
+      background: #fff;
+      color: #1f2937;
+      font-size: 0.875rem;
+      transition: border-color 150ms ease, box-shadow 150ms ease;
+    }
+    .text-input:focus {
+      outline: none;
+      border-color: var(--uj);
+      box-shadow: 0 0 0 3px rgba(139, 28, 35, 0.14);
+    }
+
+    /* Combobox — the staff portal's dropdown. A native <select> or <datalist>
+       renders OS chrome that no stylesheet can reach, which is exactly what the
+       main voucher page threw out; this page must not reintroduce it. */
+    .combo { position: relative; }
+    .combo-menu {
+      position: absolute;
+      z-index: 40;
+      left: 0;
+      right: 0;
+      top: calc(100% + 6px);
+      max-height: min(50vh, 420px);
+      overflow: auto;
+      padding: 6px;
+      border-radius: 14px;
+      border: 1px solid rgba(139, 28, 35, 0.14);
+      background: #fff;
+      box-shadow: 0 18px 36px -26px rgba(15, 23, 42, 0.75);
+    }
+    .combo-option {
+      width: 100%;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 10px;
+      border: 0;
+      border-radius: 10px;
+      padding: 8px 10px;
+      background: transparent;
+      color: #1f2937;
+      font-size: 0.875rem;
+      text-align: left;
+      cursor: pointer;
+    }
+    .combo-option:hover:not(:disabled),
+    .combo-option.active { background: rgba(139, 28, 35, 0.08); color: var(--uj); }
+    .combo-option:disabled { color: #9ca3af; cursor: default; }
+
+    .btn {
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      padding: 0.5rem 0.9rem;
+      border-radius: 12px;
+      font-size: 0.875rem;
+      font-weight: 600;
+      transition: all 150ms ease;
+      border: 1px solid transparent;
+    }
+    .btn-primary { background: var(--uj); color: #fff; }
+    .btn-primary:hover:not(:disabled) { background: #6b181e; }
+    .btn-primary:disabled { opacity: 0.55; cursor: not-allowed; }
+    .btn-quiet { background: #fff; color: var(--ink-secondary); border-color: rgba(31, 41, 55, 0.14); }
+    .btn-quiet:hover { border-color: rgba(139, 28, 35, 0.32); color: var(--uj); }
+
+    .row {
+      display: flex;
+      flex-wrap: wrap;
+      align-items: center;
+      justify-content: space-between;
+      gap: 12px;
+      padding: 14px 16px;
+      border: 1px solid var(--border-soft);
+      border-radius: 14px;
+      background: #fff;
+    }
+    .row + .row { margin-top: 8px; }
+    .row-email { font-size: 0.95rem; font-weight: 600; color: var(--ink-primary); word-break: break-all; }
+    .row-names { font-size: 0.82rem; color: var(--ink-secondary); margin-top: 2px; }
+    .row-meta  { font-size: 0.78rem; color: var(--ink-muted); margin-top: 4px; }
+
+    .badge {
+      display: inline-flex;
+      align-items: center;
+      gap: 5px;
+      padding: 2px 9px;
+      border-radius: 999px;
+      font-size: 0.72rem;
+      font-weight: 600;
+      line-height: 1.5;
+      white-space: nowrap;
+    }
+    .badge-ours     { background: rgba(159, 47, 56, 0.10); color: var(--source-ours); }
+    .badge-clubworx { background: rgba(192, 132, 48, 0.13); color: #8a5c17; }
+
+    .notice {
+      border-radius: 12px;
+      padding: 10px 14px;
+      font-size: 0.82rem;
+      line-height: 1.55;
+    }
+    .notice-info  { background: rgba(139, 28, 35, 0.05); color: var(--ink-secondary); border: 1px solid rgba(139, 28, 35, 0.10); }
+    .notice-warn  { background: rgba(192, 132, 48, 0.10); color: #7a5214; border: 1px solid rgba(192, 132, 48, 0.22); }
+    .notice-error { background: rgba(159, 47, 56, 0.08); color: #7f1d1d; border: 1px solid rgba(159, 47, 56, 0.20); }
+
+    .modal-backdrop {
+      position: fixed;
+      inset: 0;
+      z-index: 60;
+      background: rgba(17, 24, 39, 0.45);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      padding: 20px;
+    }
+    .modal {
+      width: 100%;
+      max-width: 460px;
+      background: #fff;
+      border-radius: 18px;
+      padding: 24px;
+      box-shadow: 0 30px 60px -30px rgba(15, 23, 42, 0.9);
+    }
+
+    @media (max-width: 720px) {
+      .voucher-panel { padding: 20px 16px; border-radius: 16px; }
+    }
+  </style>
+</head>
+<body class="bg-neutral-100 text-neutral-900 min-h-screen antialiased font-sans"
+  x-data="unsubscribes()" x-init="init()" x-cloak>
+
+  <!-- ── Header ──────────────────────────────────────────────────────────── -->
+  <header class="hub-header text-white">
+    <div class="max-w-[900px] mx-auto px-6 pt-10 pb-16 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-6">
+
+      <div class="flex items-center gap-4 shrink-0">
+        <div class="header-icon">
+          <svg viewBox="0 0 24 24">
+            <rect x="3" y="5" width="18" height="14" rx="2"/><path d="M3.5 7l8.5 5.5L20.5 7"/>
+          </svg>
+        </div>
+        <div>
+          <div class="text-[0.7rem] font-semibold uppercase tracking-[0.12em] text-white/65 leading-none mb-2">Staff Portal</div>
+          <h1 class="text-3xl sm:text-4xl font-bold tracking-tight text-white leading-none">Voucher email unsubscribes</h1>
+          <p class="text-sm text-white/75 mt-2">Who isn't receiving automatic voucher emails, and why.</p>
+        </div>
+      </div>
+
+      <nav class="flex items-center gap-1.5 flex-wrap sm:justify-end">
+        <a href="/vouchers/"
+          class="px-4 py-2 rounded-xl border border-white/30 bg-white/[0.12] text-white hover:bg-white/[0.22] text-[0.9rem] font-semibold transition-all inline-flex items-center gap-1.5">
+          <span class="nav-icon"><svg viewBox="0 0 24 24"><path d="M15 6l-6 6 6 6"/></svg></span>
+          Back to vouchers
+        </a>
+      </nav>
+
+    </div>
+  </header>
+
+  <main class="max-w-[900px] mx-auto w-full px-4 pb-10 -mt-10">
+    <div class="voucher-panel">
+
+      <!-- ── Scope ───────────────────────────────────────────────────────────
+           Named for the mechanism, not the perk: an unsubscribe covers EVERY
+           automatic voucher email, and a second perk is a Clubworx report plus
+           a mapping row away. Only this subline needs editing when that lands. -->
+      <div class="notice notice-info mb-5">
+        An unsubscribe here covers <strong>every automatic voucher email</strong>. Today that is the
+        member <strong>Bring a Friend Free</strong> pass.
+        <span class="block mt-1">
+          It stops the emails only — passes are still issued, still active, and still redeemable at
+          the desk.
+        </span>
+      </div>
+
+      <div x-show="error" class="notice notice-error mb-5" x-text="error"></div>
+
+      <div x-show="loading" class="py-10 text-center text-sm text-neutral-500">Loading…</div>
+
+      <template x-if="!loading">
+        <div>
+
+          <!-- ── Add ─────────────────────────────────────────────────────── -->
+          <div class="flex items-center justify-between gap-3 flex-wrap mb-4">
+            <div>
+              <h2 class="text-lg font-bold" style="color: var(--ink-primary);">
+                Not receiving automatic voucher emails
+                <span class="text-neutral-400 font-semibold" x-text="`· ${current.length}`"></span>
+              </h2>
+              <p class="text-xs mt-1" style="color: var(--ink-muted);" x-text="listFreshness"></p>
+            </div>
+            <button type="button" class="btn btn-quiet" @click="openAdd()" x-show="!addOpen">
+              <span class="nav-icon"><svg viewBox="0 0 24 24"><path d="M12 5v14M5 12h14"/></svg></span>
+              Record an unsubscribe
+            </button>
+          </div>
+
+          <div x-show="addOpen" class="mb-6 p-4 rounded-[14px]" style="border: 1px solid rgba(139,28,35,0.14); background: rgba(139,28,35,0.02);">
+            <div class="grid sm:grid-cols-[minmax(0,1fr)_180px] gap-3 items-start">
+
+              <div class="combo" @click.outside="menuOpen = false">
+                <label class="field-label" for="member-search">Member</label>
+                <input id="member-search" type="text" class="text-input" autocomplete="off"
+                  placeholder="Search by name or email…"
+                  x-model="query" @focus="menuOpen = true" @input="menuOpen = true">
+
+                <div class="combo-menu" x-show="menuOpen && query.trim()" x-transition.opacity>
+                  <template x-for="m in matches" :key="m.email">
+                    <button type="button" class="combo-option"
+                      :class="{ active: chosen === m.email }"
+                      :disabled="m.alreadySuppressed"
+                      @click="choose(m.email)">
+                      <span>
+                        <span x-text="m.names.length ? m.names.join(', ') : m.email"></span>
+                        <span class="block text-xs text-neutral-500" x-text="m.email"></span>
+                      </span>
+                      <span x-show="m.alreadySuppressed" class="text-xs text-neutral-400">already unsubscribed</span>
+                    </button>
+                  </template>
+
+                  <!-- Free-text fallback. voucher_optouts.email is validated
+                       against nothing, so a typo'd address inserts happily and
+                       suppresses nobody — a silent no-op that renders as
+                       success. Allowed, but never quietly. -->
+                  <button type="button" class="combo-option" x-show="freeTextOffer" @click="choose(query.trim().toLowerCase())">
+                    <span>
+                      Use “<span x-text="query.trim().toLowerCase()"></span>”
+                      <span class="block text-xs" style="color: #8a5c17;">Not in the current member list — no effect unless they rejoin</span>
+                    </span>
+                  </button>
+
+                  <div x-show="!matches.length && !freeTextOffer" class="px-2.5 py-2 text-sm text-neutral-500">
+                    No match.
+                  </div>
+                </div>
+              </div>
+
+              <div>
+                <label class="field-label" for="add-staff-name">Your name</label>
+                <input id="add-staff-name" type="text" class="text-input" autocomplete="off"
+                  placeholder="e.g. Sam" x-model="staffName">
+              </div>
+            </div>
+
+            <p class="text-xs mt-3" style="color: var(--ink-muted);">
+              Record an unsubscribe only when the member has asked for it.
+            </p>
+
+            <div class="flex items-center gap-2 mt-3">
+              <button type="button" class="btn btn-primary" :disabled="!chosen || !staffName.trim() || busy"
+                @click="submitAdd()">
+                <span x-text="busy ? 'Saving…' : 'Add'"></span>
+              </button>
+              <button type="button" class="btn btn-quiet" @click="closeAdd()">Cancel</button>
+              <span class="text-sm ml-1" x-show="chosen" style="color: var(--ink-secondary);" x-text="chosen"></span>
+            </div>
+          </div>
+
+          <!-- ── Current members ─────────────────────────────────────────── -->
+          <div x-show="!current.length" class="py-8 text-center text-sm text-neutral-500">
+            Everyone on the current member list is receiving these emails.
+          </div>
+
+          <template x-for="row in current" :key="row.email">
+            <div class="row">
+              <div class="min-w-0">
+                <div class="row-email" x-text="row.email"></div>
+                <div class="row-names" x-show="row.names.length">
+                  <span x-text="row.names.join(', ')"></span>
+                  <!-- Suppression is per mailbox, identity is per person. Say so
+                       wherever more than one member shares an address. -->
+                  <span x-show="row.member_count > 1" class="text-neutral-400"
+                    x-text="`· ${row.member_count} members share this inbox`"></span>
+                </div>
+                <div class="row-meta flex flex-wrap items-center gap-1.5 mt-1.5">
+                  <template x-for="s in row.sources" :key="s">
+                    <span class="badge" :class="s === 'clubworx' ? 'badge-clubworx' : 'badge-ours'" x-text="sourceLabel(s)"></span>
+                  </template>
+                  <span x-show="row.opted_out_at" x-text="`· ${fmtDate(row.opted_out_at)}`"></span>
+                </div>
+                <div x-show="row.sources.includes('clubworx')" class="row-meta" style="color: #8a5c17;">
+                  Unsubscribed from all club email in Clubworx — fix that on their Clubworx contact record.
+                </div>
+              </div>
+
+              <div class="shrink-0">
+                <button type="button" class="btn btn-quiet" x-show="removable(row)" @click="openRemove(row)">
+                  Resubscribe
+                </button>
+                <span x-show="!removable(row)" class="text-xs text-neutral-400">read-only</span>
+              </div>
+            </div>
+          </template>
+
+          <!-- ── Former members ──────────────────────────────────────────── -->
+          <div x-show="former.length" class="mt-7">
+            <button type="button" class="flex items-center gap-2 text-sm font-semibold"
+              style="color: var(--ink-secondary);" @click="showFormer = !showFormer">
+              <span class="nav-icon">
+                <svg viewBox="0 0 24 24" :style="showFormer ? 'transform: rotate(90deg)' : ''">
+                  <path d="M9 6l6 6-6 6"/>
+                </svg>
+              </span>
+              Not in the current member list
+              <span class="text-neutral-400 font-medium" x-text="`· ${former.length}`"></span>
+            </button>
+
+            <div x-show="showFormer" class="mt-3">
+              <p class="text-xs mb-3" style="color: var(--ink-muted);">
+                People who have since left, or addresses recorded by hand that never matched a member.
+                These are kept deliberately — if they rejoin, this is what stops us emailing someone who
+                asked us not to. Leave them unless the member asks otherwise.
+              </p>
+              <template x-for="row in former" :key="row.email">
+                <div class="row">
+                  <div class="min-w-0">
+                    <div class="row-email" x-text="row.email"></div>
+                    <div class="row-meta flex flex-wrap items-center gap-1.5 mt-1.5">
+                      <template x-for="s in row.sources" :key="s">
+                        <span class="badge" :class="s === 'clubworx' ? 'badge-clubworx' : 'badge-ours'" x-text="sourceLabel(s)"></span>
+                      </template>
+                      <span x-show="row.opted_out_at" x-text="`· ${fmtDate(row.opted_out_at)}`"></span>
+                    </div>
+                  </div>
+                  <div class="shrink-0">
+                    <button type="button" class="btn btn-quiet" x-show="removable(row)" @click="openRemove(row)">
+                      Resubscribe
+                    </button>
+                  </div>
+                </div>
+              </template>
+            </div>
+          </div>
+
+        </div>
+      </template>
+    </div>
+  </main>
+
+  <!-- ── Resubscribe confirmation ─────────────────────────────────────────── -->
+  <div class="modal-backdrop" x-show="confirm.open" x-transition.opacity @keydown.escape.window="closeConfirm()">
+    <div class="modal" @click.outside="closeConfirm()">
+      <h3 class="text-lg font-bold mb-2" style="color: var(--ink-primary);">
+        Resubscribe <span x-text="confirm.email"></span>?
+      </h3>
+
+      <p class="text-sm mb-3" style="color: var(--ink-secondary);">
+        <span x-show="confirm.memberCount > 1">
+          This mailbox is shared by <span x-text="confirm.memberCount"></span> members
+          (<span x-text="confirm.names"></span>). All of them will start receiving the emails again.
+        </span>
+        <span x-show="confirm.memberCount <= 1">
+          They will receive the emails again from their next membership anniversary onwards.
+        </span>
+      </p>
+
+      <!-- The case this whole page exists to prevent: removing the opt-out looks
+           like it worked, and they still get nothing. -->
+      <div x-show="confirm.alsoClubworx" class="notice notice-warn mb-3">
+        <strong>They will still receive nothing.</strong> This member is also unsubscribed from all
+        club email in Clubworx, which this page cannot change. Untick that on their Clubworx contact
+        record as well.
+      </div>
+
+      <div class="notice notice-info mb-4">
+        Their current pass is not emailed by this, but it is still active — look it up on the voucher
+        page and redeem it at the desk if they want to use it today.
+      </div>
+
+      <label class="field-label" for="confirm-staff-name">Your name</label>
+      <input id="confirm-staff-name" type="text" class="text-input" autocomplete="off"
+        placeholder="e.g. Sam" x-model="staffName" @keydown.enter="staffName.trim() && submitRemove()">
+
+      <p class="text-xs mt-3" style="color: var(--ink-muted);">
+        Resubscribe only when the member has asked for it.
+      </p>
+
+      <div x-show="confirm.error" class="notice notice-error mt-3" x-text="confirm.error"></div>
+
+      <div class="flex items-center justify-end gap-2 mt-5">
+        <button type="button" class="btn btn-quiet" @click="closeConfirm()">Cancel</button>
+        <button type="button" class="btn btn-primary" :disabled="!staffName.trim() || busy" @click="submitRemove()">
+          <span x-text="busy ? 'Saving…' : 'Resubscribe'"></span>
+        </button>
+      </div>
+    </div>
+  </div>
+
+  <script>
+    // Same bootstrap as the hub (vouchers/index.html) and stats.html.
+    // Cloudflare Access authenticates every call and no secret is needed.
+    // Localhost has no Access in front of it, so it keeps the shared-secret path.
+    const IS_LOCAL = ['localhost', '127.0.0.1'].includes(window.location.hostname);
+    const WORKER = IS_LOCAL ? 'https://uj-payments.urbanjungle.workers.dev' : '/api/payments';
+
+    const PERTH_DATE = new Intl.DateTimeFormat('en-AU', {
+      timeZone: 'Australia/Perth', day: 'numeric', month: 'short', year: 'numeric',
+    });
+
+    function unsubscribes() {
+      return {
+        IS_LOCAL,
+        WORKER,
+
+        loading: true,
+        error: '',
+        busy: false,
+
+        suppressions: [],
+        members: [],
+        memberList: null,
+
+        // One name field, shared by both flows — the same person is filling it
+        // in either way, and retyping it per action is friction for nothing.
+        staffName: '',
+
+        addOpen: false,
+        menuOpen: false,
+        query: '',
+        chosen: '',
+
+        showFormer: false,
+        confirm: { open: false, email: '', names: '', memberCount: 0, alsoClubworx: false, error: '' },
+
+        async init() {
+          if (this.IS_LOCAL) {
+            const hash = window.location.hash.slice(1);
+            if (hash) {
+              localStorage.setItem('uj_staff_secret', hash);
+              history.replaceState(null, '', window.location.pathname + window.location.search);
+            }
+          } else {
+            localStorage.removeItem('uj_staff_secret');
+          }
+          await this.load();
+        },
+
+        async load() {
+          this.loading = true;
+          this.error = '';
+          try {
+            const data = await this.api('/v1/staff/optouts');
+            this.suppressions = data.suppressions || [];
+            this.members = data.members || [];
+            this.memberList = data.member_list || null;
+          } catch (e) {
+            this.error = `Could not load the list — ${e.message}`;
+          } finally {
+            this.loading = false;
+          }
+        },
+
+        // ── Derived ──────────────────────────────────────────────────────
+
+        get current() { return this.suppressions.filter((s) => s.in_current_list); },
+        get former()  { return this.suppressions.filter((s) => !s.in_current_list); },
+
+        get suppressedEmails() { return new Set(this.suppressions.map((s) => s.email)); },
+
+        get matches() {
+          const q = this.query.trim().toLowerCase();
+          if (!q) return [];
+          const suppressed = this.suppressedEmails;
+          return this.members
+            .filter((m) => m.email.includes(q) || m.names.some((n) => n.toLowerCase().includes(q)))
+            .slice(0, 25)
+            .map((m) => ({ ...m, alreadySuppressed: suppressed.has(m.email) }));
+        },
+
+        // Offered only when the text is plausibly an address and is not already
+        // an exact member match — so the escape hatch never shadows the picker.
+        get freeTextOffer() {
+          const q = this.query.trim().toLowerCase();
+          if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(q)) return false;
+          return !this.members.some((m) => m.email === q);
+        },
+
+        get listFreshness() {
+          if (!this.memberList) return 'No active member list — Clubworx unsubscribes cannot be shown.';
+          return `Member list of ${this.fmtDate(this.memberList.received_at)} · ${this.memberList.row_count} members`;
+        },
+
+        // ── Rendering ────────────────────────────────────────────────────
+
+        sourceLabel(source) {
+          if (source === 'email_link') return 'Via unsubscribe link';
+          if (source === 'staff') return 'Added by staff';
+          if (source === 'clubworx') return 'Unsubscribed in Clubworx';
+          return source;
+        },
+
+        // Only what this system recorded can be undone here. A Clubworx-only row
+        // has nothing for us to delete.
+        removable(row) { return row.sources.some((s) => s === 'email_link' || s === 'staff'); },
+
+        fmtDate(iso) {
+          if (!iso) return '';
+          const d = new Date(iso);
+          return Number.isNaN(d.getTime()) ? '' : PERTH_DATE.format(d);
+        },
+
+        // ── Add ──────────────────────────────────────────────────────────
+
+        openAdd() { this.addOpen = true; this.query = ''; this.chosen = ''; },
+        closeAdd() { this.addOpen = false; this.menuOpen = false; this.query = ''; this.chosen = ''; },
+
+        choose(email) {
+          this.chosen = email;
+          this.query = email;
+          this.menuOpen = false;
+        },
+
+        async submitAdd() {
+          if (!this.chosen || !this.staffName.trim()) return;
+          this.busy = true;
+          this.error = '';
+          try {
+            await this.api('/v1/staff/optouts', {
+              method: 'POST',
+              body: { email: this.chosen, staff_name: this.staffName.trim() },
+            });
+            this.closeAdd();
+            await this.load();
+          } catch (e) {
+            this.error = `Could not record the unsubscribe — ${e.message}`;
+          } finally {
+            this.busy = false;
+          }
+        },
+
+        // ── Resubscribe ──────────────────────────────────────────────────
+
+        openRemove(row) {
+          this.confirm = {
+            open: true,
+            email: row.email,
+            names: row.names.join(', '),
+            memberCount: row.member_count,
+            alsoClubworx: row.sources.includes('clubworx'),
+            error: '',
+          };
+        },
+
+        closeConfirm() { this.confirm.open = false; this.confirm.error = ''; },
+
+        async submitRemove() {
+          if (!this.staffName.trim()) return;
+          this.busy = true;
+          this.confirm.error = '';
+          try {
+            await this.api(`/v1/staff/optouts/${encodeURIComponent(this.confirm.email)}`, {
+              method: 'DELETE',
+              body: { staff_name: this.staffName.trim() },
+            });
+            this.closeConfirm();
+            await this.load();
+          } catch (e) {
+            this.confirm.error = `Could not resubscribe — ${e.message}`;
+          } finally {
+            this.busy = false;
+          }
+        },
+
+        // ── Transport ────────────────────────────────────────────────────
+
+        async api(path, { method = 'GET', body } = {}) {
+          const headers = this.IS_LOCAL
+            ? { 'X-Staff-Secret': localStorage.getItem('uj_staff_secret') || '' }
+            : {};
+          if (body) headers['Content-Type'] = 'application/json';
+
+          const res = await fetch(this.WORKER + path, {
+            method,
+            headers,
+            body: body ? JSON.stringify(body) : undefined,
+          });
+          if (!res.ok) {
+            let msg = `${res.status}`;
+            try {
+              const parsed = await res.json();
+              if (parsed?.error) msg += ` ${parsed.error}`;
+            } catch { /* non-JSON error body — the status is enough */ }
+            throw new Error(msg);
+          }
+          return res.json();
+        },
+      };
+    }
+  </script>
+</body>
+</html>
