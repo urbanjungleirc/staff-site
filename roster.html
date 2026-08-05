@@ -96,6 +96,37 @@
         text-align: center;
       }
 
+      /* ── Day context (term week / school break) ── */
+      .day-context {
+        display: flex;
+        flex-wrap: wrap;
+        align-items: baseline;
+        justify-content: center;
+        gap: 4px 12px;
+        margin-top: 18px;
+        margin-bottom: 0;
+        font-size: 0.92rem;
+        color: rgba(255, 255, 255, 0.9);
+        /* Wrap inside the nav width rather than pushing the header wider. */
+        max-width: 640px;
+        margin-left: auto;
+        margin-right: auto;
+        padding: 0 8px;
+      }
+
+      .day-context:empty { display: none; }
+
+      /* Broken — the term table cannot describe this date. Amber, visible.
+         Green is reserved for the on-now shift state. */
+      .day-context.is-broken { color: #fcd34d; }
+
+      /* Ageing — the maintainer can act, staff cannot. Muted on purpose so
+         nobody is trained to ignore the amber one. */
+      .day-context .ctx-ageing {
+        font-size: 0.82rem;
+        color: rgba(255, 255, 255, 0.55);
+      }
+
       /* ── Main layout ── */
       main {
         flex: 1;
@@ -890,6 +921,7 @@
         <button class="nav-btn" id="btn-next" aria-label="Next day">Next &#8594;</button>
         <button class="nav-btn today" id="btn-today">Today</button>
       </div>
+      <p class="day-context" id="day-context"></p>
     </header>
 
     <main>
@@ -917,10 +949,15 @@
 
     <script>
       // ── Configuration ──
+      const IS_LOCAL = ['localhost', '127.0.0.1', ''].includes(window.location.hostname)
+        || window.location.protocol === 'file:';
+
       const CONFIG = {
-        rosterUrl: ['localhost', '127.0.0.1', ''].includes(window.location.hostname) || window.location.protocol === 'file:'
-          ? 'http://localhost:8787/api/roster'
-          : '/api/roster',
+        rosterUrl: IS_LOCAL ? 'http://localhost:8787/api/roster' : '/api/roster',
+
+        // Term weeks and school breaks. A separate endpoint on purpose, so a
+        // Deputy outage cannot take the term context down with the shifts.
+        calendarUrl: IS_LOCAL ? 'http://localhost:8787/api/calendar' : '/api/calendar',
 
         // How many days either side of today can you navigate?
         dayWindowDays: 7,
@@ -969,6 +1006,15 @@
         ? `${refreshMins / 60}h`
         : `${refreshMins} min`;
       let viewMode = 'timeline'; // 'grouped' | 'timeline' | 'alpha'
+
+      // ── Calendar cache ──
+      // The Worker sends a per-date map spanning −30/+90 days, so navigating
+      // dates is a dictionary lookup and never a refetch. Null means the
+      // calendar could not be loaded at all.
+      let calendarCache = null;
+      // Distinguishes "not fetched yet" from "fetched and failed", so the first
+      // paint shows nothing rather than flashing a warning.
+      let calendarAttempted = false;
 
       // ── Roster cache (avoids re-fetching on every day change) ──
       let rosterCache = null;
@@ -1450,6 +1496,80 @@
           ${buildLegendHtml(timed)}`;
       }
 
+      // ── Day context (term week / school break) ──
+
+      /** Local calendar date as YYYY-MM-DD. Not toISOString, which shifts to UTC. */
+      function dateKey(d) {
+        return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+      }
+
+      const CTX_DAYS = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
+      const CTX_MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+
+      /**
+       * "Mon 12 Oct" from a plain YYYY-MM-DD. Composed from the parts because
+       * en-AU's short format puts a comma after the weekday, and the agreed
+       * display has none.
+       */
+      function formatPlainDate(ymd) {
+        const [y, m, d] = ymd.split('-').map(Number);
+        return `${CTX_DAYS[new Date(y, m - 1, d).getDay()]} ${d} ${CTX_MONTHS[m - 1]}`;
+      }
+
+      /** "Dec 2031" — the year matters for a date years out. */
+      function formatPlainMonth(ymd) {
+        const [y, m] = ymd.split('-').map(Number);
+        return `${CTX_MONTHS[m - 1]} ${y}`;
+      }
+
+      /** Never throws: the roster must render whether or not the calendar loads. */
+      async function fetchCalendar() {
+        try {
+          const res = await fetch(CONFIG.calendarUrl, { cache: 'no-store' });
+          if (!res.ok) throw new Error(`API returned ${res.status}`);
+          calendarCache = await res.json();
+        } catch (err) {
+          console.error('Calendar error:', err);
+          calendarCache = null;
+        }
+        calendarAttempted = true;
+        renderDayContext();
+      }
+
+      /**
+       * Describe the selected date. Lives outside #roster-content, so it
+       * survives every view switch and every roster failure.
+       */
+      function renderDayContext() {
+        const el = document.getElementById('day-context');
+        if (!calendarAttempted) { el.className = 'day-context'; el.textContent = ''; return; }
+
+        const day = calendarCache?.calendar?.[dateKey(currentDate)];
+
+        // Broken: say so where the context would be, rather than showing a blank.
+        // Three distinct causes, so three distinct messages — "the table needs
+        // extending" is a wrong diagnosis for the other two.
+        if (!day || day.state === 'unknown') {
+          el.className = 'day-context is-broken';
+          if (!calendarCache) el.textContent = 'Term and school-break info unavailable.';
+          else if (!day) el.textContent = 'Term dates not loaded for this date.';
+          else el.textContent = 'Term dates don’t cover this date — the term table needs extending.';
+          return;
+        }
+
+        el.className = 'day-context';
+        el.textContent = day.state === 'term'
+          ? `Term ${day.term} · Week ${day.week} of ${day.weeksInTerm}`
+          : `School holidays · Term ${day.nextTerm} starts ${formatPlainDate(day.nextTermStart)}`;
+
+        if (calendarCache.meta?.termTableAgeing) {
+          const note = document.createElement('span');
+          note.className = 'ctx-ageing';
+          note.textContent = `Term dates run out ${formatPlainMonth(calendarCache.meta.termTableCoversTo)} — time to extend the table.`;
+          el.appendChild(note);
+        }
+      }
+
       async function fetchRoster() {
         const res = await fetch(CONFIG.rosterUrl, { cache: 'no-store' });
         if (!res.ok) {
@@ -1500,6 +1620,7 @@
         const minDate = rosterDateRange.min || (() => { const d = new Date(today); d.setDate(today.getDate() - CONFIG.dayWindowDays); return d; })();
         const maxDate = rosterDateRange.max || (() => { const d = new Date(today); d.setDate(today.getDate() + CONFIG.dayWindowDays); return d; })();
         document.getElementById('day-label').textContent = formatDayLabel(currentDate);
+        renderDayContext();
         document.getElementById('btn-prev').disabled = currentDate <= minDate;
         document.getElementById('btn-next').disabled = currentDate >= maxDate;
         document.getElementById('btn-today').disabled = currentDate.getTime() === today.getTime();
@@ -1518,7 +1639,12 @@
         if (refreshTimer) clearInterval(refreshTimer);
         // Background refresh: fetch fresh ICS silently, re-render current day
         refreshTimer = setInterval(
-          () => loadRoster({ forceRefresh: true, showLoading: false }),
+          () => {
+            loadRoster({ forceRefresh: true, showLoading: false });
+            // The calendar window is relative to today, so it has to be
+            // re-fetched for a page left open across midnight.
+            fetchCalendar();
+          },
           CONFIG.refreshIntervalMs
         );
       }
@@ -1703,6 +1829,8 @@
 
       updateNav();
       loadRoster();
+      // Not awaited by the roster — either can fail without taking out the other.
+      fetchCalendar();
       scheduleRefresh();
       // ── Keyboard day navigation ──
       document.addEventListener('keydown', e => {

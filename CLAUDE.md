@@ -74,6 +74,7 @@ The main roster settings live in the `CONFIG` block near the top of the script i
 Important fields:
 
 - `rosterUrl` - `/api/roster` in production, `localhost:8787/api/roster` in local/dev
+- `calendarUrl` - `/api/calendar` in production; term week / school break context
 - `dayWindowDays` - fallback date nav range before roster data loads
 - `refreshIntervalMs` - background refresh interval
 - `roleOrder` - display order for known role groups
@@ -92,6 +93,27 @@ ADMIN:   '#374151'
 ```
 
 Keep these synced with Deputy area colors where practical. Green is reserved for the `on-now` state, so avoid using green for normal role colors.
+
+### Roster Day Context
+
+Under the day nav, `roster.html` shows one line describing the **selected**
+date — `Term 3 · Week 3 of 10`, or `School holidays · Term 4 starts Mon 12 Oct`.
+It is present in all three view modes.
+
+The data comes from `/api/calendar`, a route deliberately separate from
+`/api/roster` so a Deputy outage cannot remove term context. The Worker returns
+a per-date map spanning −30/+90 days, so navigating dates is a lookup and never
+a refetch. The two fetches are independent: either can fail without taking out
+the other.
+
+A **UJ term week** is a whole Mon–Sun week, snapped outward from the official WA
+term dates. This deliberately deviates from education.wa.edu.au — read
+`docs/adr/0002-uj-term-weeks-are-snapped.md` before touching the term table or
+the snapping logic. Definitions are in `CONTEXT.md`.
+
+The term table in `cloudflare-worker/src/calendar.js` is hardcoded through 2031
+and must be extended before then; the UI warns as it approaches expiry. Public
+holidays are not implemented yet — `publicHoliday` is always `null`.
 
 ### Deputy Worker Configuration
 

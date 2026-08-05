@@ -8,6 +8,8 @@
  * - COMMITTER_NAME, COMMITTER_EMAIL (optional)
  */
 
+import { buildCalendar, perthToday } from "./calendar.js";
+
 export default {
   async fetch(request, env, ctx) {
     const url = new URL(request.url);
@@ -47,6 +49,16 @@ export default {
             "Cache-Control": "max-age=120",
           },
         });
+      }
+
+      // Deliberately separate from /api/roster: a Deputy outage must not take
+      // the term context off the page with it.
+      if (url.pathname === "/api/calendar") {
+        if (request.method !== "GET") {
+          return json({ error: "Method not allowed" }, 405, allowedOrigin, { Allow: "GET, OPTIONS" });
+        }
+        // Caching is ticket #11's call, along with the holiday feed it protects.
+        return json(buildCalendar(perthToday()), 200, allowedOrigin);
       }
 
       if (url.pathname === "/api/roster") {
