@@ -4,6 +4,10 @@
 // context, the widened Deputy window) can't change it by accident. Assertions
 // stay on the outside of the Worker: status, headers, body, and what upstream
 // was asked for. Nothing is exported from src/index.js to make this possible.
+//
+// Scope is the two routes #14 asked for. The tools.json write path and the
+// legacy /api/ics route are deliberately unpinned — pin them before touching
+// either.
 
 import { describe, it, expect, vi, afterEach } from 'vitest';
 import worker from '../src/index.js';
@@ -29,11 +33,10 @@ const TOOLS_ENV = {
 const NOW_MS = Date.UTC(2026, 7, 5, 4, 0, 0);
 const DAY_MS = 86400000;
 
-const call = (path, env, init) =>
-  worker.fetch(new Request('https://ujstaff.happyk.au' + path, init), env);
+const call = (path, env, init) => worker.fetch(new Request(ORIGIN + path, init), env);
 
 /** A Deputy parent roster record with the metadata the Worker reads. */
-const shift = (over = {}) => ({
+const shift = (overrides = {}) => ({
   Id: 101,
   StartTime: 1770000000,
   EndTime: 1770020000,
@@ -42,13 +45,20 @@ const shift = (over = {}) => ({
     EmployeeInfo: { DisplayName: 'Alex Kim' },
     OperationalUnitInfo: { OperationalUnitName: 'Front of House' },
   },
-  ...over,
+  ...overrides,
 });
 
-/** Stub global fetch with a queue of responses, one per call, in order. */
+/**
+ * Stub global fetch with a queue of responses, one per call, in order.
+ * A call past the end of the queue throws, so a slice that adds an upstream
+ * request can't slip through on a stub meant for a different one.
+ */
 const stubFetch = (...responses) => {
   let i = 0;
-  const upstream = vi.fn(async () => responses[Math.min(i++, responses.length - 1)]());
+  const upstream = vi.fn(async () => {
+    if (i >= responses.length) throw new Error(`Unstubbed upstream fetch (call ${i + 1})`);
+    return responses[i++]();
+  });
   vi.stubGlobal('fetch', upstream);
   return upstream;
 };
@@ -248,11 +258,9 @@ describe('/api/roster', () => {
 });
 
 describe('/api/tools.json (read)', () => {
-  const encoded = (text) => btoa(text);
-
   it('returns the decoded file, uncached, with the configured origin', async () => {
     const file = '{\n  "entries": []\n}\n';
-    const upstream = stubFetch(jsonResponse({ content: encoded(file), sha: 'abc' }));
+    const upstream = stubFetch(jsonResponse({ content: btoa(file), sha: 'abc' }));
 
     const res = await call('/api/tools.json', TOOLS_ENV);
 
@@ -272,7 +280,7 @@ describe('/api/tools.json (read)', () => {
 
   it('tolerates the line-wrapped base64 the Contents API returns', async () => {
     const file = '{"entries":[]}';
-    stubFetch(jsonResponse({ content: encoded(file).replace(/(.{4})/g, '$1\n') }));
+    stubFetch(jsonResponse({ content: btoa(file).replace(/(.{4})/g, '$1\n') }));
 
     const res = await call('/api/tools.json', TOOLS_ENV);
 
