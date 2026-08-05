@@ -187,11 +187,14 @@ export default {
 // `start`. Without this the roster silently loses whatever falls past record 500.
 const DEPUTY_PAGE_SIZE = 500;
 // 10,000 shifts is far beyond any real roster window; the cap only exists so a
-// misbehaving upstream can't spin the Worker forever.
+// misbehaving upstream can't spin the Worker forever. Reaching it means the set
+// is incomplete, which is an error — returning it as success would be the same
+// silent truncation this paging exists to remove.
 const DEPUTY_MAX_PAGES = 20;
 
 async function queryAllRoster(env, headers, search) {
   const records = [];
+  let complete = false;
   for (let page = 0; page < DEPUTY_MAX_PAGES; page++) {
     const res = await fetch(`${env.DEPUTY_URL}/resource/Roster/QUERY`, {
       method: "POST",
@@ -209,7 +212,14 @@ async function queryAllRoster(env, headers, search) {
       return { ok: false, status: res.status, error: "Deputy returned malformed JSON" };
     }
     records.push(...items);
-    if (items.length < DEPUTY_PAGE_SIZE) break;
+    if (items.length < DEPUTY_PAGE_SIZE) { complete = true; break; }
+  }
+  if (!complete) {
+    return {
+      ok: false,
+      status: 502,
+      error: `too many roster records: still full at ${DEPUTY_MAX_PAGES * DEPUTY_PAGE_SIZE}, result would be incomplete`,
+    };
   }
   return { ok: true, records };
 }

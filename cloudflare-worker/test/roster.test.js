@@ -129,15 +129,20 @@ describe('/api/roster pagination past the 500-record cap', () => {
     expect(deputy.childCalls()).toHaveLength(1);
   });
 
-  it('stops paging at a safety ceiling rather than looping forever', async () => {
-    // A Deputy that always returns a full page would otherwise spin indefinitely.
+  it('fails loudly at the page ceiling instead of returning a truncated set', async () => {
+    // A Deputy that never returns a short page would otherwise spin forever.
+    // Stopping is right; reporting success on a set we know is incomplete is not
+    // — that is the silent truncation this whole change exists to remove.
     vi.stubGlobal('fetch', vi.fn(async () =>
       new Response(JSON.stringify(Array.from({ length: 500 }, (_, i) => parent(i + 1, NOW / 1000))), { status: 200 })
     ));
 
     const res = await call();
+    const body = await res.json();
 
-    expect(res.status).toBe(200);
-    expect(globalThis.fetch.mock.calls.length).toBeLessThanOrEqual(40);
+    expect(res.status).toBe(502);
+    expect(body.error).toMatch(/incomplete|too many|ceiling/i);
+    // 20 pages each for the parent and child queries, then it gives up.
+    expect(globalThis.fetch.mock.calls).toHaveLength(40);
   });
 });
