@@ -58,8 +58,8 @@ export default {
         }
 
         const nowMs = Date.now();
-        const pastDays  = parseInt(env.DEPUTY_WINDOW_PAST_DAYS   ?? "7",  10);
-        const futureDays = parseInt(env.DEPUTY_WINDOW_FUTURE_DAYS ?? "14", 10);
+        const pastDays  = parseInt(env.DEPUTY_WINDOW_PAST_DAYS   ?? "60", 10);
+        const futureDays = parseInt(env.DEPUTY_WINDOW_FUTURE_DAYS ?? "30", 10);
         const fromTs = Math.floor((nowMs - pastDays   * 86400000) / 1000);
         const toTs   = Math.floor((nowMs + futureDays * 86400000) / 1000);
 
@@ -76,42 +76,26 @@ export default {
         // Fetch parent records and micro-schedule child records in parallel.
         // Deputy's Roster/QUERY silently excludes records where ParentId != null,
         // so children require a separate query filtered by ParentId > 0.
-        const [parentRes, childRes] = await Promise.all([
-          fetch(`${env.DEPUTY_URL}/resource/Roster/QUERY`, {
-            method: "POST",
-            headers: deputyHeaders,
-            body: JSON.stringify({ search: timeSearch }),
-          }),
-          fetch(`${env.DEPUTY_URL}/resource/Roster/QUERY`, {
-            method: "POST",
-            headers: deputyHeaders,
-            body: JSON.stringify({ search: { ...timeSearch, s3: { field: "ParentId", type: "gt", data: 0 } } }),
-          }),
+        const [parentResult, childResult] = await Promise.all([
+          queryAllRoster(env, deputyHeaders, timeSearch),
+          queryAllRoster(env, deputyHeaders, { ...timeSearch, s3: { field: "ParentId", type: "gt", data: 0 } }),
         ]);
 
-        if (!parentRes.ok) {
-          const errText = await parentRes.text().catch(() => "");
-          return json({ error: `Deputy error ${parentRes.status}: ${errText}` }, 502, allowedOrigin);
+        if (!parentResult.ok) {
+          return json({ error: `Deputy error ${parentResult.status}: ${parentResult.error}` }, 502, allowedOrigin);
         }
 
-        const rawParents = await parentRes.json();
-        const items = Array.isArray(rawParents) ? rawParents : Object.values(rawParents);
+        const items = parentResult.records;
 
-        // Parse children; tolerate errors (child query may return empty or error)
+        // Group children under their parent; tolerate a failed child query.
         const childrenByParent = {};
-        if (childRes.ok) {
-          try {
-            const rawChildren = await childRes.json();
-            const childItems = Array.isArray(rawChildren) ? rawChildren : [];
-            for (const child of childItems) {
-              if (!child.ParentId) continue;
-              if (!childrenByParent[child.ParentId]) childrenByParent[child.ParentId] = [];
-              childrenByParent[child.ParentId].push(child);
-            }
-            for (const pid of Object.keys(childrenByParent)) {
-              childrenByParent[pid].sort((a, b) => a.StartTime - b.StartTime);
-            }
-          } catch {}
+        for (const child of childResult.ok ? childResult.records : []) {
+          if (!child.ParentId) continue;
+          if (!childrenByParent[child.ParentId]) childrenByParent[child.ParentId] = [];
+          childrenByParent[child.ParentId].push(child);
+        }
+        for (const pid of Object.keys(childrenByParent)) {
+          childrenByParent[pid].sort((a, b) => a.StartTime - b.StartTime);
         }
 
         const shifts = items.flatMap(s => {
@@ -197,6 +181,38 @@ export default {
     }
   },
 };
+
+// Deputy's Resource API returns at most 500 records per QUERY and that ceiling
+// cannot be raised, so anything wider than a few weeks has to be paged with
+// `start`. Without this the roster silently loses whatever falls past record 500.
+const DEPUTY_PAGE_SIZE = 500;
+// 10,000 shifts is far beyond any real roster window; the cap only exists so a
+// misbehaving upstream can't spin the Worker forever.
+const DEPUTY_MAX_PAGES = 20;
+
+async function queryAllRoster(env, headers, search) {
+  const records = [];
+  for (let page = 0; page < DEPUTY_MAX_PAGES; page++) {
+    const res = await fetch(`${env.DEPUTY_URL}/resource/Roster/QUERY`, {
+      method: "POST",
+      headers,
+      body: JSON.stringify({ search, start: page * DEPUTY_PAGE_SIZE, max: DEPUTY_PAGE_SIZE }),
+    });
+    if (!res.ok) {
+      return { ok: false, status: res.status, error: await res.text().catch(() => "") };
+    }
+    let items;
+    try {
+      const raw = await res.json();
+      items = Array.isArray(raw) ? raw : Object.values(raw);
+    } catch {
+      return { ok: false, status: res.status, error: "Deputy returned malformed JSON" };
+    }
+    records.push(...items);
+    if (items.length < DEPUTY_PAGE_SIZE) break;
+  }
+  return { ok: true, records };
+}
 
 function corsHeaders(origin) {
   return {
