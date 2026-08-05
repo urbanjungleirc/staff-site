@@ -97,33 +97,44 @@
       }
 
       /* ── Day context (term week / school break) ── */
+      /* Staff read this at a glance alongside the roster, so it is primary
+         information, not a caption. */
       .day-context {
         display: flex;
-        flex-wrap: wrap;
-        align-items: baseline;
-        justify-content: center;
-        gap: 4px 12px;
-        margin-top: 18px;
-        margin-bottom: 0;
-        font-size: 0.92rem;
-        color: rgba(255, 255, 255, 0.9);
+        flex-direction: column;
+        align-items: center;
+        gap: 4px;
         /* Wrap inside the nav width rather than pushing the header wider. */
         max-width: 640px;
-        margin-left: auto;
-        margin-right: auto;
+        margin: 20px auto 0;
         padding: 0 8px;
+        text-align: center;
       }
 
       .day-context:empty { display: none; }
 
-      /* Broken — the term table cannot describe this date. Amber, visible.
-         Green is reserved for the on-now shift state. */
-      .day-context.is-broken { color: #fcd34d; }
+      .ctx-main {
+        font-size: clamp(1.15rem, 3.2vw, 1.35rem);
+        font-weight: 700;
+        letter-spacing: -0.01em;
+        line-height: 1.3;
+        color: #fff;
+        text-wrap: balance;
+      }
+
+      /* Broken — the term table cannot describe this date. Amber, and just as
+         prominent as the answer it replaces. Green is reserved for on-now. */
+      .day-context.is-broken .ctx-main {
+        font-size: 1rem;
+        font-weight: 600;
+        color: #fcd34d;
+      }
 
       /* Ageing — the maintainer can act, staff cannot. Muted on purpose so
          nobody is trained to ignore the amber one. */
-      .day-context .ctx-ageing {
-        font-size: 0.82rem;
+      .ctx-ageing {
+        font-size: 0.8rem;
+        font-weight: 400;
         color: rgba(255, 255, 255, 0.55);
       }
 
@@ -1513,7 +1524,8 @@
        */
       function formatPlainDate(ymd) {
         const [y, m, d] = ymd.split('-').map(Number);
-        return `${CTX_DAYS[new Date(y, m - 1, d).getDay()]} ${d} ${CTX_MONTHS[m - 1]}`;
+        // Non-breaking, so a narrow screen never splits "Mon 12 Oct" across lines.
+        return `${CTX_DAYS[new Date(y, m - 1, d).getDay()]} ${d} ${CTX_MONTHS[m - 1]}`;
       }
 
       /** "Dec 2031" — the year matters for a date years out. */
@@ -1542,25 +1554,31 @@
        */
       function renderDayContext() {
         const el = document.getElementById('day-context');
-        if (!calendarAttempted) { el.className = 'day-context'; el.textContent = ''; return; }
+        el.textContent = '';
+        if (!calendarAttempted) { el.className = 'day-context'; return; }
 
         const day = calendarCache?.calendar?.[dateKey(currentDate)];
+        const main = document.createElement('span');
+        main.className = 'ctx-main';
 
         // Broken: say so where the context would be, rather than showing a blank.
         // Three distinct causes, so three distinct messages — "the table needs
         // extending" is a wrong diagnosis for the other two.
         if (!day || day.state === 'unknown') {
           el.className = 'day-context is-broken';
-          if (!calendarCache) el.textContent = 'Term and school-break info unavailable.';
-          else if (!day) el.textContent = 'Term dates not loaded for this date.';
-          else el.textContent = 'Term dates don’t cover this date — the term table needs extending.';
+          if (!calendarCache) main.textContent = 'Term and school-break info unavailable.';
+          else if (!day) main.textContent = 'Term dates not loaded for this date.';
+          else main.textContent = 'Term dates don’t cover this date — the term table needs extending.';
+          el.appendChild(main);
           return;
         }
 
         el.className = 'day-context';
-        el.textContent = day.state === 'term'
-          ? `Term ${day.term} · Week ${day.week} of ${day.weeksInTerm}`
-          : `School holidays · Term ${day.nextTerm} starts ${formatPlainDate(day.nextTermStart)}`;
+        //   keeps each label glued to its number when the line wraps.
+        main.textContent = day.state === 'term'
+          ? `Term ${day.term} · Week ${day.week} of ${day.weeksInTerm}`
+          : `School holidays · Term ${day.nextTerm} starts ${formatPlainDate(day.nextTermStart)}`;
+        el.appendChild(main);
 
         if (calendarCache.meta?.termTableAgeing) {
           const note = document.createElement('span');
