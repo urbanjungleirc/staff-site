@@ -110,7 +110,7 @@ describe('/api/roster', () => {
     ]);
   });
 
-  it('asks Deputy for a 7-day-past / 14-day-future window by default', async () => {
+  it('asks Deputy for a 60-day-past / 30-day-future window by default', async () => {
     vi.spyOn(Date, 'now').mockReturnValue(NOW_MS);
     const upstream = stubFetch(jsonResponse([]), jsonResponse([]));
 
@@ -125,12 +125,12 @@ describe('/api/roster', () => {
     expect(search.s1).toEqual({
       field: 'StartTime',
       type: 'ge',
-      data: Math.floor((NOW_MS - 7 * DAY_MS) / 1000),
+      data: Math.floor((NOW_MS - 60 * DAY_MS) / 1000),
     });
     expect(search.s2).toEqual({
       field: 'StartTime',
       type: 'le',
-      data: Math.floor((NOW_MS + 14 * DAY_MS) / 1000),
+      data: Math.floor((NOW_MS + 30 * DAY_MS) / 1000),
     });
   });
 
@@ -140,13 +140,14 @@ describe('/api/roster', () => {
 
     await call('/api/roster', {
       ...ROSTER_ENV,
-      DEPUTY_WINDOW_PAST_DAYS: '60',
-      DEPUTY_WINDOW_FUTURE_DAYS: '30',
+      // Deliberately not the 60/30 default — the point is that config wins.
+      DEPUTY_WINDOW_PAST_DAYS: '5',
+      DEPUTY_WINDOW_FUTURE_DAYS: '3',
     });
 
     const { search } = JSON.parse(upstream.mock.calls[0][1].body);
-    expect(search.s1.data).toBe(Math.floor((NOW_MS - 60 * DAY_MS) / 1000));
-    expect(search.s2.data).toBe(Math.floor((NOW_MS + 30 * DAY_MS) / 1000));
+    expect(search.s1.data).toBe(Math.floor((NOW_MS - 5 * DAY_MS) / 1000));
+    expect(search.s2.data).toBe(Math.floor((NOW_MS + 3 * DAY_MS) / 1000));
   });
 
   it('runs a second query for micro-schedule children, filtered by ParentId', async () => {
