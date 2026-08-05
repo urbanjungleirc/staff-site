@@ -285,7 +285,7 @@ describe('public holidays', () => {
   });
 
   it('shows the holiday alongside term context, never instead of it', async () => {
-    // 【PUBLIC HOLIDAY】Anzac Day · Term 2 · Wk 2 of 11 — the worked example.
+    // [PUBLIC HOLIDAY] Anzac Day · Term 2 · Wk 2 of 11 — the worked example.
     expect(await dayOn('2026-04-27', '2026-04-27')).toMatchObject({
       state: 'term',
       term: 2,

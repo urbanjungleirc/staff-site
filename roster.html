@@ -1601,10 +1601,10 @@
         el.className = 'day-context';
         //   keeps each label glued to its number when the line wraps.
         const holiday = day.publicHoliday;
+        // A holiday costs a badge and a name's worth of width, so the term half
+        // goes compact rather than being displaced by it.
         let text;
         if (holiday) {
-          // The badge and the holiday name already cost a line's worth of
-          // width, so the term half goes compact rather than being displaced.
           text = day.state === 'term'
             ? `${holiday.name} · Term ${day.term} · Wk ${day.week} of ${day.weeksInTerm}`
             : `${holiday.name} · School holidays`;
@@ -1642,6 +1642,8 @@
         // Ageing, holiday half: served from cache because the feed was
         // unreachable. Muted — it is still correct, and only the maintainer can
         // act on it.
+        // Both fields are read defensively: this page and the Worker deploy
+        // separately, so a stale tab can be reading an older response shape.
         if (calendarCache.meta?.holidaysStale && calendarCache.meta?.holidaysFetchedAt) {
           const note = document.createElement('span');
           note.className = 'ctx-ageing';

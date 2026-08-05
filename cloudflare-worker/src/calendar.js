@@ -114,7 +114,7 @@ const FEED_FUTURE_DAYS = 180;
  * TTL. The TTL only has to outlive the stale-fallback probe below, so that a
  * failing upstream still finds yesterday's copy to serve.
  */
-const HOLIDAY_CACHE_KEY = "https://calendar.internal/wa-public-holidays";
+const HOLIDAY_CACHE_BASE = "https://calendar.internal/wa-public-holidays";
 const HOLIDAY_CACHE_TTL_SECONDS = 10 * 86400;
 const STALE_PROBE_DAYS = 7;
 
@@ -239,7 +239,7 @@ const unescapeIcsText = value => value.replace(/\\([,;\\nN])/g, (_, ch) => (ch =
  *   occupies both Saturday 25 and Monday 27 April, and Boxing Day both Saturday
  *   26 and Monday 28 December. Keying by date is what preserves them.
  */
-export function parseHolidayIcs(text) {
+function parseHolidayIcs(text) {
   // Unfold continuation lines before anything else looks at them.
   const lines = text.replace(/\r?\n[ \t]/g, "").split(/\r?\n/);
   const holidays = {};
@@ -304,7 +304,10 @@ async function fetchHolidays(todayYmd) {
   return holidays;
 }
 
-const cacheKeyFor = ymd => `${HOLIDAY_CACHE_KEY}?date=${ymd}`;
+const cacheKeyFor = ymd => `${HOLIDAY_CACHE_BASE}?date=${ymd}`;
+
+/** What the holiday half looks like when the feed gave us nothing usable. */
+const HOLIDAYS_UNAVAILABLE = { dates: {}, fetchedAt: null, stale: false, available: false };
 
 /**
  * Public holidays for the window around `todayYmd`, with how much to trust them.
@@ -320,7 +323,6 @@ const cacheKeyFor = ymd => `${HOLIDAY_CACHE_KEY}?date=${ymd}`;
  */
 export async function loadHolidays(todayYmd) {
   const cache = globalThis.caches?.default ?? null;
-  const unavailable = { dates: {}, fetchedAt: null, stale: false, available: false };
 
   const read = async ymd => {
     const hit = await cache?.match(cacheKeyFor(ymd));
@@ -361,17 +363,17 @@ export async function loadHolidays(todayYmd) {
     }
   }
 
-  return unavailable;
+  return HOLIDAYS_UNAVAILABLE;
 }
 
 /**
  * Build the per-date calendar map for a window around the given Perth date.
  * The client looks a date up and renders it; it computes nothing.
  *
- * `holidays` is what `loadHolidays` returned. Its absence degrades the holiday
+ * `holidays` is what `loadHolidays` returned. A failed feed degrades the holiday
  * half only — every date still carries its term context.
  */
-export function buildCalendar(todayYmd, holidays = { dates: {}, fetchedAt: null, stale: false, available: false }) {
+export function buildCalendar(todayYmd, holidays) {
   const today = toDayNumber(todayYmd);
   const calendar = {};
   for (let offset = -WINDOW_PAST_DAYS; offset <= WINDOW_FUTURE_DAYS; offset++) {
