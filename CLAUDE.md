@@ -98,7 +98,9 @@ Keep these synced with Deputy area colors where practical. Green is reserved for
 
 Under the day nav, `roster.html` shows one line describing the **selected**
 date — `Term 3 · Week 3 of 10`, or `School holidays · Term 4 starts Mon 12 Oct`.
-It is present in all three view modes.
+On a public holiday a badge goes in front of it, never instead of it:
+`[PUBLIC HOLIDAY] Anzac Day · Term 2 · Wk 2 of 11`. It is present in all three
+view modes.
 
 The data comes from `/api/calendar`, a route deliberately separate from
 `/api/roster` so a Deputy outage cannot remove term context. The Worker returns
@@ -112,8 +114,18 @@ term dates. This deliberately deviates from education.wa.edu.au — read
 the snapping logic. Definitions are in `CONTEXT.md`.
 
 The term table in `cloudflare-worker/src/calendar.js` is hardcoded through 2031
-and must be extended before then; the UI warns as it approaches expiry. Public
-holidays are not implemented yet — `publicHoliday` is always `null`.
+and must be extended before then; the UI warns as it approaches expiry.
+
+Public holidays come from a live WA feed the Worker fetches and caches (the feed
+sends no CORS headers, so the Worker is required, not a convenience). Read
+`docs/adr/0001-hybrid-calendar-sourcing.md` before touching that path — it
+records the three traps that fail *silently*: exclusive all-day end dates, the
+required trailing slash on the feed URL, and the rule that holidays must never
+be deduplicated by name.
+
+The two halves fail independently. If the feed is unreachable the Worker serves
+the last cached copy flagged stale, and if there is nothing cached it marks
+holidays unavailable and still returns term context.
 
 ### Deputy Worker Configuration
 

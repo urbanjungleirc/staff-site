@@ -1,5 +1,8 @@
 /**
- * WA school term data and UJ term-week classification.
+ * WA school term data, UJ term-week classification, and WA public holidays.
+ *
+ * The two halves are sourced differently on purpose: holidays are fetched live,
+ * terms are hardcoded. See docs/adr/0001-hybrid-calendar-sourcing.md.
  *
  * This module is an implementation detail of the `/api/calendar` route. It is
  * not a test seam — everything here is observable through that route, and the
@@ -83,6 +86,38 @@ const WINDOW_FUTURE_DAYS = 90;
 // How close to the end of the table counts as ageing.
 const AGEING_MONTHS = 6;
 
+/**
+ * The WA public holiday feed.
+ *
+ * The trailing slash is required — without it the service answers 301. The ICS
+ * form is deliberate: the v3.0 JSON API answers 403. `holidayType=public_holiday`
+ * is also deliberate: the `all` variant adds Mother's Day, Father's Day and
+ * Remembrance Day, none of which are public holidays.
+ *
+ * The feed serves no CORS headers, so the browser cannot call it directly. This
+ * Worker is a required intermediary, not a convenience.
+ *
+ * Verified 2026-08-05: WA 2026 returns thirteen events, an exact match to the
+ * official wa.gov.au list, including both Anzac Day and both Boxing Day dates.
+ */
+const HOLIDAY_FEED_URL = "https://www.kayaposoft.com/enrico/ics/v2.0/";
+
+/**
+ * Asked of the feed, wider than the window served. The slack is what lets a
+ * cached copy a few days old still cover the whole of today's window.
+ */
+const FEED_PAST_DAYS = 60;
+const FEED_FUTURE_DAYS = 180;
+
+/**
+ * Cache freshness comes from the key rolling with the Perth date, not from this
+ * TTL. The TTL only has to outlive the stale-fallback probe below, so that a
+ * failing upstream still finds yesterday's copy to serve.
+ */
+const HOLIDAY_CACHE_BASE = "https://calendar.internal/wa-public-holidays";
+const HOLIDAY_CACHE_TTL_SECONDS = 10 * 86400;
+const STALE_PROBE_DAYS = 7;
+
 const MS_PER_DAY = 86400000;
 
 const pad = n => String(n).padStart(2, "0");
@@ -152,10 +187,13 @@ const TERM_TABLE_COVERS_TO = toYmd(TABLE_ENDS);
  * A break advertises the first day the table will itself call term — the
  * snapped Monday, not the official start — so the endpoint never contradicts
  * itself the following day.
+ *
+ * Term only. The holiday half is merged in by `buildCalendar`, because it comes
+ * from a source that can fail independently.
  */
 function classify(dayNumber) {
   if (dayNumber < TABLE_STARTS || dayNumber > TABLE_ENDS) {
-    return { state: "unknown", publicHoliday: null };
+    return { state: "unknown" };
   }
 
   // Guaranteed to find one: the guard above put dayNumber inside the table.
@@ -167,7 +205,6 @@ function classify(dayNumber) {
       state: "break",
       nextTerm: term.term,
       nextTermStart: toYmd(term.start),
-      publicHoliday: null,
     };
   }
 
@@ -176,19 +213,175 @@ function classify(dayNumber) {
     term: term.term,
     week: Math.floor((dayNumber - term.start) / 7) + 1,
     weeksInTerm: term.weeks,
-    publicHoliday: null,
   };
+}
+
+// ── Public holidays ──
+
+/** `YYYYMMDD` (or the date half of a datetime) → day number. */
+function fromIcsDate(value) {
+  const digits = value.trim().slice(0, 8);
+  if (!/^\d{8}$/.test(digits)) return null;
+  return toDayNumber(`${digits.slice(0, 4)}-${digits.slice(4, 6)}-${digits.slice(6, 8)}`);
+}
+
+/** RFC 5545 escapes the separators it uses structurally. Nothing else. */
+const unescapeIcsText = value => value.replace(/\\([,;\\nN])/g, (_, ch) => (ch === "n" || ch === "N" ? "\n" : ch));
+
+/**
+ * Parse the feed into `{ "YYYY-MM-DD": name }`.
+ *
+ * Two traps live here, both confirmed against the live feed:
+ *
+ * - **All-day end dates are exclusive.** Christmas Day's `DTEND` is Boxing Day.
+ *   Treating it as inclusive silently swallows the following holiday.
+ * - **Holidays must not be deduplicated by name.** Anzac Day 2026 legitimately
+ *   occupies both Saturday 25 and Monday 27 April, and Boxing Day both Saturday
+ *   26 and Monday 28 December. Keying by date is what preserves them.
+ */
+function parseHolidayIcs(text) {
+  // Unfold continuation lines before anything else looks at them.
+  const lines = text.replace(/\r?\n[ \t]/g, "").split(/\r?\n/);
+  const holidays = {};
+  let inEvent = false;
+  let start = null;
+  let end = null;
+  let name = null;
+
+  for (const line of lines) {
+    if (line.trim() === "BEGIN:VEVENT") {
+      inEvent = true;
+      start = end = name = null;
+      continue;
+    }
+    if (!inEvent) continue;
+
+    if (line.trim() === "END:VEVENT") {
+      inEvent = false;
+      if (start === null || !name) continue;
+      // Exclusive end; a missing DTEND means a single day.
+      const last = end === null ? start : end - 1;
+      for (let day = start; day <= last; day++) holidays[toYmd(day)] = name;
+      continue;
+    }
+
+    const colon = line.indexOf(":");
+    if (colon === -1) continue;
+    const field = line.slice(0, colon).split(";")[0].toUpperCase();
+    const value = line.slice(colon + 1);
+    if (field === "DTSTART") start = fromIcsDate(value);
+    else if (field === "DTEND") end = fromIcsDate(value);
+    else if (field === "SUMMARY") name = unescapeIcsText(value).trim();
+  }
+
+  return holidays;
+}
+
+/** The feed wants `DD-MM-YYYY`. */
+const toFeedDate = ymd => ymd.split("-").reverse().join("-");
+
+/** Throws on anything that would leave us with an unusable answer. */
+async function fetchHolidays(todayYmd) {
+  const today = toDayNumber(todayYmd);
+  const params = new URLSearchParams({
+    country: "aus",
+    region: "wa",
+    fromDate: toFeedDate(toYmd(today - FEED_PAST_DAYS)),
+    toDate: toFeedDate(toYmd(today + FEED_FUTURE_DAYS)),
+    lang: "en",
+    holidayType: "public_holiday",
+  });
+
+  const res = await fetch(`${HOLIDAY_FEED_URL}?${params}`, {
+    headers: { "User-Agent": "UJ-Roster-Proxy/1.0" },
+  });
+  if (!res.ok) throw new Error(`Holiday feed returned ${res.status}`);
+
+  const holidays = parseHolidayIcs(await res.text());
+  // A feed that parses to nothing is a changed format or an error page, not a
+  // year without public holidays. Treat it as a failure so the fallback runs.
+  if (!Object.keys(holidays).length) throw new Error("Holiday feed returned no events");
+  return holidays;
+}
+
+const cacheKeyFor = ymd => `${HOLIDAY_CACHE_BASE}?date=${ymd}`;
+
+/** What the holiday half looks like when the feed gave us nothing usable. */
+const HOLIDAYS_UNAVAILABLE = { dates: {}, fetchedAt: null, stale: false, available: false };
+
+/**
+ * Public holidays for the window around `todayYmd`, with how much to trust them.
+ *
+ * Degradation is explicit and ordered:
+ *
+ * 1. Today's cached copy, if there is one.
+ * 2. Otherwise upstream, cached under today's key.
+ * 3. Upstream failed → the most recent copy from the last few days, flagged stale.
+ * 4. Nothing cached either → unavailable. The caller still returns term context.
+ *
+ * Never throws. Term context must not depend on this feed.
+ */
+export async function loadHolidays(todayYmd) {
+  const cache = globalThis.caches?.default ?? null;
+
+  const read = async ymd => {
+    const hit = await cache?.match(cacheKeyFor(ymd));
+    return hit ? hit.json() : null;
+  };
+
+  try {
+    const fresh = await read(todayYmd);
+    if (fresh) return { dates: fresh.holidays, fetchedAt: fresh.fetchedAt, stale: false, available: true };
+  } catch {
+    // A corrupt cache entry is no reason not to try upstream.
+  }
+
+  try {
+    const dates = await fetchHolidays(todayYmd);
+    const fetchedAt = new Date().toISOString();
+    await cache?.put(
+      cacheKeyFor(todayYmd),
+      new Response(JSON.stringify({ holidays: dates, fetchedAt }), {
+        headers: {
+          "Content-Type": "application/json",
+          "Cache-Control": `max-age=${HOLIDAY_CACHE_TTL_SECONDS}`,
+        },
+      })
+    );
+    return { dates, fetchedAt, stale: false, available: true };
+  } catch (err) {
+    console.error("Holiday feed error:", err);
+  }
+
+  const today = toDayNumber(todayYmd);
+  for (let back = 1; back <= STALE_PROBE_DAYS; back++) {
+    try {
+      const older = await read(toYmd(today - back));
+      if (older) return { dates: older.holidays, fetchedAt: older.fetchedAt, stale: true, available: true };
+    } catch {
+      // Same again: a bad entry is skipped, not fatal.
+    }
+  }
+
+  return HOLIDAYS_UNAVAILABLE;
 }
 
 /**
  * Build the per-date calendar map for a window around the given Perth date.
  * The client looks a date up and renders it; it computes nothing.
+ *
+ * `holidays` is what `loadHolidays` returned. A failed feed degrades the holiday
+ * half only — every date still carries its term context.
  */
-export function buildCalendar(todayYmd) {
+export function buildCalendar(todayYmd, holidays) {
   const today = toDayNumber(todayYmd);
   const calendar = {};
   for (let offset = -WINDOW_PAST_DAYS; offset <= WINDOW_FUTURE_DAYS; offset++) {
-    calendar[toYmd(today + offset)] = classify(today + offset);
+    const ymd = toYmd(today + offset);
+    const name = holidays.dates[ymd];
+    // The badge sits in front of the term context rather than replacing it, so
+    // the two travel together on the wire as well.
+    calendar[ymd] = { ...classify(today + offset), publicHoliday: name ? { name } : null };
   }
 
   return {
@@ -198,6 +391,9 @@ export function buildCalendar(todayYmd) {
       // The only thing standing between the table expiring and staff silently
       // losing term context. Load-bearing, not decoration.
       termTableAgeing: addMonths(todayYmd, AGEING_MONTHS) >= TERM_TABLE_COVERS_TO,
+      holidaysAvailable: holidays.available,
+      holidaysStale: holidays.stale,
+      holidaysFetchedAt: holidays.fetchedAt,
     },
   };
 }

@@ -1,3 +1,4 @@
+import { readFileSync } from 'node:fs';
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import worker from '../src/index.js';
 
@@ -7,8 +8,61 @@ const env = { ALLOWED_ORIGIN: 'https://ujstaff.happyk.au' };
 
 const DAY = 86400000;
 
+/**
+ * The live WA 2026 feed, captured 2026-08-05. Thirteen events, an exact match
+ * to the official wa.gov.au list — including both Anzac Day dates and both
+ * Boxing Day dates. Refetch it rather than hand-editing if it ever needs
+ * updating; hand-written holiday data is how the substitute-day traps get lost.
+ */
+const WA_2026_ICS = readFileSync(new URL('./fixtures/wa-holidays-2026.ics', import.meta.url), 'utf8');
+
+/** A VCALENDAR carrying just the events a test cares about. */
+function icsWith(events) {
+  const body = events
+    .map(
+      e => `BEGIN:VEVENT\r\nDTSTART;VALUE=DATE:${e.start}\r\n${e.end ? `DTEND;VALUE=DATE:${e.end}\r\n` : ''}SUMMARY:${e.name}\r\nEND:VEVENT`
+    )
+    .join('\r\n');
+  return `BEGIN:VCALENDAR\r\nVERSION:2.0\r\n${body}\r\nEND:VCALENDAR\r\n`;
+}
+
 /** Midday in Perth on `ymd`, so the Perth civil date is unambiguous. */
 const atPerth = ymd => Date.parse(`${ymd}T12:00:00+08:00`);
+
+const realFetch = globalThis.fetch;
+const realCaches = globalThis.caches;
+
+let upstream;
+
+/**
+ * Stub the holiday feed. Upstream is the only network the route touches, so
+ * every test runs offline and nothing internal is exported to make it testable.
+ */
+function stubUpstream(impl) {
+  upstream = vi.fn(impl ?? (async () => new Response(WA_2026_ICS, { status: 200 })));
+  globalThis.fetch = upstream;
+}
+
+/**
+ * A stand-in for the platform cache. The route reaches for `caches.default`
+ * and nothing else, so a Map behind `match`/`put` is the whole surface.
+ */
+function stubCaches() {
+  const store = new Map();
+  globalThis.caches = {
+    default: {
+      async match(key) {
+        return store.get(String(key))?.clone();
+      },
+      async put(key, res) {
+        store.set(String(key), res.clone());
+      },
+    },
+  };
+  return store;
+}
+
+let cacheStore;
 
 async function get(url = 'https://ujstaff.happyk.au/api/calendar', extraEnv = {}, init) {
   return worker.fetch(new Request(url, init), { ...env, ...extraEnv });
@@ -27,8 +81,17 @@ async function dayOn(viewedFrom, date) {
   return body.calendar[date];
 }
 
-beforeEach(() => vi.useFakeTimers());
-afterEach(() => vi.useRealTimers());
+beforeEach(() => {
+  vi.useFakeTimers();
+  stubUpstream();
+  cacheStore = stubCaches();
+});
+
+afterEach(() => {
+  vi.useRealTimers();
+  globalThis.fetch = realFetch;
+  globalThis.caches = realCaches;
+});
 
 describe('/api/calendar response shape', () => {
   it('serves a per-date map spanning 30 days back and 90 forward', async () => {
@@ -42,10 +105,10 @@ describe('/api/calendar response shape', () => {
     expect(keys).toHaveLength(121);
   });
 
-  it('leaves the public holiday field empty for every date', async () => {
+  it('carries a public holiday field on every date', async () => {
     const { body } = await calendarOn('2026-08-05');
 
-    expect(Object.values(body.calendar).every(d => d.publicHoliday === null)).toBe(true);
+    expect(Object.values(body.calendar).every(d => 'publicHoliday' in d)).toBe(true);
   });
 
   it('reports how far the term table reaches', async () => {
@@ -207,5 +270,200 @@ describe('staleness', () => {
     const { body } = await calendarOn('2026-08-05');
 
     expect(body.meta.termTableAgeing).toBe(false);
+  });
+});
+
+describe('public holidays', () => {
+  it('names the holiday on the date it falls', async () => {
+    expect(await dayOn('2026-09-25', '2026-09-28')).toMatchObject({
+      publicHoliday: { name: "King's Birthday" },
+    });
+  });
+
+  it('leaves an ordinary day empty', async () => {
+    expect((await dayOn('2026-08-05', '2026-08-05')).publicHoliday).toBeNull();
+  });
+
+  it('shows the holiday alongside term context, never instead of it', async () => {
+    // [PUBLIC HOLIDAY] Anzac Day · Term 2 · Wk 2 of 11 — the worked example.
+    expect(await dayOn('2026-04-27', '2026-04-27')).toMatchObject({
+      state: 'term',
+      term: 2,
+      week: 2,
+      weeksInTerm: 11,
+      publicHoliday: { name: 'Anzac Day' },
+    });
+  });
+
+  it('shows the holiday alongside a school break too', async () => {
+    expect(await dayOn('2026-09-28', '2026-09-28')).toMatchObject({
+      state: 'break',
+      nextTerm: 4,
+      publicHoliday: { name: "King's Birthday" },
+    });
+  });
+
+  it('keeps both Anzac Day dates — substitute days are not deduplicated by name', async () => {
+    const { body } = await calendarOn('2026-04-25');
+
+    expect(body.calendar['2026-04-25'].publicHoliday).toEqual({ name: 'Anzac Day' }); // Saturday
+    expect(body.calendar['2026-04-26'].publicHoliday).toBeNull(); // Sunday, not a holiday
+    expect(body.calendar['2026-04-27'].publicHoliday).toEqual({ name: 'Anzac Day' }); // substitute Monday
+  });
+
+  it('keeps both Boxing Day dates', async () => {
+    const { body } = await calendarOn('2026-12-20');
+
+    expect(body.calendar['2026-12-26'].publicHoliday).toEqual({ name: 'Boxing Day' }); // Saturday
+    expect(body.calendar['2026-12-27'].publicHoliday).toBeNull(); // Sunday, not a holiday
+    expect(body.calendar['2026-12-28'].publicHoliday).toEqual({ name: 'Boxing Day' }); // substitute Monday
+  });
+
+  it('keeps Easter Sunday, which is gazetted in WA', async () => {
+    const { body } = await calendarOn('2026-04-05');
+
+    expect(body.calendar['2026-04-03'].publicHoliday).toEqual({ name: 'Good Friday' });
+    expect(body.calendar['2026-04-05'].publicHoliday).toEqual({ name: 'Easter Sunday' });
+    expect(body.calendar['2026-04-06'].publicHoliday).toEqual({ name: 'Easter Monday' });
+  });
+
+  it('asks upstream only for gazetted public holidays in WA', async () => {
+    await calendarOn('2026-08-05');
+
+    const requested = new URL(upstream.mock.calls[0][0]);
+    expect(requested.searchParams.get('holidayType')).toBe('public_holiday');
+    expect(requested.searchParams.get('country')).toBe('aus');
+    expect(requested.searchParams.get('region')).toBe('wa');
+  });
+
+  it("keeps the feed's required trailing slash, which a redirect would otherwise eat", async () => {
+    await calendarOn('2026-08-05');
+
+    expect(new URL(upstream.mock.calls[0][0]).pathname).toMatch(/\/$/);
+  });
+
+  it('requests a range wide enough to cover the whole window it serves', async () => {
+    const { body } = await calendarOn('2026-08-05');
+
+    const requested = new URL(upstream.mock.calls[0][0]);
+    const asYmd = ddmmyyyy => ddmmyyyy.split('-').reverse().join('-');
+    const dates = Object.keys(body.calendar).sort();
+    expect(asYmd(requested.searchParams.get('fromDate')) <= dates[0]).toBe(true);
+    expect(asYmd(requested.searchParams.get('toDate')) >= dates[dates.length - 1]).toBe(true);
+  });
+
+  it('treats an all-day end date as exclusive across a multi-day event', async () => {
+    stubUpstream(async () => new Response(icsWith([{ start: '20260810', end: '20260813', name: 'Long Weekend' }])));
+
+    const { body } = await calendarOn('2026-08-05');
+
+    expect(body.calendar['2026-08-09'].publicHoliday).toBeNull();
+    expect(body.calendar['2026-08-10'].publicHoliday).toEqual({ name: 'Long Weekend' });
+    expect(body.calendar['2026-08-12'].publicHoliday).toEqual({ name: 'Long Weekend' });
+    expect(body.calendar['2026-08-13'].publicHoliday).toBeNull(); // the exclusive end
+  });
+
+  it('treats a single-day event as exactly one day', async () => {
+    // Christmas Day's DTEND is Boxing Day. Off by one here and Christmas eats it.
+    const { body } = await calendarOn('2026-12-20');
+
+    expect(body.calendar['2026-12-25'].publicHoliday).toEqual({ name: 'Christmas Day' });
+    expect(body.calendar['2026-12-26'].publicHoliday).toEqual({ name: 'Boxing Day' });
+  });
+
+  it('records when the holiday data was fetched', async () => {
+    const { body } = await calendarOn('2026-08-05');
+
+    expect(body.meta).toMatchObject({ holidaysAvailable: true, holidaysStale: false });
+    expect(body.meta.holidaysFetchedAt).toBe(new Date(atPerth('2026-08-05')).toISOString());
+  });
+});
+
+describe('holiday caching', () => {
+  it('fetches upstream once per Perth day, however many callers ask', async () => {
+    await calendarOn('2026-08-05');
+    await calendarOn('2026-08-05');
+    await calendarOn('2026-08-05');
+
+    expect(upstream).toHaveBeenCalledTimes(1);
+  });
+
+  it('refetches when the Perth date rolls over', async () => {
+    await calendarOn('2026-08-05');
+    await calendarOn('2026-08-06');
+
+    expect(upstream).toHaveBeenCalledTimes(2);
+  });
+
+  it('keys the cache by the Perth date, since the window it serves rolls daily', async () => {
+    await calendarOn('2026-08-05');
+    await calendarOn('2026-08-06');
+
+    const keys = [...cacheStore.keys()];
+    expect(keys.some(k => k.includes('2026-08-05'))).toBe(true);
+    expect(keys.some(k => k.includes('2026-08-06'))).toBe(true);
+  });
+});
+
+describe('holiday degradation', () => {
+  const dead = async () => {
+    throw new TypeError('network unreachable');
+  };
+
+  it('serves the previous day’s cached holidays, flagged stale, when upstream fails', async () => {
+    await calendarOn('2026-09-25'); // warms the cache
+    stubUpstream(dead);
+
+    const { res, body } = await calendarOn('2026-09-26');
+
+    expect(res.status).toBe(200);
+    expect(body.meta).toMatchObject({ holidaysAvailable: true, holidaysStale: true });
+    expect(body.calendar['2026-09-28'].publicHoliday).toEqual({ name: "King's Birthday" });
+    // Stamped when it was actually fetched, not when it was served.
+    expect(body.meta.holidaysFetchedAt).toBe(new Date(atPerth('2026-09-25')).toISOString());
+  });
+
+  it('marks holidays unavailable but still returns term context when nothing is cached', async () => {
+    stubUpstream(dead);
+
+    const { res, body } = await calendarOn('2026-09-28');
+
+    expect(res.status).toBe(200);
+    expect(body.meta).toMatchObject({ holidaysAvailable: false, holidaysStale: false });
+    expect(body.meta.holidaysFetchedAt).toBeNull();
+    // The whole point: term context does not depend on the holiday feed.
+    expect(body.calendar['2026-09-28']).toMatchObject({ state: 'break', nextTerm: 4 });
+    expect(body.calendar['2026-10-12']).toMatchObject({ state: 'term', term: 4, week: 1, weeksInTerm: 10 });
+    expect(body.calendar['2026-09-28'].publicHoliday).toBeNull();
+  });
+
+  it('treats an upstream error status as a failure rather than parsing the error page', async () => {
+    stubUpstream(async () => new Response('<html>Bad Gateway</html>', { status: 502 }));
+
+    const { body } = await calendarOn('2026-09-28');
+
+    expect(body.meta.holidaysAvailable).toBe(false);
+    expect(body.calendar['2026-09-28'].state).toBe('break');
+  });
+
+  it('treats a feed with no events as unusable rather than as "no holidays"', async () => {
+    await calendarOn('2026-09-25'); // warms the cache
+    stubUpstream(async () => new Response('BEGIN:VCALENDAR\r\nVERSION:2.0\r\nEND:VCALENDAR\r\n'));
+
+    const { body } = await calendarOn('2026-09-26');
+
+    expect(body.meta.holidaysStale).toBe(true);
+    expect(body.calendar['2026-09-28'].publicHoliday).toEqual({ name: "King's Birthday" });
+  });
+
+  it('never lets a holiday failure change term classification', async () => {
+    const healthy = await calendarOn('2026-08-05');
+    stubUpstream(dead);
+    cacheStore = stubCaches(); // cold, so the failure has nothing to fall back on
+    const broken = await calendarOn('2026-08-05');
+
+    const stripHolidays = body =>
+      Object.fromEntries(Object.entries(body.calendar).map(([date, { publicHoliday, ...rest }]) => [date, rest]));
+    expect(stripHolidays(broken.body)).toEqual(stripHolidays(healthy.body));
   });
 });
