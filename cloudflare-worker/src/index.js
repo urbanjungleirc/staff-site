@@ -58,7 +58,7 @@ export default {
         }
 
         const nowMs = Date.now();
-        const pastDays  = parseInt(env.DEPUTY_WINDOW_PAST_DAYS   ?? "60", 10);
+        const pastDays  = parseInt(env.DEPUTY_WINDOW_PAST_DAYS   ?? "30", 10);
         const futureDays = parseInt(env.DEPUTY_WINDOW_FUTURE_DAYS ?? "30", 10);
         const fromTs = Math.floor((nowMs - pastDays   * 86400000) / 1000);
         const toTs   = Math.floor((nowMs + futureDays * 86400000) / 1000);
