@@ -110,7 +110,7 @@ describe('/api/roster', () => {
     ]);
   });
 
-  it('asks Deputy for a 60-day-past / 30-day-future window by default', async () => {
+  it('asks Deputy for a 30-day-past / 30-day-future window by default', async () => {
     vi.spyOn(Date, 'now').mockReturnValue(NOW_MS);
     const upstream = stubFetch(jsonResponse([]), jsonResponse([]));
 
@@ -125,7 +125,7 @@ describe('/api/roster', () => {
     expect(search.s1).toEqual({
       field: 'StartTime',
       type: 'ge',
-      data: Math.floor((NOW_MS - 60 * DAY_MS) / 1000),
+      data: Math.floor((NOW_MS - 30 * DAY_MS) / 1000),
     });
     expect(search.s2).toEqual({
       field: 'StartTime',

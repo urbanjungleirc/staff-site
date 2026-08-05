@@ -30,7 +30,7 @@ COMMITTER_EMAIL = "devnull+uj-tools@happyk.au"
 DEPUTY_URL = "https://8fbf4e19073503.au.deputy.com/api/v1"
 
 # How many days before/after today to fetch from Deputy
-DEPUTY_WINDOW_PAST_DAYS = "60"
+DEPUTY_WINDOW_PAST_DAYS = "30"
 DEPUTY_WINDOW_FUTURE_DAYS = "30"
 
 # Secrets (set via `wrangler secret put`):

@@ -66,14 +66,14 @@ afterEach(() => {
 });
 
 describe('/api/roster Deputy window', () => {
-  it('queries 60 days back and 30 days forward by default', async () => {
+  it('queries 30 days back and 30 days forward by default', async () => {
     const deputy = stubDeputy({ parents: [parent(1, NOW / 1000)] });
 
     const res = await call();
 
     expect(res.status).toBe(200);
     const { search } = deputy.parentCalls()[0];
-    expect(search.s1).toMatchObject({ field: 'StartTime', type: 'ge', data: (NOW - 60 * DAY) / 1000 });
+    expect(search.s1).toMatchObject({ field: 'StartTime', type: 'ge', data: (NOW - 30 * DAY) / 1000 });
     expect(search.s2).toMatchObject({ field: 'StartTime', type: 'le', data: (NOW + 30 * DAY) / 1000 });
   });
 
@@ -90,7 +90,7 @@ describe('/api/roster Deputy window', () => {
 
 describe('/api/roster pagination past the 500-record cap', () => {
   it('pages the parent query until Deputy returns a short page', async () => {
-    // 620 records over the 90-day window: one full page plus a remainder.
+    // 620 records over the window: one full page plus a remainder.
     const parents = Array.from({ length: 620 }, (_, i) => parent(i + 1, NOW / 1000 + i * 60));
     const deputy = stubDeputy({ parents });
 
