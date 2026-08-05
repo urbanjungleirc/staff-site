@@ -130,6 +130,31 @@
         color: #fcd34d;
       }
 
+      /* Public holiday — a badge in front of the term context, never instead of
+         it, so the week number survives on the days staff most want it. */
+      .ctx-badge {
+        display: inline-block;
+        margin-right: 8px;
+        padding: 2px 9px;
+        border-radius: 999px;
+        background: #fff;
+        color: var(--accent);
+        font-size: 0.68em;
+        font-weight: 800;
+        letter-spacing: 0.08em;
+        text-transform: uppercase;
+        vertical-align: 0.14em;
+        white-space: nowrap;
+      }
+
+      /* Broken, holiday half only. Amber and visible like the term one, but a
+         sub-line: the term context above it is still a real answer. */
+      .ctx-broken {
+        font-size: 0.85rem;
+        font-weight: 600;
+        color: #fcd34d;
+      }
+
       /* Ageing — the maintainer can act, staff cannot. Muted on purpose so
          nobody is trained to ignore the amber one. */
       .ctx-ageing {
@@ -1575,15 +1600,52 @@
 
         el.className = 'day-context';
         //   keeps each label glued to its number when the line wraps.
-        main.textContent = day.state === 'term'
+        const holiday = day.publicHoliday;
+        let text;
+        if (holiday) {
+          // The badge and the holiday name already cost a line's worth of
+          // width, so the term half goes compact rather than being displaced.
+          text = day.state === 'term'
+            ? `${holiday.name} · Term ${day.term} · Wk ${day.week} of ${day.weeksInTerm}`
+            : `${holiday.name} · School holidays`;
+        } else {
+          text = day.state === 'term'
           ? `Term ${day.term} · Week ${day.week} of ${day.weeksInTerm}`
           : `School holidays · Term ${day.nextTerm} starts ${formatPlainDate(day.nextTermStart)}`;
+        }
+
+        if (holiday) {
+          const badge = document.createElement('span');
+          badge.className = 'ctx-badge';
+          badge.textContent = 'Public holiday';
+          main.appendChild(badge);
+        }
+        main.appendChild(document.createTextNode(text));
         el.appendChild(main);
+
+        // Holidays unavailable is its own failure, shown beneath a term context
+        // that is still a perfectly good answer.
+        if (calendarCache.meta?.holidaysAvailable === false) {
+          const broken = document.createElement('span');
+          broken.className = 'ctx-broken';
+          broken.textContent = 'Public holiday info unavailable.';
+          el.appendChild(broken);
+        }
 
         if (calendarCache.meta?.termTableAgeing) {
           const note = document.createElement('span');
           note.className = 'ctx-ageing';
           note.textContent = `Term dates run out ${formatPlainMonth(calendarCache.meta.termTableCoversTo)} — time to extend the table.`;
+          el.appendChild(note);
+        }
+
+        // Ageing, holiday half: served from cache because the feed was
+        // unreachable. Muted — it is still correct, and only the maintainer can
+        // act on it.
+        if (calendarCache.meta?.holidaysStale && calendarCache.meta?.holidaysFetchedAt) {
+          const note = document.createElement('span');
+          note.className = 'ctx-ageing';
+          note.textContent = `Public holidays last updated ${formatPlainDate(calendarCache.meta.holidaysFetchedAt.slice(0, 10))}.`;
           el.appendChild(note);
         }
       }

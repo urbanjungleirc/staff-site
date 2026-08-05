@@ -51,22 +51,36 @@ A WA-gazetted holiday, including substitute days. Substitute days are distinct
 dates, not annotations: Anzac Day 2026 legitimately occupies both Saturday 25
 and Monday 27 April.
 
-Not implemented yet — `/api/calendar` returns `publicHoliday: null` for every
-date until the holiday feed lands.
+Fetched live and cached, unlike the term table beside it — see
+[ADR 0001](docs/adr/0001-hybrid-calendar-sourcing.md). On the wire, a date
+carries `publicHoliday: { name }` or `null`. In the UI it is a **badge in front
+of** the term context, never instead of it, so the week number survives on the
+days staff most want it.
+
+*Avoid*: deduplicating by name, anywhere. Two dates sharing a name is the
+substitute-day rule working correctly.
 
 ### Calendar staleness
 
-Two distinct conditions, deliberately shown differently:
+Two distinct conditions, deliberately shown differently, and each half of the
+calendar can be in either independently:
 
-- **Broken** — the term table does not cover the date being viewed. Amber and
-  visible, because the answer is missing.
-- **Ageing** — the term table is within six months of running out. Muted grey,
-  because only the maintainer can act on it and staff should not be trained to
-  ignore warnings.
+- **Broken** — the answer is missing. Amber and visible. Either the term table
+  does not cover the date being viewed (`state: "unknown"`), or the holiday feed
+  failed with nothing cached to fall back on (`holidaysAvailable: false`).
+- **Ageing** — the answer is present but wants attention. Muted grey, because
+  only the maintainer can act on it and staff should not be trained to ignore
+  warnings. Either the term table is within six months of running out, or the
+  holidays were served from cache after an upstream failure
+  (`holidaysStale: true`).
 
 These name the *warning tiers*, not the wire format. A day whose state the table
 cannot determine is `state: "unknown"` on the wire; **broken** is the tier that
-state puts the display into. The CSS class is `is-broken` for that reason.
+state puts the display into. The CSS classes are `is-broken` and `ctx-broken`
+for that reason.
+
+A broken holiday half never breaks the term half: the amber line sits *beneath*
+a term context that still renders. Term context does not depend on the feed.
 
 Green is reserved for the "on now" shift state and is never used for calendar
 states.

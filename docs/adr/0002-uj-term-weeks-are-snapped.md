@@ -4,9 +4,8 @@
 - **Date**: 2026-08-05
 - **Context**: roster calendar context ([#8](https://github.com/urbanjungleirc/staff-site/issues/8), [#10](https://github.com/urbanjungleirc/staff-site/issues/10))
 
-> ADR 0001 (hybrid calendar sourcing) lands with the public-holiday slice,
-> [#11](https://github.com/urbanjungleirc/staff-site/issues/11). The numbering
-> was assigned in #8.
+> Companion: [ADR 0001](0001-hybrid-calendar-sourcing.md), on why half this
+> calendar is fetched and half is hardcoded.
 
 ## Context
 

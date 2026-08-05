@@ -8,7 +8,7 @@
  * - COMMITTER_NAME, COMMITTER_EMAIL (optional)
  */
 
-import { buildCalendar, perthToday } from "./calendar.js";
+import { buildCalendar, loadHolidays, perthToday } from "./calendar.js";
 
 export default {
   async fetch(request, env, ctx) {
@@ -57,8 +57,10 @@ export default {
         if (request.method !== "GET") {
           return json({ error: "Method not allowed" }, 405, allowedOrigin, { Allow: "GET, OPTIONS" });
         }
-        // Caching is ticket #11's call, along with the holiday feed it protects.
-        return json(buildCalendar(perthToday()), 200, allowedOrigin);
+        // Holidays are fetched and cached; terms are hardcoded. `loadHolidays`
+        // never throws, so the term half survives a holiday-feed outage.
+        const today = perthToday();
+        return json(buildCalendar(today, await loadHolidays(today)), 200, allowedOrigin);
       }
 
       if (url.pathname === "/api/roster") {
