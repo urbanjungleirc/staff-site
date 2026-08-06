@@ -23,6 +23,14 @@
       }
     }
   </script>
+  <!-- Client image pipeline (resize/convert decisions) published as a global for the
+       Alpine component below. Module scripts are deferred, and deferred scripts run in
+       document order — so this sits ABOVE the Alpine tag deliberately, to guarantee
+       window.imagePipeline exists before any picker expression evaluates. -->
+  <script type="module">
+    import * as pipeline from './image-pipeline.js';
+    window.imagePipeline = pipeline;
+  </script>
   <script defer src="https://cdn.jsdelivr.net/npm/alpinejs@3.x.x/dist/cdn.min.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/qrcode@1.5.3/build/qrcode.min.js"></script>
   <script src="https://unpkg.com/html5-qrcode@2.3.8/html5-qrcode.min.js"></script>
@@ -1948,7 +1956,7 @@
 
   <!-- ── Voucher Type editor modal ──────────────────────────────────────── -->
   <div x-show="typeEditorOpen" x-cloak class="fixed inset-0 z-50 flex items-center justify-center p-4"
-    @keydown.escape.window="!discardOpen && !revenueClassConfirmOpen && closeTypeEditor()">
+    @keydown.escape.window="!discardOpen && !revenueClassConfirmOpen && !imgModal && closeTypeEditor()">
     <div class="absolute inset-0 bg-black/40 backdrop-blur-sm" @click="closeTypeEditor()"></div>
     <div class="relative bg-white rounded-card shadow-2xl shadow-neutral-900/15 w-full max-w-7xl max-h-[90vh] overflow-y-auto p-6 border border-neutral-100">
       <div class="flex items-center justify-between mb-4">
@@ -2200,15 +2208,34 @@
 
           <!-- Hero backdrop (full-width band behind everything) -->
           <div>
-            <label class="block text-[0.67rem] font-semibold text-neutral-400 uppercase tracking-wider mb-1.5">Hero background URL<span class="help-tip" tabindex="0" role="note" aria-label="Help">?<span class="help-bubble">Photo behind the hero. Leave blank to use the accent colour gradient. Text sits over this — pick something that keeps white type readable.</span></span></label>
-            <input type="url" x-model="typeForm.hero_background_url" placeholder="https://tools.urbanjungleirc.com/assets/img/…"
-              class="w-full border border-neutral-200 rounded-xl px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-uj/20 focus:border-uj" />
-            <div x-show="typeForm.hero_background_url" class="mt-2">
-              <img :src="typeForm.hero_background_url" alt=""
-                class="w-full h-24 object-cover rounded-lg border border-neutral-200"
-                x-on:load="$el.nextElementSibling.style.display = 'none'; $el.style.display = ''"
-                x-on:error="$el.style.display = 'none'; $el.nextElementSibling.style.display = ''" />
-              <p style="display:none" class="text-xs text-red-600 mt-1">Image didn't load — check the URL is public and points directly at an image file.</p>
+            <label class="block text-[0.67rem] font-semibold text-neutral-400 uppercase tracking-wider mb-1.5">Hero background<span class="help-tip" tabindex="0" role="note" aria-label="Help">?<span class="help-bubble">Photo behind the hero. Leave blank to use the accent colour gradient. Text sits over this — pick something that keeps white type readable. Aim for 1920 × 1080; the edges get cropped on phones.</span></span></label>
+            <div class="rounded-xl border border-neutral-200 p-4">
+              <div class="flex flex-wrap gap-4 items-start">
+                <div class="flex-shrink-0">
+                  <div class="w-56 aspect-[16/9] rounded-xl overflow-hidden ring-1 ring-neutral-200 bg-neutral-100">
+                    <img :src="typeForm.hero_background_url" x-show="typeForm.hero_background_url" alt=""
+                      class="w-full h-full object-cover"
+                      x-on:load="imgBroken['hero_background_url'] = false"
+                      x-on:error="imgBroken['hero_background_url'] = true" />
+                  </div>
+                  <p class="text-[0.6rem] text-neutral-400 mt-1 text-center">Backdrop · 16:9</p>
+                </div>
+                <div class="flex-1 min-w-[11rem]">
+                  <p class="text-sm font-semibold text-neutral-700 truncate"
+                    x-text="imgMeta('hero_background_url').name || 'No background'"></p>
+                  <p class="text-xs text-neutral-400" x-text="imgMeta('hero_background_url').size"></p>
+                  <p class="text-xs text-neutral-400 mt-0.5" x-text="imgMeta('hero_background_url').used"></p>
+                  <div class="flex gap-2 mt-3">
+                    <button type="button" @click="openImgModal('background')"
+                      class="text-xs font-semibold px-3 py-1.5 rounded-lg bg-uj text-white hover:bg-uj-dark">Change image</button>
+                    <button type="button" @click="typeForm.hero_background_url = ''; refreshPreview()"
+                      x-show="typeForm.hero_background_url"
+                      class="text-xs font-semibold px-3 py-1.5 rounded-lg border border-neutral-200 text-neutral-600 hover:bg-neutral-50">Remove</button>
+                  </div>
+                </div>
+              </div>
+              <p x-show="typeForm.hero_background_url && imgBroken['hero_background_url']"
+                class="text-xs text-rose-600 mt-1.5">Image didn't load — check the URL is public and points directly at an image file.</p>
             </div>
           </div>
 
@@ -2247,16 +2274,51 @@
 
             <!-- Hero artwork (sits beside the copy) -->
             <div>
-              <label class="block text-[0.67rem] font-semibold text-neutral-400 uppercase tracking-wider mb-1.5">Hero artwork URL<span class="help-tip" tabindex="0" role="note" aria-label="Help">?<span class="help-bubble">Artwork shown beside the hero copy. Leave blank for the default voucher image.</span></span></label>
-              <input type="url" x-model="typeForm.hero_image_url" placeholder="https://tools.urbanjungleirc.com/assets/img/…"
-                class="w-full border border-neutral-200 rounded-xl px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-uj/20 focus:border-uj" />
-              <div x-show="typeForm.hero_image_url" class="mt-2">
-                <img :src="typeForm.hero_image_url" alt=""
-                  class="w-full h-40 object-cover rounded-lg border border-neutral-200"
-                  x-on:load="$el.nextElementSibling.style.display = 'none'; $el.style.display = ''"
-                  x-on:error="$el.style.display = 'none'; $el.nextElementSibling.style.display = ''" />
-                <p style="display:none" class="text-xs text-red-600 mt-1">Image didn't load — check the URL is public and points directly at an image file.</p>
+              <label class="block text-[0.67rem] font-semibold text-neutral-400 uppercase tracking-wider mb-1.5">Hero artwork<span class="help-tip" tabindex="0" role="note" aria-label="Help">?<span class="help-bubble">Artwork shown beside the hero copy. Leave blank to show no artwork. Aim for 1200 × 900 — it's cropped to a wide strip on phones, so keep the subject in the middle.</span></span></label>
+              <div class="rounded-xl border border-neutral-200 p-4">
+                <!-- The crops stay side by side at every width — seeing them together
+                     is the whole point — so they share a fluid two-column grid rather
+                     than fixed widths. This control sits in the narrower right-hand
+                     column, so the details wrap below instead of spilling out. -->
+                <div class="flex flex-wrap gap-4 items-start">
+                  <div class="grid grid-cols-2 gap-3 flex-1 min-w-[12rem] max-w-sm">
+                    <!-- desktop crop -->
+                    <div>
+                      <div class="w-full aspect-[4/3] rounded-xl overflow-hidden ring-1 ring-neutral-200 bg-neutral-100">
+                        <img :src="typeForm.hero_image_url" x-show="typeForm.hero_image_url" alt=""
+                          class="w-full h-full object-cover"
+                          x-on:load="imgBroken['hero_image_url'] = false"
+                          x-on:error="imgBroken['hero_image_url'] = true" />
+                      </div>
+                      <p class="text-[0.6rem] text-neutral-400 mt-1 text-center">Desktop · 4:3</p>
+                    </div>
+                    <!-- mobile crop -->
+                    <div>
+                      <div class="w-full aspect-[21/9] rounded-xl overflow-hidden ring-1 ring-neutral-200 bg-neutral-100">
+                        <img :src="typeForm.hero_image_url" x-show="typeForm.hero_image_url" alt=""
+                          class="w-full h-full object-cover" />
+                      </div>
+                      <p class="text-[0.6rem] text-neutral-400 mt-1 text-center">Phone · 21:9</p>
+                    </div>
+                  </div>
+                  <div class="flex-1 min-w-[11rem]">
+                    <p class="text-sm font-semibold text-neutral-700 truncate"
+                      x-text="imgMeta('hero_image_url').name || 'No artwork'"></p>
+                    <p class="text-xs text-neutral-400" x-text="imgMeta('hero_image_url').size"></p>
+                    <p class="text-xs text-neutral-400 mt-0.5" x-text="imgMeta('hero_image_url').used"></p>
+                    <div class="flex gap-2 mt-3">
+                      <button type="button" @click="openImgModal('hero')"
+                        class="text-xs font-semibold px-3 py-1.5 rounded-lg bg-uj text-white hover:bg-uj-dark">Change image</button>
+                      <button type="button" @click="typeForm.hero_image_url = ''; refreshPreview()"
+                        x-show="typeForm.hero_image_url"
+                        class="text-xs font-semibold px-3 py-1.5 rounded-lg border border-neutral-200 text-neutral-600 hover:bg-neutral-50">Remove</button>
+                    </div>
+                  </div>
+                </div>
               </div>
+              <p x-show="typeForm.hero_image_url && imgBroken['hero_image_url']"
+                class="text-xs text-rose-600 mt-1.5">Image didn't load — check the URL is public and points directly at an image file.</p>
+              <p class="text-[0.7rem] text-neutral-500 mt-1.5">Both crops come from the same image — keep the subject in the middle.</p>
             </div>
           </div>
 
@@ -2319,6 +2381,87 @@
           class="flex-1 bg-uj hover:bg-uj-dark disabled:opacity-50 text-white font-semibold rounded-xl py-2.5 text-sm transition-colors">
           <span x-text="typeEditorSaving ? 'Saving…' : 'Save type'"></span>
         </button>
+      </div>
+    </div>
+  </div>
+
+  <!-- ── Image library modal ──────────────────────────────────────────────
+       Opens on top of the type editor, so it sits above z-50 rather than
+       relying on document order. -->
+  <div x-show="imgModal" x-cloak class="fixed inset-0 z-[60] flex items-center justify-center p-4"
+    @keydown.escape.window="imgModal && (imgModal = null)">
+    <div class="absolute inset-0 bg-black/40 backdrop-blur-sm" @click="imgModal = null"></div>
+    <div class="relative bg-white rounded-card shadow-2xl shadow-neutral-900/15 w-full max-w-3xl max-h-[85vh] flex flex-col overflow-hidden border border-neutral-100">
+      <div class="px-5 py-4 border-b border-neutral-100 flex items-center gap-3 flex-wrap">
+        <h3 class="text-base font-semibold text-neutral-900" x-text="imgRoleInfo().title"></h3>
+        <div class="flex gap-1 ml-2">
+          <template x-for="t in ['Library','Upload','Paste URL']" :key="t">
+            <button type="button" @click="imgTab = t; imgMsg = ''; imgDeleteKey = null"
+              class="text-xs font-semibold px-3 py-1.5 rounded-lg transition-colors"
+              :class="imgTab === t ? 'bg-uj text-white' : 'text-neutral-600 hover:bg-neutral-100'"
+              x-text="t"></button>
+          </template>
+        </div>
+        <input type="text" x-model="imgSearch" x-show="imgTab === 'Library'" placeholder="Search by name…"
+          class="ml-auto w-48 max-w-full border border-neutral-200 rounded-xl px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-uj/20 focus:border-uj" />
+        <button @click="imgModal = null" class="text-neutral-400 hover:text-neutral-700 text-xl leading-none">&times;</button>
+      </div>
+
+      <!-- Library -->
+      <div x-show="imgTab === 'Library'" class="p-5 overflow-y-auto grid grid-cols-3 gap-3">
+        <template x-for="img in filteredLibrary()" :key="img.key">
+          <div class="group relative">
+            <button type="button" @click="chooseImage(img)"
+              class="w-full aspect-[4/3] rounded-xl overflow-hidden border border-neutral-200 block hover:border-uj transition-colors">
+              <img :src="img.url" alt="" class="w-full h-full object-cover" />
+            </button>
+            <div class="flex items-start justify-between gap-2 mt-1.5">
+              <div class="min-w-0">
+                <p class="text-xs font-medium text-neutral-700 truncate" x-text="imgName(img)"></p>
+                <p class="text-[0.65rem] text-neutral-400"
+                  x-text="(img.width && img.height ? img.width + ' × ' + img.height + ' · ' : '') + window.imagePipeline.formatBytes(img.bytes)"></p>
+                <p class="text-[0.65rem] text-neutral-400 truncate" x-text="imgUsedLabel(img)"></p>
+              </div>
+              <span x-show="!img.usedBy.length"
+                class="text-[0.55rem] px-1.5 py-0.5 rounded bg-amber-100 text-amber-700 font-semibold whitespace-nowrap">Unused</span>
+            </div>
+            <!-- First click arms, second deletes — see confirmDeleteImage(). -->
+            <button type="button" @click="confirmDeleteImage(img)"
+              :class="imgDeleteKey === img.key ? 'opacity-100 bg-rose-600 text-white hover:bg-rose-700' : 'opacity-0 group-hover:opacity-100 focus:opacity-100 bg-white/90 text-rose-600 hover:bg-white'"
+              class="absolute top-1.5 right-1.5 rounded-lg px-2 py-1 text-[0.6rem] font-semibold transition-opacity"
+              x-text="imgDeleteKey === img.key ? 'Confirm' : 'Delete'"></button>
+          </div>
+        </template>
+        <p x-show="!filteredLibrary().length" class="col-span-3 text-sm text-neutral-400 text-center py-8">
+          No images yet. Use the Upload tab to add one.</p>
+      </div>
+
+      <!-- Upload -->
+      <div x-show="imgTab === 'Upload'" class="p-5">
+        <label class="block border-2 border-dashed border-neutral-200 rounded-xl p-10 text-center cursor-pointer hover:border-uj transition-colors"
+          :class="imgBusy ? 'opacity-50 pointer-events-none' : ''"
+          @dragover.prevent @drop.prevent="uploadImage($event.dataTransfer.files[0])">
+          <input type="file" accept="image/png,image/jpeg,image/webp" class="hidden"
+            @change="uploadImage($event.target.files[0]); $el.value = ''" />
+          <p class="text-sm font-semibold text-neutral-600" x-text="imgBusy ? 'Working…' : 'Drop an image here, or click to choose'"></p>
+          <p class="text-xs text-neutral-400 mt-1">Upload an image. Aim for 1200 × 900 — large images are resized automatically.</p>
+        </label>
+      </div>
+
+      <!-- Paste URL -->
+      <div x-show="imgTab === 'Paste URL'" class="p-5">
+        <input type="url" x-model="imgPasteUrl" placeholder="https://…"
+          class="w-full border border-neutral-200 rounded-xl px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-uj/20 focus:border-uj" />
+        <p class="text-xs text-neutral-400 mt-2">The image won't appear in the library — it stays wherever you're linking to.</p>
+        <!-- Disabled while blank: an empty "Use this URL" would silently clear the field. -->
+        <button type="button" @click="chooseImage({ url: imgPasteUrl.trim() }); imgPasteUrl = ''"
+          :disabled="!imgPasteUrl.trim()"
+          class="mt-3 text-xs font-semibold px-3 py-2 rounded-lg bg-uj hover:bg-uj-dark disabled:opacity-50 text-white transition-colors">Use this URL</button>
+      </div>
+
+      <div class="px-5 py-3 border-t border-neutral-100 text-[0.7rem] text-neutral-500 flex items-center gap-3">
+        <span x-text="imgMsg || 'PNG, JPEG or WebP. Aim for 1200 × 900 — large images are resized automatically.'"></span>
+        <button type="button" @click="imgModal = null" class="ml-auto text-xs font-semibold px-3 py-1.5 rounded-lg border border-neutral-200 hover:bg-neutral-50 transition-colors">Close</button>
       </div>
     </div>
   </div>
@@ -2696,6 +2839,16 @@
     // Localhost has no Access in front of it, so it keeps the shared-secret path.
     const IS_LOCAL = ['localhost', '127.0.0.1'].includes(window.location.hostname);
     const WORKER = IS_LOCAL ? 'https://uj-payments.urbanjungle.workers.dev' : '/api/payments';
+
+    // Everything that differs between the two image pickers, keyed by the role
+    // the Worker uses — so the difference lives in one place rather than in a
+    // ternary at every site that needs it. Mirrors ROLE_TARGETS in
+    // image-pipeline.js, which is keyed the same way.
+    const IMAGE_ROLES = {
+      hero:       { field: 'hero_image_url',      title: 'Hero artwork library' },
+      background: { field: 'hero_background_url', title: 'Hero background library' },
+    };
+
     return {
       WORKER,
       IS_LOCAL,
@@ -2809,6 +2962,20 @@
       deactivateTarget: null,
       revenueClassConfirmOpen: false,
       _typeFormOriginalRevenueClass: null,
+
+      // ── Image picker ───────────────────────────────────────────────────
+      // Component-level, not part of typeForm: the picker outlives a single
+      // field edit and typeForm is rebuilt from blankTypeForm() on every open.
+      imgModal: null,          // null | 'hero' | 'background'
+      imgTab: 'Library',       // Library | Upload | Paste URL
+      imgLibrary: [],          // the open picker's role, from the Worker
+      imgAll: [],              // both roles, so the control can describe itself at rest
+      imgSearch: '',
+      imgMsg: '',
+      imgBusy: false,
+      imgPasteUrl: '',
+      imgDeleteKey: null,      // the image whose Delete button is armed
+      imgBroken: {},           // field -> true when its image failed to load
       _pendingTypeSave: null,
       typeItemCounts: {},
       dragItemIndex: null,
@@ -4262,6 +4429,10 @@
         this._typeFormSnapshot = null;
         this.$nextTick(() => { this._typeFormSnapshot = this._formFingerprint(this.typeForm); });
         this.refreshPreview();
+        // Not awaited: the image controls describe themselves once it lands, and
+        // nothing else in the editor waits on it.
+        this.imgBroken = {};
+        this.loadKnownImages();
       },
 
       // Order-independent, type-tolerant fingerprint of a form object: sort keys
@@ -4302,6 +4473,220 @@
       },
 
       closeTypeEditor() { this.requestClose('type'); },
+
+      // ── Image picker ─────────────────────────────────────────────────────
+      // Every Worker call below goes through this.api() deliberately: it
+      // prefixes WORKER, merges authHeaders(), turns a lapsed Access session
+      // into a recognisable error rather than confusing JSON, and throws with
+      // the Worker's own `error` string as the message — which is why the
+      // 400/409/413 copy surfaces verbatim in the modal footer. A bare fetch()
+      // here would silently lose all of that.
+      // The modal is closed (null) or open on a role; everything else about a
+      // role comes from IMAGE_ROLES.
+      imgRole() {
+        return this.imgModal === 'background' ? 'background' : 'hero';
+      },
+
+      imgRoleInfo() {
+        return IMAGE_ROLES[this.imgRole()];
+      },
+
+      imgField() {
+        return this.imgRoleInfo().field;
+      },
+
+      // 'hero/summer-promo-9f3a2b7c.png' -> 'summer-promo'
+      imgName(img) {
+        const file = String(img.key || img.url || '').split('/').pop() || '';
+        return file.replace(/-[0-9a-f]{8}\.\w+$/, '') || file;
+      },
+
+      imgUsedLabel(img) {
+        return img.usedBy && img.usedBy.length
+          ? `Used by ${img.usedBy.join(', ')}`
+          : 'Not used by any type';
+      },
+
+      imgMeta(field) {
+        const url = this.typeForm[field];
+        if (!url) return { name: '', size: '', used: '' };
+        // imgAll covers both roles and is loaded with the editor, so the control
+        // can describe its own image before any picker has been opened.
+        const found = this.imgAll.find(i => i.url === url) || this.imgLibrary.find(i => i.url === url);
+        // Not in the library means it is someone else's URL — say so rather
+        // than inventing a size for bytes we have never seen.
+        if (!found) return { name: url.split('/').pop(), size: '', used: 'Linked from another site' };
+        return {
+          name: this.imgName(found),
+          size: (found.width && found.height ? `${found.width} × ${found.height} · ` : '')
+            + window.imagePipeline.formatBytes(found.bytes),
+          used: this.imgUsedLabel(found),
+        };
+      },
+
+      async openImgModal(role) {
+        this.imgModal = role;
+        this.imgTab = 'Library';
+        this.imgMsg = '';
+        this.imgSearch = '';
+        this.imgDeleteKey = null;
+        await this.loadImgLibrary();
+      },
+
+      async loadImgLibrary() {
+        try {
+          const data = await this.api(`/v1/staff/images?role=${this.imgRole()}`);
+          this.imgLibrary = data.images || [];
+        } catch (err) {
+          this.imgMsg = err.message;
+          this.imgLibrary = [];
+        }
+      },
+
+      // Both roles at once, for the at-rest control. Failure is deliberately
+      // silent: the meta line simply goes quiet, and the editor — which is not
+      // about images — still opens and saves.
+      async loadKnownImages() {
+        try {
+          const data = await this.api('/v1/staff/images');
+          this.imgAll = data.images || [];
+        } catch {
+          this.imgAll = [];
+        }
+      },
+
+      filteredLibrary() {
+        const q = this.imgSearch.trim().toLowerCase();
+        if (!q) return this.imgLibrary;
+        return this.imgLibrary.filter(i => this.imgName(i).toLowerCase().includes(q));
+      },
+
+      // Assign without closing. Split out so an upload that raised an advisory
+      // warning can apply the image and still leave the message on screen —
+      // closing the modal would wipe the warning before it was read.
+      applyImage(img) {
+        this.typeForm[this.imgField()] = img.url;
+        // The field is no longer an <input>, so the editor's @input handler
+        // never fires — refresh the live preview the way the combos do.
+        this.refreshPreview();
+      },
+
+      chooseImage(img) {
+        this.applyImage(img);
+        this.imgModal = null;
+      },
+
+      async uploadImage(file) {
+        if (!file || this.imgBusy) return;
+        const P = window.imagePipeline;
+        const role = this.imgRole();
+
+        // Format first: an unsupported type cannot be salvaged, and checking it
+        // before size means a dropped SVG reads as "not supported" rather than
+        // the misleading "too big". The file input's accept attribute does not
+        // apply to drag-and-drop, so this is the only guard on that path.
+        if (!P.isAcceptedType(file.type)) {
+          this.imgMsg = 'That file type is not supported. Please use a PNG, JPEG or WebP image.';
+          return;
+        }
+
+        if (P.tooLargeToProcess(file.size)) {
+          this.imgMsg = `That file's too big to process in the browser (${P.formatBytes(file.size)}). Resize it first, then upload.`;
+          return;
+        }
+
+        this.imgBusy = true;
+        this.imgMsg = '';
+        try {
+          let { blob, width, height } = await P.resizeImage(file, { role });
+
+          // Advisory, never blocking: a soft image is a judgement call, not a
+          // fault. Held aside so the upload can still finish, and so the modal
+          // stays open at the end to show it.
+          let advisory = '';
+          if (P.isTooSmall({ role, width })) {
+            advisory = `This is only ${width} px wide, so it'll look soft on phones. Aim for 1200 × 900.`;
+            this.imgMsg = advisory;
+          }
+
+          // The one place human judgement earns an interruption: converting a
+          // flat-colour graphic to JPEG would wreck it, so we ask rather than
+          // convert everything automatically.
+          if (P.overSoftBudget(blob.size)) {
+            const jpeg = await P.resizeImage(file, { role, mimeType: 'image/jpeg' });
+            const ok = confirm(
+              `This is ${P.formatBytes(blob.size)}, which is heavy for a page people open on their phones. `
+              + `Converting it to JPEG would bring it to about ${P.formatBytes(jpeg.blob.size)}.\n\n`
+              + `OK to convert, Cancel to keep as is.`);
+            if (ok) ({ blob, width, height } = jpeg);
+          }
+
+          if (P.overHardCap(blob.size)) {
+            this.imgMsg = `Still ${P.formatBytes(blob.size)} after resizing — too large for the voucher page. Try converting it to JPEG, or pick a different image.`;
+            return;
+          }
+
+          const qs = new URLSearchParams({ filename: file.name, w: String(width), h: String(height) });
+          // ⚠️ The Content-Type override is REQUIRED. authHeaders() defaults to
+          // application/json; the upload route reads a raw body and sniffs magic
+          // bytes, so the declared type must be the image's. options.headers is
+          // spread OVER authHeaders() inside api(), so this wins.
+          const data = await this.api(`/v1/staff/images/${role}?${qs}`, {
+            method: 'POST',
+            headers: { 'Content-Type': blob.type || 'application/octet-stream' },
+            body: blob,
+          });
+
+          await this.loadImgLibrary();
+          await this.loadKnownImages();
+          // Applied either way. With an advisory the modal stays open so the
+          // warning is actually read; without one, picking is the whole job.
+          if (advisory) {
+            this.applyImage(data);
+            this.imgMsg = advisory;
+          } else {
+            this.chooseImage(data);
+          }
+        } catch (err) {
+          this.imgMsg = err.message;
+        } finally {
+          this.imgBusy = false;
+        }
+      },
+
+      // Deleting is permanent and the button sits a few pixels from "choose this
+      // image", so the first click only arms it — one misclick must not be able
+      // to destroy artwork. A styled two-step rather than a native confirm(),
+      // matching how the discard prompt works elsewhere in this editor.
+      confirmDeleteImage(img) {
+        if (this.imgDeleteKey !== img.key) {
+          this.imgDeleteKey = img.key;
+          this.imgMsg = `Delete ${this.imgName(img)}? Click Confirm to remove it for good.`;
+          return;
+        }
+        return this.deleteImage(img);
+      },
+
+      async deleteImage(img) {
+        // A refusal shows in the modal footer, where the staff member is already
+        // looking: api() throws on 409 with the Worker's "Can't delete — …" copy,
+        // which names the types still holding the image.
+        try {
+          const data = await this.api(`/v1/staff/images/${img.key}`, { method: 'DELETE' });
+          // purged:false means the object left R2 but its cached response may
+          // keep serving for a while. Rare, and not an error — but saying
+          // nothing would claim the image is gone when the URL still works.
+          this.imgMsg = data.purged === false
+            ? `${this.imgName(img)} deleted. The old copy may keep loading for a little while until the cache clears.`
+            : `${this.imgName(img)} deleted.`;
+          await this.loadImgLibrary();
+          await this.loadKnownImages();
+        } catch (err) {
+          this.imgMsg = err.message;
+        } finally {
+          this.imgDeleteKey = null;
+        }
+      },
 
       // Discard-confirmation flow. Instead of a native confirm(), closing a dirty
       // editor opens a styled modal; the close only runs if the user confirms.
