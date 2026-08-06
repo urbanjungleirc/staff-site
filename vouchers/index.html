@@ -90,6 +90,57 @@
       background: rgba(245, 158, 11, 0.09);
       border-color: rgba(245, 158, 11, 0.22);
     }
+    /* Modal footer message bar. The image modal's footer is its ONLY feedback
+       channel — refusals, confirmations, advisories and successes all land
+       there — so it is tinted by severity. Rendered in the standing hint's
+       muted grey, a blocked delete reads as ordinary helper text and gets
+       missed; staff had to go looking for it to find out what happened.
+
+       Plain CSS rather than Tailwind utilities on purpose: the severity is
+       chosen in JS, and the Play CDN's JIT only generates classes it can see
+       in the markup. Colours reuse the .icon-tile severity hexes above so the
+       page has one vocabulary, not two. */
+    .msg-bar {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      padding: 12px 20px;
+      border-top: 1px solid #f5f5f5;
+      transition: background-color .15s ease, border-color .15s ease;
+    }
+    .msg-bar-dot {
+      width: 17px;
+      height: 17px;
+      flex-shrink: 0;
+      border-radius: 999px;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 11px;
+      font-weight: 700;
+      line-height: 1;
+      color: #fff;
+    }
+    .msg-bar-text { font-size: 0.7rem; color: #737373; }
+    /* Size and weight step up alongside the colour: colour on its own is not an
+       accessible signal, and this text carries the refusal reason. */
+    .msg-bar.is-flagged .msg-bar-text { font-size: 0.78rem; font-weight: 600; }
+
+    .msg-bar.is-error   { background: rgba(225, 29, 72, 0.07); border-top-color: rgba(225, 29, 72, 0.22); }
+    .msg-bar.is-error   .msg-bar-text { color: #be123c; }
+    .msg-bar.is-error   .msg-bar-dot  { background: #e11d48; }
+
+    .msg-bar.is-warning { background: rgba(245, 158, 11, 0.11); border-top-color: rgba(245, 158, 11, 0.28); }
+    .msg-bar.is-warning .msg-bar-text { color: #b45309; }
+    .msg-bar.is-warning .msg-bar-dot  { background: #f59e0b; }
+
+    .msg-bar.is-success { background: rgba(5, 150, 105, 0.09); border-top-color: rgba(5, 150, 105, 0.22); }
+    .msg-bar.is-success .msg-bar-text { color: #047857; }
+    .msg-bar.is-success .msg-bar-dot  { background: #059669; }
+
+    .msg-bar.is-info    { background: rgba(2, 132, 199, 0.08); border-top-color: rgba(2, 132, 199, 0.22); }
+    .msg-bar.is-info    .msg-bar-text { color: #0369a1; }
+    .msg-bar.is-info    .msg-bar-dot  { background: #0284c7; }
     /* Header brand icon — a saturated brand-gradient "logo chip": a brighter red
        than the dark-red header so it reads as a badge (not a translucent nav
        button), white glyph, soft drop shadow, hairline light edge for lift. */
@@ -2396,7 +2447,7 @@
         <h3 class="text-base font-semibold text-neutral-900" x-text="imgRoleInfo().title"></h3>
         <div class="flex gap-1 ml-2">
           <template x-for="t in ['Library','Upload','Paste URL']" :key="t">
-            <button type="button" @click="imgTab = t; imgMsg = ''; imgDeleteKey = null"
+            <button type="button" @click="imgTab = t; setImgMsg(''); imgDeleteKey = null"
               class="text-xs font-semibold px-3 py-1.5 rounded-lg transition-colors"
               :class="imgTab === t ? 'bg-uj text-white' : 'text-neutral-600 hover:bg-neutral-100'"
               x-text="t"></button>
@@ -2459,9 +2510,14 @@
           class="mt-3 text-xs font-semibold px-3 py-2 rounded-lg bg-uj hover:bg-uj-dark disabled:opacity-50 text-white transition-colors">Use this URL</button>
       </div>
 
-      <div class="px-5 py-3 border-t border-neutral-100 text-[0.7rem] text-neutral-500 flex items-center gap-3">
-        <span x-text="imgMsg || 'PNG, JPEG or WebP. Aim for 1200 × 900 — large images are resized automatically.'"></span>
-        <button type="button" @click="imgModal = null" class="ml-auto text-xs font-semibold px-3 py-1.5 rounded-lg border border-neutral-200 hover:bg-neutral-50 transition-colors">Close</button>
+      <!-- Falls back to the standing hint when there is nothing to report, and
+           stays deliberately muted in that state — tinting ambient help would
+           spend the colour vocabulary on noise and blunt it for real news. -->
+      <div class="msg-bar" :class="imgMsg ? 'is-flagged is-' + imgMsgKind : ''">
+        <span class="msg-bar-dot" x-show="imgMsg" x-cloak aria-hidden="true" x-text="imgMsgIcon()"></span>
+        <span class="msg-bar-text" role="status" aria-live="polite"
+          x-text="imgMsg || 'PNG, JPEG or WebP. Aim for 1200 × 900 — large images are resized automatically.'"></span>
+        <button type="button" @click="imgModal = null" class="ml-auto shrink-0 text-xs font-semibold px-3 py-1.5 rounded-lg border border-neutral-200 hover:bg-neutral-50 transition-colors">Close</button>
       </div>
     </div>
   </div>
@@ -2827,7 +2883,15 @@
     x-transition:leave="transition ease-in duration-150"
     x-transition:leave-end="opacity-0"
     class="fixed bottom-6 left-1/2 -translate-x-1/2 z-50 pointer-events-none">
-    <div :class="toast?.type==='error' ? 'bg-rose-600' : 'bg-neutral-900'"
+    <!-- showToast() already defaults to type 'success', but every non-error
+         toast used to render in the same neutral dark grey, so a confirmation
+         looked identical to a bare notice. The colour now follows the type the
+         caller already passes. The 700 shades are deliberate: white text on
+         the 600s falls under 4.5:1. -->
+    <div :class="toast?.type === 'error' ? 'bg-rose-600'
+               : toast?.type === 'warning' ? 'bg-amber-700'
+               : toast?.type === 'info' ? 'bg-neutral-900'
+               : 'bg-emerald-700'"
       class="text-white text-[0.82rem] font-medium px-4 py-2.5 rounded-full shadow-lg whitespace-nowrap"
       x-text="toast?.msg"></div>
   </div>
@@ -2972,6 +3036,7 @@
       imgAll: [],              // both roles, so the control can describe itself at rest
       imgSearch: '',
       imgMsg: '',
+      imgMsgKind: 'info',      // info | warning | error | success — drives .msg-bar's tint
       imgBusy: false,
       imgPasteUrl: '',
       imgDeleteKey: null,      // the image whose Delete button is armed
@@ -4524,10 +4589,24 @@
         };
       },
 
+      // Text and severity move together, always. As two independently-assigned
+      // properties they would drift — a later message inheriting the previous
+      // one's colour is exactly the mismatch that makes a refusal read as a
+      // success. Clearing resets the tint too, so a stale colour cannot outlive
+      // the message that earned it.
+      setImgMsg(text, kind = 'info') {
+        this.imgMsg = text;
+        this.imgMsgKind = text ? kind : 'info';
+      },
+
+      imgMsgIcon() {
+        return { error: '!', warning: '!', success: '✓', info: 'i' }[this.imgMsgKind] || 'i';
+      },
+
       async openImgModal(role) {
         this.imgModal = role;
         this.imgTab = 'Library';
-        this.imgMsg = '';
+        this.setImgMsg('');
         this.imgSearch = '';
         this.imgDeleteKey = null;
         await this.loadImgLibrary();
@@ -4538,7 +4617,7 @@
           const data = await this.api(`/v1/staff/images?role=${this.imgRole()}`);
           this.imgLibrary = data.images || [];
         } catch (err) {
-          this.imgMsg = err.message;
+          this.setImgMsg(err.message, 'error');
           this.imgLibrary = [];
         }
       },
@@ -4586,17 +4665,17 @@
         // the misleading "too big". The file input's accept attribute does not
         // apply to drag-and-drop, so this is the only guard on that path.
         if (!P.isAcceptedType(file.type)) {
-          this.imgMsg = 'That file type is not supported. Please use a PNG, JPEG or WebP image.';
+          this.setImgMsg('That file type is not supported. Please use a PNG, JPEG or WebP image.', 'error');
           return;
         }
 
         if (P.tooLargeToProcess(file.size)) {
-          this.imgMsg = `That file's too big to process in the browser (${P.formatBytes(file.size)}). Resize it first, then upload.`;
+          this.setImgMsg(`That file's too big to process in the browser (${P.formatBytes(file.size)}). Resize it first, then upload.`, 'error');
           return;
         }
 
         this.imgBusy = true;
-        this.imgMsg = '';
+        this.setImgMsg('');
         try {
           let { blob, width, height } = await P.resizeImage(file, { role });
 
@@ -4606,7 +4685,7 @@
           let advisory = '';
           if (P.isTooSmall({ role, width })) {
             advisory = `This is only ${width} px wide, so it'll look soft on phones. Aim for 1200 × 900.`;
-            this.imgMsg = advisory;
+            this.setImgMsg(advisory, 'warning');
           }
 
           // The one place human judgement earns an interruption: converting a
@@ -4622,7 +4701,7 @@
           }
 
           if (P.overHardCap(blob.size)) {
-            this.imgMsg = `Still ${P.formatBytes(blob.size)} after resizing — too large for the voucher page. Try converting it to JPEG, or pick a different image.`;
+            this.setImgMsg(`Still ${P.formatBytes(blob.size)} after resizing — too large for the voucher page. Try converting it to JPEG, or pick a different image.`, 'error');
             return;
           }
 
@@ -4643,12 +4722,12 @@
           // warning is actually read; without one, picking is the whole job.
           if (advisory) {
             this.applyImage(data);
-            this.imgMsg = advisory;
+            this.setImgMsg(advisory, 'warning');
           } else {
             this.chooseImage(data);
           }
         } catch (err) {
-          this.imgMsg = err.message;
+          this.setImgMsg(err.message, 'error');
         } finally {
           this.imgBusy = false;
         }
@@ -4661,7 +4740,7 @@
       confirmDeleteImage(img) {
         if (this.imgDeleteKey !== img.key) {
           this.imgDeleteKey = img.key;
-          this.imgMsg = `Delete ${this.imgName(img)}? Click Confirm to remove it for good.`;
+          this.setImgMsg(`Delete ${this.imgName(img)}? Click Confirm to remove it for good.`, 'warning');
           return;
         }
         return this.deleteImage(img);
@@ -4676,13 +4755,22 @@
           // purged:false means the object left R2 but its cached response may
           // keep serving for a while. Rare, and not an error — but saying
           // nothing would claim the image is gone when the URL still works.
-          this.imgMsg = data.purged === false
-            ? `${this.imgName(img)} deleted. The old copy may keep loading for a little while until the cache clears.`
-            : `${this.imgName(img)} deleted.`;
+          // purged:false is a success with a caveat, so it is flagged amber
+          // rather than green: green says "done, nothing to think about", which
+          // is the very impression that would mislead when the old URL still
+          // loads for a while.
+          if (data.purged === false) {
+            this.setImgMsg(`${this.imgName(img)} deleted. The old copy may keep loading for a little while until the cache clears.`, 'warning');
+          } else {
+            this.setImgMsg(`${this.imgName(img)} deleted.`, 'success');
+          }
           await this.loadImgLibrary();
           await this.loadKnownImages();
         } catch (err) {
-          this.imgMsg = err.message;
+          // The in-use refusal lands here — the Worker's 409 copy names the
+          // types still holding the image. It is the message most likely to be
+          // missed, hence the loudest treatment.
+          this.setImgMsg(err.message, 'error');
         } finally {
           this.imgDeleteKey = null;
         }
