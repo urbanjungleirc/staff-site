@@ -30,6 +30,10 @@ concurrency:
 
 jobs:
   deploy:
+    # `main` is production, so a manual run must not be able to publish a
+    # feature branch to it — `gh workflow run pages.yml --ref <branch>` would
+    # otherwise do exactly that.
+    if: github.ref == 'refs/heads/main'
     runs-on: ubuntu-latest
     environment:
       name: github-pages
@@ -48,9 +52,17 @@ jobs:
           node-version: '20'
 
       - name: Generate the voucher hub build version
+        # The generator cannot throw, but the step around it can: if node were
+        # missing the redirect would still leave an empty file behind, and an
+        # empty version.json is a worse answer than a failed deploy. Check it
+        # is usable here, where the previous build is still live.
         run: |
           node vouchers/scripts/version.mjs > vouchers/version.json
           cat vouchers/version.json
+          node -e 'const v = JSON.parse(require("node:fs").readFileSync("vouchers/version.json", "utf8"));
+                   if (!v.version || !v.builtAt || typeof v.sha !== "string") {
+                     throw new Error("unusable version.json: " + JSON.stringify(v));
+                   }'
 
       - name: Stage the site
         # The artifact is the repository as served today, minus the two things

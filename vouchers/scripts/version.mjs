@@ -33,22 +33,23 @@ function git(args, cwd) {
 // repository; the workflow calls computeVersion() with no arguments.
 export function computeVersion({ cwd = HUB_DIR, runGit = git } = {}) {
   const builtAt = new Date().toISOString();
+  const dev = { ...DEV_VERSION, builtAt };
   try {
     // A shallow checkout answers `rev-list --count` with 1 and reports no
     // error, which would pin the version at a plausible-looking number forever.
     // The workflow sets fetch-depth: 0; this is what catches it if that is ever
     // dropped. Anything other than a flat "false" is treated as shallow.
-    if (runGit(['rev-parse', '--is-shallow-repository'], cwd) !== 'false') return { ...DEV_VERSION, builtAt };
+    if (runGit(['rev-parse', '--is-shallow-repository'], cwd) !== 'false') return dev;
 
     const count = runGit(['rev-list', '--count', 'HEAD', '--', '.'], cwd);
     const sha = runGit(['rev-parse', '--short=7', 'HEAD'], cwd);
-    if (!/^\d+$/.test(count) || !/^[0-9a-f]{7}$/.test(sha)) return { ...DEV_VERSION, builtAt };
+    if (!/^\d+$/.test(count) || !/^[0-9a-f]{7}$/.test(sha)) return dev;
 
     return { version: count, sha, builtAt };
   } catch {
     // No .git, git not installed, a detached or empty repository — all the same
     // answer: the deploy proceeds, the page says "dev".
-    return { ...DEV_VERSION, builtAt };
+    return dev;
   }
 }
 
