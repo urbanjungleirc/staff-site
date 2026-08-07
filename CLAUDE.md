@@ -244,7 +244,18 @@ Local Worker secrets can go in `cloudflare-worker/.dev.vars`. Do not commit real
 
 ## Deployment
 
-Normal static site changes deploy by pushing to `main`.
+> ⚠️ **`main` IS production.** GitHub Pages serves this repo's root directly to
+> `ujstaff.happyk.au` — legacy Pages, `source: main /`. No build step, no
+> workflow, no approval gate; the repo has no `.github/` directory at all.
+> Anything reaching `main` is live in well under a minute.
+>
+> **That includes merging a pull request.** There is no separate "deploy" step
+> to hold back, so *merging is deploying*. If a change is not ready to be seen by
+> staff — or a ticket says not to deploy yet — it must not reach `main`, on a
+> branch or otherwise. Where deploy **order** matters (the voucher portal needs
+> its Worker and migration live first), merge this repo **last**.
+
+Static changes therefore publish either way — a direct push, or a merged PR:
 
 ```bash
 git add <files>
@@ -252,10 +263,24 @@ git commit -m "description"
 git push origin main
 ```
 
-GitHub Pages publishes the static files. The Cloudflare Worker must also be deployed when `cloudflare-worker/` code or Worker config changes:
+Confirm a deploy from the Pages build, and check the commit it built:
 
 ```bash
-cd cloudflare-worker
+gh api repos/urbanjungleirc/staff-site/pages/builds/latest -q '.status + " " + .commit'
+```
+
+**Do not confirm it by fetching the page.** The zone sits behind Cloudflare
+Access, so an unauthenticated request returns **HTTP 200 carrying the Access
+login page**, not the file you asked for — a success status and a body that
+never contains your change. Verifying content needs a real browser session.
+
+The two Workers deploy separately; a Pages publish does not touch them.
+
+```bash
+cd cloudflare-worker          # roster + tools.json API
+npx wrangler deploy
+
+cd cloudflare-payments-proxy  # voucher portal → uj-payments; happyk account
 npx wrangler deploy
 ```
 
