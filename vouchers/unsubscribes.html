@@ -28,8 +28,13 @@
        in document order — so this sits ABOVE the Alpine tag deliberately, to guarantee
        window.unsubscribeLogic exists before any expression evaluates. Same seam as
        image-pipeline.js on the hub page. -->
+  <!-- ?v= MUST be bumped whenever unsubscribes-logic.js gains or renames an export.
+       GitHub Pages sets a long cache lifetime and this page is a static file with no
+       build step, so without it a browser keeps a previously cached module while
+       loading new HTML — and the page renders no rows at all. That exact regression
+       shipped once; the boot check in init() is what makes it say so out loud. -->
   <script type="module">
-    import * as logic from './unsubscribes-logic.js';
+    import * as logic from './unsubscribes-logic.js?v=2';
     window.unsubscribeLogic = logic;
   </script>
   <script defer src="https://cdn.jsdelivr.net/npm/alpinejs@3.x.x/dist/cdn.min.js"></script>
@@ -279,7 +284,7 @@
 
       <div x-show="loading" class="py-10 text-center text-sm text-neutral-500">Loading…</div>
 
-      <template x-if="!loading">
+      <template x-if="!loading && !scriptStale">
         <div>
 
           <!-- ── Add ─────────────────────────────────────────────────────── -->
@@ -551,6 +556,12 @@
     // Alpine-bound rows are not built for a lookup that wants one of them.
     const ROW_CAP = 50;
 
+    // Every function the template depends on. Checked at boot — see init().
+    const REQUIRED_LOGIC = [
+      'partitionSuppressions', 'isRemovable', 'sourceLabel',
+      'matchMembers', 'isFreeTextOffer', 'filterSuppressions',
+    ];
+
     const PERTH_DATE = new Intl.DateTimeFormat('en-AU', {
       timeZone: 'Australia/Perth', day: 'numeric', month: 'short', year: 'numeric',
     });
@@ -563,6 +574,10 @@
         loading: true,
         error: '',
         busy: false,
+
+        // Set when the boot check finds the logic module too old for this page.
+        // Suppresses the body entirely, so no getter evaluates against it.
+        scriptStale: false,
 
         suppressions: [],
         members: [],
@@ -592,6 +607,22 @@
         justResubscribed: [],
 
         async init() {
+          // A stale cached module fails one expression at a time, which Alpine
+          // swallows per-expression: the page renders, the list is simply empty,
+          // and an empty list here reads as "nobody is suppressed". Checking up
+          // front turns that into a message staff can act on.
+          const missing = REQUIRED_LOGIC.filter(
+            (fn) => typeof window.unsubscribeLogic?.[fn] !== 'function',
+          );
+          if (missing.length) {
+            this.scriptStale = true;
+            this.loading = false;
+            this.error = 'This page loaded an out-of-date script, so the list cannot be shown. '
+              + 'Reload with Ctrl+Shift+R (Cmd+Shift+R on a Mac). '
+              + `If it keeps happening, tell Jiri — missing: ${missing.join(', ')}.`;
+            return;
+          }
+
           if (this.IS_LOCAL) {
             const hash = window.location.hash.slice(1);
             if (hash) {
