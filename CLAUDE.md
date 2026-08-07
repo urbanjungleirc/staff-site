@@ -21,6 +21,7 @@ vouchers/stats.html     - voucher analytics: revenue, liability, redemption, pro
 vouchers/unsubscribes.html - who is not receiving automatic voucher emails, and why
 vouchers/unsubscribes-logic.js - pure suppression rules behind that page (unit tested)
 vouchers/delete-logic.js - pure confirmation rules behind the hard-delete action (unit tested)
+vouchers/type-surfaces.js - which voucher-type fields feed which output surface (unit tested)
 hvt/                    - High-volume Training tool copy
 slideshow/              - Google Drive TV slideshow tool
 sls_tv.html             - Summer Lead Series TV display
