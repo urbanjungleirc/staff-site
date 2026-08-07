@@ -69,6 +69,17 @@ describe('sourceLabel', () => {
     // A future source must render as something rather than vanishing.
     expect(sourceLabel('imported')).toBe('imported');
   });
+
+  test('says a just-resubscribed address is STILL suppressed by Clubworx', () => {
+    // Removing the opt-out on a doubly-suppressed address looks like it worked
+    // and changes nothing the member can see. The badge has to say so.
+    expect(sourceLabel('clubworx', { justResubscribed: true }))
+      .toBe('Still suppressed — unsubscribed in Clubworx');
+  });
+
+  test('leaves our own sources unchanged after a resubscribe', () => {
+    expect(sourceLabel('staff', { justResubscribed: true })).toBe('Added by staff');
+  });
 });
 
 describe('matchMembers', () => {
@@ -113,6 +124,15 @@ describe('matchMembers', () => {
     const found = matchMembers(members, 'sam', new Set(['jo@example.com']));
 
     expect(found[0].alreadySuppressed).toBe(false);
+  });
+
+  test('recognises an already-suppressed member whose address differs only by case', () => {
+    // Addresses arrive from two directions and only one is normalised. A missed
+    // match re-enables the picker for someone already on the list, and the
+    // insert then no-ops against the primary key.
+    const mixedCase = [{ email: 'JO@Example.com', names: ['Jo Smith'] }];
+
+    expect(matchMembers(mixedCase, 'jo', new Set(['jo@example.com']))[0].alreadySuppressed).toBe(true);
   });
 
   test('caps the menu at 25 so it stays scannable', () => {

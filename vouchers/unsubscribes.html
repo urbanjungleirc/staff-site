@@ -304,7 +304,9 @@
                 <label class="field-label" for="member-search">Member</label>
                 <input id="member-search" type="text" class="text-input" autocomplete="off"
                   placeholder="Search by name or email…"
-                  x-model="query" @focus="menuOpen = true" @input="menuOpen = true">
+                  x-model="query"
+                  @focus="menuOpen = true"
+                  @input="menuOpen = true; chosen = ''">
 
                 <div class="combo-menu" x-show="menuOpen && query.trim()" x-transition.opacity>
                   <template x-for="m in matches" :key="m.email">
@@ -359,8 +361,15 @@
           </div>
 
           <!-- ── Current members ─────────────────────────────────────────── -->
+          <!-- With no member list stored, every address falls into the "former"
+               group because none can be matched. Claiming everyone is fine here
+               would be the confidently-wrong answer this page exists to prevent. -->
           <div x-show="!current.length" class="py-8 text-center text-sm text-neutral-500">
-            Everyone on the current member list is receiving these emails.
+            <span x-show="memberList">Everyone on the current member list is receiving these emails.</span>
+            <span x-show="!memberList">
+              No member list has arrived, so who is currently suppressed cannot be shown.
+              Anything already recorded is listed below.
+            </span>
           </div>
 
           <template x-for="row in current" :key="row.email">
@@ -376,7 +385,7 @@
                 </div>
                 <div class="row-meta flex flex-wrap items-center gap-1.5 mt-1.5">
                   <template x-for="s in row.sources" :key="s">
-                    <span class="badge" :class="s === 'clubworx' ? 'badge-clubworx' : 'badge-ours'" x-text="sourceLabel(s)"></span>
+                    <span class="badge" :class="s === 'clubworx' ? 'badge-clubworx' : 'badge-ours'" x-text="sourceLabel(s, row.email)"></span>
                   </template>
                   <span x-show="row.opted_out_at" x-text="`· ${fmtDate(row.opted_out_at)}`"></span>
                 </div>
@@ -419,7 +428,7 @@
                     <div class="row-email" x-text="row.email"></div>
                     <div class="row-meta flex flex-wrap items-center gap-1.5 mt-1.5">
                       <template x-for="s in row.sources" :key="s">
-                        <span class="badge" :class="s === 'clubworx' ? 'badge-clubworx' : 'badge-ours'" x-text="sourceLabel(s)"></span>
+                        <span class="badge" :class="s === 'clubworx' ? 'badge-clubworx' : 'badge-ours'" x-text="sourceLabel(s, row.email)"></span>
                       </template>
                       <span x-show="row.opted_out_at" x-text="`· ${fmtDate(row.opted_out_at)}`"></span>
                     </div>
@@ -447,12 +456,20 @@
       </h3>
 
       <p class="text-sm mb-3" style="color: var(--ink-secondary);">
+        <!-- Resubscribing applies to future cycles only, so every branch says when
+             the emails actually resume rather than implying "now". -->
         <span x-show="confirm.memberCount > 1">
           This mailbox is shared by <span x-text="confirm.memberCount"></span> members
-          (<span x-text="confirm.names"></span>). All of them will start receiving the emails again.
+          (<span x-text="confirm.names"></span>). All of them will start receiving these emails
+          again from their next membership cycle — at most a month away.
         </span>
-        <span x-show="confirm.memberCount <= 1">
-          They will receive the emails again from their next membership anniversary onwards.
+        <span x-show="confirm.memberCount === 1">
+          They will receive these emails again from their next membership cycle — at most a
+          month away.
+        </span>
+        <span x-show="confirm.memberCount === 0">
+          This address is not in the current member list, so nothing changes today. Removing the
+          record means they will be emailed again if they rejoin.
         </span>
       </p>
 
@@ -524,6 +541,11 @@
         showFormer: false,
         confirm: { open: false, email: '', names: '', memberCount: 0, alsoClubworx: false, error: '' },
 
+        // Addresses resubscribed in this sitting that Clubworx still suppresses.
+        // The row survives the reload looking untouched otherwise, which reads as
+        // "done" when nothing has changed for the member.
+        justResubscribed: [],
+
         async init() {
           if (this.IS_LOCAL) {
             const hash = window.location.hash.slice(1);
@@ -578,7 +600,11 @@
 
         // ── Rendering ────────────────────────────────────────────────────
 
-        sourceLabel(source) { return window.unsubscribeLogic.sourceLabel(source); },
+        sourceLabel(source, email) {
+          return window.unsubscribeLogic.sourceLabel(source, {
+            justResubscribed: this.justResubscribed.includes(email),
+          });
+        },
 
         // Only what this system recorded can be undone here. A Clubworx-only row
         // has nothing for us to delete.
@@ -643,6 +669,9 @@
               method: 'DELETE',
               body: { staff_name: this.staffName.trim() },
             });
+            if (this.confirm.alsoClubworx && !this.justResubscribed.includes(this.confirm.email)) {
+              this.justResubscribed.push(this.confirm.email);
+            }
             this.closeConfirm();
             await this.load();
           } catch (e) {

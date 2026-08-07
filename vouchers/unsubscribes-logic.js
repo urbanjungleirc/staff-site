@@ -43,18 +43,30 @@ export function isRemovable(row) {
 // The database says "opt-out"; the member-facing email says "unsubscribe". The
 // UI speaks the member's word. An unknown source renders as itself rather than
 // disappearing.
-export function sourceLabel(source) {
+//
+// `justResubscribed` marks the one moment the plain label would mislead: staff
+// have just removed the opt-out from an address Clubworx also suppresses, so the
+// action succeeded and the member still receives nothing.
+export function sourceLabel(source, { justResubscribed = false } = {}) {
+  if (source === 'clubworx' && justResubscribed) {
+    return 'Still suppressed — unsubscribed in Clubworx';
+  }
   return SOURCE_LABELS[source] || source;
 }
 
-export function matchMembers(members = [], query, suppressedEmails = new Set()) {
+export function matchMembers(members = [], query, suppressedEmails = []) {
   const q = norm(query);
   if (!q) return [];
+
+  // Normalised on both sides: the suppression list and the member export are
+  // separate sources, and a case difference between them would re-offer someone
+  // already on the list.
+  const suppressed = new Set([...suppressedEmails].map(norm));
 
   return members
     .filter((m) => norm(m.email).includes(q) || (m.names || []).some((n) => norm(n).includes(q)))
     .slice(0, 25)
-    .map((m) => ({ ...m, alreadySuppressed: suppressedEmails.has(m.email) }));
+    .map((m) => ({ ...m, alreadySuppressed: suppressed.has(norm(m.email)) }));
 }
 
 // Offered only when the text is plausibly an address AND no member already
