@@ -16,19 +16,38 @@ import { readFileSync } from 'node:fs';
 
 const page = readFileSync(new URL('../index.html', import.meta.url), 'utf8');
 
+// Slicing on an anchor that has moved yields a one-character string and a
+// failure that reads as a fault in the page rather than in this file.
+function between(startAnchor, endAnchor) {
+  const start = page.indexOf(startAnchor);
+  if (start < 0) throw new Error('could not find ' + startAnchor + ' in index.html');
+  const end = page.indexOf(endAnchor, start);
+  if (end < 0) throw new Error('could not find ' + endAnchor + ' after ' + startAnchor);
+  return page.slice(start, end);
+}
+
 describe('created-by is not remembered across staff', () => {
   test('the page never reads or writes the remembered-name key, except to purge it', () => {
-    const uses = page.match(/localStorage\.\w+\('uj_voucher_created_by'\)/g) || [];
-    expect(uses).toEqual(["localStorage.removeItem('uj_voucher_created_by')"]);
+    // Match on the method alone, not the whole call: setItem takes a second
+    // argument, so a pattern ending in `)` would silently miss every write —
+    // which is the regression this test exists to catch. Either quote style,
+    // for the same reason: the net has to hold whatever a future edit writes.
+    const methods = [...page.matchAll(/localStorage\.(\w+)\(\s*['"]uj_voucher_created_by['"]/g)].map((m) => m[1]);
+    expect(methods).toEqual(['removeItem']);
   });
 
   test('opening the create form clears the name along with the customer fields', () => {
-    const goCreate = page.slice(page.indexOf('async goCreate()'), page.indexOf('async submitCreate()'));
-    expect(goCreate).toMatch(/this\.createIssuer = '';/);
+    expect(between('async goCreate()', 'async submitCreate()')).toMatch(/this\.createIssuer = '';/);
+  });
+
+  test('the browser is not asked to remember the name either', () => {
+    // Same reason the manager password and typed delete code carry this.
+    const field = between('x-model="createIssuer"', '/>');
+    expect(field).toMatch(/autocomplete="off"/);
   });
 
   test('a successful create clears the name so the next voucher is attributed afresh', () => {
-    const submitCreate = page.slice(page.indexOf('async submitCreate()'), page.indexOf('async goReport()'));
+    const submitCreate = between('async submitCreate()', 'async goReport()');
     // After the POST, not before it — the value still has to reach the request.
     const posted = submitCreate.indexOf('issued_by: this.createIssuer.trim()');
     const cleared = submitCreate.indexOf("this.createIssuer = '';");
