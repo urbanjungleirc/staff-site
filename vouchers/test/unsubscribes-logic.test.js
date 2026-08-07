@@ -5,6 +5,7 @@ import {
   sourceLabel,
   matchMembers,
   isFreeTextOffer,
+  filterSuppressions,
 } from '../unsubscribes-logic.js';
 
 // The page's subject is the UNION of two suppression sources, only one of which
@@ -142,6 +143,41 @@ describe('matchMembers', () => {
     }));
 
     expect(matchMembers(many, 'member', new Set())).toHaveLength(25);
+  });
+});
+
+describe('filterSuppressions', () => {
+  const rows = [
+    { email: 'jo@example.com', names: ['Jo Smith'] },
+    { email: 'shared@example.com', names: ['Pat Lee', 'Alex Lee'] },
+    { email: 'gone@example.com', names: [] },
+  ];
+
+  test('returns every row when nothing is typed', () => {
+    expect(filterSuppressions(rows, '')).toHaveLength(3);
+    expect(filterSuppressions(rows, '   ')).toHaveLength(3);
+  });
+
+  test('matches on part of the email address', () => {
+    expect(filterSuppressions(rows, 'gone').map((r) => r.email)).toEqual(['gone@example.com']);
+  });
+
+  test('matches on a name regardless of case', () => {
+    expect(filterSuppressions(rows, 'JO SMITH').map((r) => r.email)).toEqual(['jo@example.com']);
+  });
+
+  test('matches any of the names sharing one mailbox', () => {
+    expect(filterSuppressions(rows, 'alex').map((r) => r.email)).toEqual(['shared@example.com']);
+  });
+
+  test('handles a row with no names at all', () => {
+    // Former members carry an address and nothing else; searching must not throw
+    // on them, and they must stay findable by address.
+    expect(filterSuppressions(rows, 'example.com')).toHaveLength(3);
+  });
+
+  test('returns nothing when the search matches no row', () => {
+    expect(filterSuppressions(rows, 'nobody')).toEqual([]);
   });
 });
 
