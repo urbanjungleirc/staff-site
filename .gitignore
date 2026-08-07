@@ -8,5 +8,11 @@ hvt-test-*/
 # Wrangler local cache — should never be committed
 .wrangler/
 
+# Dependencies and test-runner caches, at any depth. vouchers/.gitignore has
+# covered its own copy for a while, but nothing covered the root — and vitest
+# writes its cache to a node_modules/ beside the repo root, not beside the
+# package it ran from, so a run in vouchers/ dirtied the tree here.
+node_modules/
+
 # Staging directory built by .github/workflows/pages.yml
 _site/

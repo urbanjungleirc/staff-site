@@ -1255,6 +1255,25 @@
           </svg>
           <span class="text-sm font-semibold text-emerald-800">Voucher created</span>
         </div>
+
+        <!-- Physical types only. The card in the staff member's hand is blank
+             until this is written on it, and nothing later in the flow asks for
+             it — so the instruction goes here and carries the code itself,
+             rather than sending staff to the summary line below for it. -->
+        <div x-show="createdVoucher?.is_physical"
+          class="bg-white border border-violet-200 rounded-card p-4 mb-3 flex items-start gap-3">
+          <svg class="w-5 h-5 text-violet-600 shrink-0 mt-0.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+              d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z"/>
+          </svg>
+          <div>
+            <p class="text-sm font-semibold text-violet-900">Write this code on the voucher card</p>
+            <p class="font-mono text-2xl font-bold tracking-[0.15em] text-neutral-900 mt-1.5 select-all"
+              x-text="createdVoucher?.voucher_id"></p>
+            <p class="text-xs text-violet-700 mt-1.5">Hand the card over with the code on it — it is what the customer is redeeming.</p>
+          </div>
+        </div>
+
         <div class="text-sm text-emerald-700 grid grid-cols-2 sm:grid-cols-4 gap-x-6 gap-y-1">
           <div><span class="font-medium">Code:</span> <span class="font-mono ml-1" x-text="createdVoucher?.voucher_id"></span></div>
           <div><span class="font-medium">Customer:</span> <span class="ml-1" x-text="createdVoucher?.customer_name"></span></div>
@@ -1350,7 +1369,7 @@
             <label class="block text-[0.67rem] font-semibold text-neutral-400 uppercase tracking-wider mb-1.5">
               Created by <span class="text-rose-400 normal-case tracking-normal font-normal">*</span>
             </label>
-            <input type="text" x-model="createIssuer" placeholder="Your name"
+            <input type="text" x-model="createIssuer" placeholder="Your name" autocomplete="off"
               class="w-full border border-neutral-200 rounded-xl px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-uj/20 focus:border-uj" />
           </div>
         </div>
@@ -3427,7 +3446,10 @@
           localStorage.removeItem('uj_staff_secret');
           this.secret = '';
         }
-        this.createIssuer = localStorage.getItem('uj_voucher_created_by') || '';
+        // "Created by" is never restored: the front desk machine is shared, so a
+        // remembered name is somebody else's more often than not. Purge any copy
+        // left by the old behaviour rather than leaving it to go stale on disk.
+        localStorage.removeItem('uj_voucher_created_by');
         // Cloudflare Access identity, for the "signed in as" hint only. The API
         // verifies the JWT itself and never trusts this value.
         fetch('/cdn-cgi/access/get-identity')
@@ -4007,7 +4029,10 @@
             method: 'POST',
             headers: { 'X-Manager-Secret': this.restoreManagerSecret },
             body: JSON.stringify({
-              restored_by: this.createIssuer || 'staff',
+              // No name is asked for here, so there is none to attribute. Naming
+              // whoever last used the create form would be a guess nobody can see
+              // to correct; the verified actor is on the audit row regardless.
+              restored_by: 'staff',
               reason: this.restoreReason.trim(),
             }),
           });
@@ -4039,7 +4064,7 @@
             method: 'POST',
             headers: { 'X-Manager-Secret': this.cancelManagerSecret },
             body: JSON.stringify({
-              cancelled_by: this.createIssuer || 'staff',
+              cancelled_by: 'staff', // unattributed by design — see restored_by above
               reason: this.cancelReason.trim(),
             }),
           });
@@ -4119,7 +4144,7 @@
           await this.api('/v1/vouchers/' + encodeURIComponent(code), {
             method: 'DELETE',
             body: JSON.stringify({
-              deleted_by: this.createIssuer || 'staff',
+              deleted_by: 'staff', // unattributed by design — see restored_by above
               reason: this.deleteReason.trim(),
             }),
           });
@@ -4203,6 +4228,7 @@
         this.view = 'create';
         this.createdVoucher = null;
         this.createError = '';
+        this.createIssuer = '';
         this.createName = '';
         this.createPhone = '';
         this.createEmail = '';
@@ -4388,9 +4414,11 @@
               issued_by: this.createIssuer.trim(),
             }),
           });
-          // Remember who's creating vouchers on this device so staff type it once.
-          localStorage.setItem('uj_voucher_created_by', this.createIssuer.trim());
           this.showToast(this.createdVoucher.voucher_id + ' created');
+          // Cleared with the customer fields, not kept for the next voucher: the
+          // form stays open and usable after a create, so whoever steps up next
+          // would otherwise inherit this name without it ever leaving the box.
+          this.createIssuer = '';
           this.createName = '';
           this.createPhone = '';
           this.createEmail = '';

@@ -108,6 +108,21 @@ See [ADR 0003](docs/adr/0003-voucher-type-editor-organised-by-surface.md).
 one visual box; a surface may contain several. A tab is how a surface is
 reached.
 
+### Physical voucher
+
+A voucher whose type is flagged `is_physical` — it is a card handed over at the
+counter, not an email. The flag lives on the **type**, never on the create form,
+so "is this one physical?" is always answered by the created voucher's
+`is_physical`, which the create response carries.
+
+It is the flag that decides both halves of the handover: no email is sent, and
+the create confirmation instructs staff to write the voucher code on the card.
+That instruction is the only thing on screen that says so, so it must stay
+conditional — on an emailed voucher it is noise.
+
+*Avoid*: "printed voucher", "card voucher". The staff badge, the type editor
+checkbox and the column all read *physical*.
+
 ### Hero backdrop / hero artwork
 
 Two different public-page images, with **different blank behaviour**, which is
