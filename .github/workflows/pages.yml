@@ -1,0 +1,91 @@
+# Publishes this repository to GitHub Pages, generating the voucher hub's build
+# version on the way through.
+#
+# This replaces the legacy Pages branch build. It exists because the hub needs a
+# version file that is derived from git and never committed, and a legacy build
+# serves the branch verbatim — there is nowhere in it to generate anything. See
+# docs/adr/0004-voucher-hub-build-version.md.
+#
+# `main` is still production and merging is still deploying. The only change is
+# who does the publishing.
+name: Deploy staff site to Pages
+
+on:
+  push:
+    branches: [main]
+  # Manual runs: needed once, to publish the first Actions build after the Pages
+  # source is switched over, and useful afterwards to re-stamp a build.
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+# Never cancel a deploy in flight — a half-published site is worse than a queued
+# one, and these runs are seconds long.
+concurrency:
+  group: pages
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    # `main` is production, so a manual run must not be able to publish a
+    # feature branch to it — `gh workflow run pages.yml --ref <branch>` would
+    # otherwise do exactly that.
+    if: github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deploy.outputs.page_url }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          # The version is a commit count, and a shallow checkout answers that
+          # with 1 without erroring. The generator refuses to emit a version
+          # from a shallow clone for exactly this reason, so dropping this line
+          # does not ship a wrong number — it ships "dev".
+          fetch-depth: 0
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: Generate the voucher hub build version
+        # The generator cannot throw, but the step around it can: if node were
+        # missing the redirect would still leave an empty file behind, and an
+        # empty version.json is a worse answer than a failed deploy. Check it
+        # is usable here, where the previous build is still live.
+        run: |
+          node vouchers/scripts/version.mjs > vouchers/version.json
+          cat vouchers/version.json
+          node -e 'const v = JSON.parse(require("node:fs").readFileSync("vouchers/version.json", "utf8"));
+                   if (!v.version || !v.builtAt || typeof v.sha !== "string") {
+                     throw new Error("unusable version.json: " + JSON.stringify(v));
+                   }'
+
+      - name: Stage the site
+        # The artifact is the repository as served today, minus the two things
+        # that were never served: git metadata and installed packages.
+        run: |
+          mkdir -p _site
+          # No trailing slashes on the patterns: in a git worktree .git is a
+          # file, not a directory, and '.git/' would walk straight past it.
+          rsync -a --exclude '.git' --exclude 'node_modules' --exclude '_site' ./ _site/
+
+      - name: Check the staged site before publishing
+        # A staging mistake would publish a site missing whole tools, and the
+        # zone sits behind Cloudflare Access so an unauthenticated fetch of the
+        # live URL returns 200 with the login page either way — it could not
+        # tell us. Verify here, where we can still stop.
+        run: |
+          for f in index.html tools.json CNAME .nojekyll vouchers/index.html vouchers/version.json hvt/index.html roster.html; do
+            test -f "_site/$f" || { echo "missing from staged site: $f"; exit 1; }
+          done
+
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: _site
+
+      - id: deploy
+        uses: actions/deploy-pages@v4

@@ -13,3 +13,6 @@ hvt-test-*/
 # writes its cache to a node_modules/ beside the repo root, not beside the
 # package it ran from, so a run in vouchers/ dirtied the tree here.
 node_modules/
+
+# Staging directory built by .github/workflows/pages.yml
+_site/
