@@ -20,6 +20,7 @@ vouchers/               - voucher management portal (auth = Cloudflare Access)
 vouchers/stats.html     - voucher analytics: revenue, liability, redemption, product mix
 vouchers/unsubscribes.html - who is not receiving automatic voucher emails, and why
 vouchers/unsubscribes-logic.js - pure suppression rules behind that page (unit tested)
+vouchers/delete-logic.js - pure confirmation rules behind the hard-delete action (unit tested)
 hvt/                    - High-volume Training tool copy
 slideshow/              - Google Drive TV slideshow tool
 sls_tv.html             - Summer Lead Series TV display
@@ -180,6 +181,47 @@ Deploy the proxy from the **happyk** Cloudflare account (it owns `happyk.au`):
 cd cloudflare-payments-proxy
 npx wrangler deploy      # route is declared in its wrangler.toml
 ```
+
+### Deleting a voucher
+
+The **Delete Permanently** button on the voucher detail panel is a *hard* delete
+— the row leaves the database, along with the `purchase_tracking` row that
+counts against the buyer's per-customer limit. Cancel (the outlined rose button
+beside it) is the reversible one. They are deliberately styled differently:
+solid versus outlined.
+
+Three things about this are easy to break by accident:
+
+- **The button is identity-gated, not password-gated.** On load the page calls
+  `GET /v1/staff/me` and renders the button only when `can_delete` is true, so
+  nobody is shown an action that can only 403. That is a *display* gate — the
+  Worker re-checks the verified Access JWT against its `DELETE_ALLOWED_EMAILS`
+  allowlist on every DELETE, and `canDelete` starts `false` so a failed identity
+  call hides the button rather than exposing it.
+- **The typed voucher code is the real second factor**, and is not decoration.
+  The allowlist authenticates the *session*, which cannot tell one person from
+  their unlocked laptop; typing the code is what the allowlist cannot supply.
+- **401 and 403 must not be collapsed.** 401 is the staff gate (the Access
+  session lapsed — reloading fixes it). 403 is the allowlist (the session is
+  fine and reloading will never help). Showing "sign in again" for a 403 sends
+  someone round a loop that cannot succeed.
+
+The rules behind all of that live in `vouchers/delete-logic.js` — pure, unit
+tested in `vouchers/test/delete-logic.test.js`, and published as
+`window.deleteLogic` like the other extracted modules. Bump the `?v=` on its
+import whenever its exports change.
+
+A stale cached copy of that module is the one failure that would break the
+typed-code check, the required-reason check and the disabled button
+*simultaneously and silently*, so two things hold it closed: `openDelete()`
+refuses to open the modal when an export is missing, and `submitDelete()`
+re-checks before sending. The re-check is the load-bearing one — an Alpine
+expression that throws leaves `:disabled` unapplied, so a broken
+`canSubmitDelete` would *enable* the confirm button, and only a guard on the
+submit path turns that back into "nothing happens".
+
+Design: `docs/superpowers/specs/2026-08-05-voucher-hard-delete-design.md` in the
+`voucher-app` hub repo.
 
 ## Local Development
 
