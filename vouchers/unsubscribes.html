@@ -23,6 +23,15 @@
       }
     }
   </script>
+  <!-- Suppression rules (who is shown, what is actionable) published as a global for
+       the Alpine component below. Module scripts are deferred, and deferred scripts run
+       in document order — so this sits ABOVE the Alpine tag deliberately, to guarantee
+       window.unsubscribeLogic exists before any expression evaluates. Same seam as
+       image-pipeline.js on the hub page. -->
+  <script type="module">
+    import * as logic from './unsubscribes-logic.js';
+    window.unsubscribeLogic = logic;
+  </script>
   <script defer src="https://cdn.jsdelivr.net/npm/alpinejs@3.x.x/dist/cdn.min.js"></script>
   <style>
     [x-cloak] { display: none !important; }
@@ -545,27 +554,21 @@
 
         // ── Derived ──────────────────────────────────────────────────────
 
-        get current() { return this.suppressions.filter((s) => s.in_current_list); },
-        get former()  { return this.suppressions.filter((s) => !s.in_current_list); },
+        // Rules live in unsubscribes-logic.js so they can be tested without a
+        // browser; see vouchers/test/unsubscribes-logic.test.js.
+        get current() { return window.unsubscribeLogic.partitionSuppressions(this.suppressions).current; },
+        get former()  { return window.unsubscribeLogic.partitionSuppressions(this.suppressions).former; },
 
         get suppressedEmails() { return new Set(this.suppressions.map((s) => s.email)); },
 
         get matches() {
-          const q = this.query.trim().toLowerCase();
-          if (!q) return [];
-          const suppressed = this.suppressedEmails;
-          return this.members
-            .filter((m) => m.email.includes(q) || m.names.some((n) => n.toLowerCase().includes(q)))
-            .slice(0, 25)
-            .map((m) => ({ ...m, alreadySuppressed: suppressed.has(m.email) }));
+          return window.unsubscribeLogic.matchMembers(this.members, this.query, this.suppressedEmails);
         },
 
         // Offered only when the text is plausibly an address and is not already
         // an exact member match — so the escape hatch never shadows the picker.
         get freeTextOffer() {
-          const q = this.query.trim().toLowerCase();
-          if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(q)) return false;
-          return !this.members.some((m) => m.email === q);
+          return window.unsubscribeLogic.isFreeTextOffer(this.members, this.query);
         },
 
         get listFreshness() {
@@ -575,16 +578,11 @@
 
         // ── Rendering ────────────────────────────────────────────────────
 
-        sourceLabel(source) {
-          if (source === 'email_link') return 'Via unsubscribe link';
-          if (source === 'staff') return 'Added by staff';
-          if (source === 'clubworx') return 'Unsubscribed in Clubworx';
-          return source;
-        },
+        sourceLabel(source) { return window.unsubscribeLogic.sourceLabel(source); },
 
         // Only what this system recorded can be undone here. A Clubworx-only row
         // has nothing for us to delete.
-        removable(row) { return row.sources.some((s) => s === 'email_link' || s === 'staff'); },
+        removable(row) { return window.unsubscribeLogic.isRemovable(row); },
 
         fmtDate(iso) {
           if (!iso) return '';
