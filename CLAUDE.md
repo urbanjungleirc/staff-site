@@ -22,6 +22,8 @@ vouchers/unsubscribes.html - who is not receiving automatic voucher emails, and 
 vouchers/unsubscribes-logic.js - pure suppression rules behind that page (unit tested)
 vouchers/delete-logic.js - pure confirmation rules behind the hard-delete action (unit tested)
 vouchers/type-surfaces.js - which voucher-type fields feed which output surface (unit tested)
+vouchers/scripts/version.mjs - derives the hub's build version from git at deploy time (unit tested)
+.github/workflows/pages.yml - publishes the site to Pages; the repo's only build step
 hvt/                    - High-volume Training tool copy
 slideshow/              - Google Drive TV slideshow tool
 sls_tv.html             - Summer Lead Series TV display
@@ -245,10 +247,10 @@ Local Worker secrets can go in `cloudflare-worker/.dev.vars`. Do not commit real
 
 ## Deployment
 
-> ⚠️ **`main` IS production.** GitHub Pages serves this repo's root directly to
-> `ujstaff.happyk.au` — legacy Pages, `source: main /`. No build step, no
-> workflow, no approval gate; the repo has no `.github/` directory at all.
-> Anything reaching `main` is live in well under a minute.
+> ⚠️ **`main` IS production.** GitHub Pages serves this repo to
+> `ujstaff.happyk.au`, published by `.github/workflows/pages.yml` on every push
+> to `main`. No approval gate: anything reaching `main` is live in a minute or
+> two.
 >
 > **That includes merging a pull request.** There is no separate "deploy" step
 > to hold back, so *merging is deploying*. If a change is not ready to be seen by
@@ -264,10 +266,19 @@ git commit -m "description"
 git push origin main
 ```
 
-Confirm a deploy from the Pages build, and check the commit it built:
+The workflow copies the repo to `_site/` (minus `.git` and `node_modules`),
+generates `vouchers/version.json` from git, checks the staged site still
+contains the hub, the roster and the HVT copy, and publishes. There is **no
+build step for the pages themselves** — they are served exactly as committed.
+The one generated file is the voucher hub's build version; see
+[ADR 0004](docs/adr/0004-voucher-hub-build-version.md), which also carries the
+switchover runbook and why the version is never committed.
+
+A red workflow means the site stays on its **previous** build — frozen, not
+broken. Confirm a deploy, and check the commit it built:
 
 ```bash
-gh api repos/urbanjungleirc/staff-site/pages/builds/latest -q '.status + " " + .commit'
+gh run list --workflow=pages.yml --repo urbanjungleirc/staff-site --limit 1
 ```
 
 **Do not confirm it by fetching the page.** The zone sits behind Cloudflare

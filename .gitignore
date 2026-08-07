@@ -7,3 +7,6 @@ hvt-test-*/
 
 # Wrangler local cache — should never be committed
 .wrangler/
+
+# Staging directory built by .github/workflows/pages.yml
+_site/

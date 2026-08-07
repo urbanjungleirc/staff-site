@@ -1,2 +1,7 @@
 node_modules/
 package-lock.json
+
+# Generated at deploy time by .github/workflows/pages.yml. Never commit it:
+# a committed copy would ship a version describing some other build, which is
+# the exact drift the on-page version exists to detect.
+version.json
