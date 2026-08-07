@@ -2035,13 +2035,18 @@
   </div>
 
   <!-- ── Voucher Type editor modal ──────────────────────────────────────── -->
-  <div x-show="typeEditorOpen" x-cloak class="fixed inset-0 z-50 flex items-center justify-center p-4"
+  <!-- Top-aligned, not centred: the three tabs are different heights, and a
+       centred panel re-centres on every switch, so the whole form jumps under
+       the pointer. Anchoring it means only the content below changes. -->
+  <div x-show="typeEditorOpen" x-cloak class="fixed inset-0 z-50 flex items-start justify-center p-4 pt-8"
     @keydown.escape.window="!discardOpen && !revenueClassConfirmOpen && !unreviewedConfirmOpen && !imgModal && closeTypeEditor()">
     <div class="absolute inset-0 bg-black/40 backdrop-blur-sm" @click="closeTypeEditor()"></div>
     <!-- Conventional modal anatomy: pinned header, scrolling body, pinned footer.
          Save used to sit below the fold on tall types, and the error banner
          could scroll out of sight; both are now reachable from any position. -->
-    <div class="relative bg-white rounded-card shadow-2xl shadow-neutral-900/15 w-full max-w-7xl max-h-[90vh] flex flex-col overflow-hidden border border-neutral-100">
+    <!-- 3rem = the wrapper's 2rem top + 1rem bottom padding, so a full-height
+         panel still clears the viewport. -->
+    <div class="relative bg-white rounded-card shadow-2xl shadow-neutral-900/15 w-full max-w-7xl max-h-[calc(100vh-3rem)] flex flex-col overflow-hidden border border-neutral-100">
       <div class="shrink-0 px-6 pt-6 border-b border-neutral-100">
         <div class="flex items-center justify-between mb-4">
           <h3 class="text-base font-semibold text-neutral-900"
@@ -2358,10 +2363,17 @@
           <!-- Hero backdrop (full-width band behind everything) -->
           <div>
             <label class="block text-[0.67rem] font-semibold text-neutral-400 uppercase tracking-wider mb-1.5">Hero background<span class="help-tip" tabindex="0" role="note" aria-label="Help">?<span class="help-bubble">Photo behind the hero. Leave blank to use the accent colour gradient. Text sits over this — pick something that keeps white type readable. Aim for 1920 × 1080; the edges get cropped on phones.</span></span></label>
-            <div class="rounded-xl border border-neutral-200 p-4">
+            <!-- Preview first at the full width available, details under it. This
+                 is the field where the judgement call is "does white type stay
+                 readable over this photo", and a thumbnail cannot answer it. -->
+            <div class="rounded-xl border border-neutral-200 bg-white p-4">
               <div class="flex flex-wrap gap-4 items-start">
-                <div class="flex-shrink-0">
-                  <div class="w-56 aspect-[16/9] rounded-xl overflow-hidden ring-1 ring-neutral-200 bg-neutral-100">
+                <!-- Capped by WIDTH, not height: a max-height would fight the aspect
+                     ratio and crop the preview. 500px at 16:9 is 281px tall, which
+                     is enough to judge the photo without owning the tab — and it
+                     leaves room for the details beside it rather than beneath. -->
+                <div class="flex-1 min-w-[18rem] max-w-[500px]">
+                  <div class="w-full aspect-[16/9] rounded-xl overflow-hidden ring-1 ring-neutral-200 bg-neutral-100">
                     <img :src="typeForm.hero_background_url" x-show="typeForm.hero_background_url" alt=""
                       class="w-full h-full object-cover"
                       x-on:load="imgBroken['hero_background_url'] = false"
@@ -2431,32 +2443,31 @@
             <!-- Hero artwork (sits beside the copy) -->
             <div>
               <label class="block text-[0.67rem] font-semibold text-neutral-400 uppercase tracking-wider mb-1.5">Hero artwork<span class="help-tip" tabindex="0" role="note" aria-label="Help">?<span class="help-bubble">Artwork shown beside the hero copy. Leave blank to show no artwork. Aim for 1200 × 900 — it's cropped to a wide strip on phones, so keep the subject in the middle.</span></span></label>
-              <div class="rounded-xl border border-neutral-200 p-4">
+              <div class="rounded-xl border border-neutral-200 bg-white p-4 grid gap-3">
                 <!-- The crops stay side by side at every width — seeing them together
-                     is the whole point — so they share a fluid two-column grid rather
-                     than fixed widths. This control sits in the narrower right-hand
-                     column, so the details wrap below instead of spilling out. -->
-                <div class="flex flex-wrap gap-4 items-start">
-                  <div class="grid grid-cols-2 gap-3 flex-1 min-w-[12rem] max-w-sm">
-                    <!-- desktop crop -->
-                    <div>
-                      <div class="w-full aspect-[4/3] rounded-xl overflow-hidden ring-1 ring-neutral-200 bg-neutral-100">
-                        <img :src="typeForm.hero_image_url" x-show="typeForm.hero_image_url" alt=""
-                          class="w-full h-full object-cover"
-                          x-on:load="imgBroken['hero_image_url'] = false"
-                          x-on:error="imgBroken['hero_image_url'] = true" />
-                      </div>
-                      <p class="text-[0.6rem] text-neutral-400 mt-1 text-center">Desktop · 4:3</p>
+                     is the whole point — and they take the full width of the control,
+                     with the details on their own row underneath. -->
+                <div class="grid grid-cols-2 gap-3">
+                  <!-- desktop crop -->
+                  <div>
+                    <div class="w-full aspect-[4/3] rounded-xl overflow-hidden ring-1 ring-neutral-200 bg-neutral-100">
+                      <img :src="typeForm.hero_image_url" x-show="typeForm.hero_image_url" alt=""
+                        class="w-full h-full object-cover"
+                        x-on:load="imgBroken['hero_image_url'] = false"
+                        x-on:error="imgBroken['hero_image_url'] = true" />
                     </div>
-                    <!-- mobile crop -->
-                    <div>
-                      <div class="w-full aspect-[21/9] rounded-xl overflow-hidden ring-1 ring-neutral-200 bg-neutral-100">
-                        <img :src="typeForm.hero_image_url" x-show="typeForm.hero_image_url" alt=""
-                          class="w-full h-full object-cover" />
-                      </div>
-                      <p class="text-[0.6rem] text-neutral-400 mt-1 text-center">Phone · 21:9</p>
-                    </div>
+                    <p class="text-[0.6rem] text-neutral-400 mt-1 text-center">Desktop · 4:3</p>
                   </div>
+                  <!-- mobile crop -->
+                  <div>
+                    <div class="w-full aspect-[21/9] rounded-xl overflow-hidden ring-1 ring-neutral-200 bg-neutral-100">
+                      <img :src="typeForm.hero_image_url" x-show="typeForm.hero_image_url" alt=""
+                        class="w-full h-full object-cover" />
+                    </div>
+                    <p class="text-[0.6rem] text-neutral-400 mt-1 text-center">Phone · 21:9</p>
+                  </div>
+                </div>
+                <div class="flex flex-wrap items-center gap-x-4 gap-y-2">
                   <div class="flex-1 min-w-[11rem]">
                     <p class="text-sm font-semibold text-neutral-700 truncate"
                       x-text="imgMeta('hero_image_url').name || 'No artwork'"></p>
@@ -2466,13 +2477,13 @@
                     </p>
                     <p class="text-xs text-neutral-400" x-text="imgMeta('hero_image_url').size"></p>
                     <p class="text-xs text-neutral-400 mt-0.5" x-text="imgMeta('hero_image_url').used"></p>
-                    <div class="flex gap-2 mt-3">
-                      <button type="button" @click="openImgModal('hero')"
-                        class="text-xs font-semibold px-3 py-1.5 rounded-lg bg-uj text-white hover:bg-uj-dark">Change image</button>
-                      <button type="button" @click="typeForm.hero_image_url = ''; refreshPreview()"
-                        x-show="typeForm.hero_image_url"
-                        class="text-xs font-semibold px-3 py-1.5 rounded-lg border border-neutral-200 text-neutral-600 hover:bg-neutral-50">Remove</button>
-                    </div>
+                  </div>
+                  <div class="flex gap-2 shrink-0">
+                    <button type="button" @click="openImgModal('hero')"
+                      class="text-xs font-semibold px-3 py-1.5 rounded-lg bg-uj text-white hover:bg-uj-dark">Change image</button>
+                    <button type="button" @click="typeForm.hero_image_url = ''; refreshPreview()"
+                      x-show="typeForm.hero_image_url"
+                      class="text-xs font-semibold px-3 py-1.5 rounded-lg border border-neutral-200 text-neutral-600 hover:bg-neutral-50">Remove</button>
                   </div>
                 </div>
               </div>
