@@ -47,7 +47,7 @@ describe('created-by is not remembered across staff', () => {
   });
 
   test('a successful create clears the name so the next voucher is attributed afresh', () => {
-    const submitCreate = between('async submitCreate()', 'async goReport()');
+    const submitCreate = between('async submitCreate()', 'async goReports()');
     // After the POST, not before it — the value still has to reach the request.
     const posted = submitCreate.indexOf('issued_by: this.createIssuer.trim()');
     const cleared = submitCreate.indexOf("this.createIssuer = '';");
