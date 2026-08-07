@@ -1255,8 +1255,27 @@
           </svg>
           <span class="text-sm font-semibold text-emerald-800">Voucher created</span>
         </div>
+
+        <!-- Physical types only. The card in the staff member's hand is blank
+             until this is written on it, and nothing later in the flow asks for
+             it — so the instruction goes here, carrying the code itself, and the
+             small "Code:" cell below steps aside so there is only one to copy. -->
+        <div x-show="createdVoucher?.is_physical"
+          class="bg-white border border-violet-200 rounded-card p-4 mb-3 flex items-start gap-3">
+          <svg class="w-5 h-5 text-violet-600 shrink-0 mt-0.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+              d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z"/>
+          </svg>
+          <div>
+            <p class="text-sm font-semibold text-violet-900">Write this code on the voucher card</p>
+            <p class="font-mono text-2xl font-bold tracking-[0.15em] text-neutral-900 mt-1.5 select-all"
+              x-text="createdVoucher?.voucher_id"></p>
+            <p class="text-xs text-violet-700 mt-1.5">Hand the card over with the code on it — it is what the customer is redeeming.</p>
+          </div>
+        </div>
+
         <div class="text-sm text-emerald-700 grid grid-cols-2 sm:grid-cols-4 gap-x-6 gap-y-1">
-          <div><span class="font-medium">Code:</span> <span class="font-mono ml-1" x-text="createdVoucher?.voucher_id"></span></div>
+          <div x-show="!createdVoucher?.is_physical"><span class="font-medium">Code:</span> <span class="font-mono ml-1" x-text="createdVoucher?.voucher_id"></span></div>
           <div><span class="font-medium">Customer:</span> <span class="ml-1" x-text="createdVoucher?.customer_name"></span></div>
           <div><span class="font-medium">Value:</span> <span class="ml-1" x-text="fmtMoney(createdVoucher?.value)"></span></div>
           <div><span class="font-medium">Expires:</span> <span class="ml-1" x-text="fmtDate(createdVoucher?.expiry_date)"></span></div>
