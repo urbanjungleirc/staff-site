@@ -186,6 +186,12 @@ precaution**: `version.json` sits on the same static origin as the HTML, so a
 cached copy would name the previous build as the current one — announcing the
 page is fresh at exactly the moment it is stale.
 
+Because that fetch always reaches the origin, the footer states **what is
+deployed, not what is running**. A browser serving a cached hub page prints the
+current version beside stale code. Telling those apart needs a second version
+carried by the page itself, which is
+[vouchers#66](https://github.com/urbanjungleirc/vouchers/issues/66).
+
 *Avoid*: "release" and "semver". The count orders builds; it claims nothing
 about compatibility, and nobody chooses it.
 

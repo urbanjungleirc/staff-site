@@ -1,5 +1,5 @@
 import { describe, expect, test } from 'vitest';
-import { formatBuildVersion } from '../version-display.js';
+import { formatBuildVersion, TIME_FMT } from '../version-display.js';
 
 // The footer version exists so a stale cached copy of the hub can be spotted.
 // That makes a *wrong* version worse than none: it reports a stale build as
@@ -25,10 +25,20 @@ describe('formatBuildVersion', () => {
   });
 
   test('renders midnight as 00:00, not 24:00', () => {
-    // hour12:false is specified to permit a broken h24 cycle that renders
-    // midnight as "24:00"; hourCycle:"h23" is the knob that does not.
     expect(formatBuildVersion({ ...BUILT, builtAt: '2026-08-06T16:00:00.000Z' }))
       .toBe('v66 · da9185f · 7 Aug 00:00');
+  });
+
+  test('resolves to the h23 hour cycle, never h24', () => {
+    // Under h24 the same instant renders "7 Aug 24:00" — verified, not assumed.
+    //
+    // Be clear about what this does and does not defend. The source asks for
+    // hourCycle:'h23' because hour12:false is *specified* to permit h24. On the
+    // ICU this suite runs against, hour12:false also resolves to h23, so
+    // neither this assertion nor the midnight test above can tell the two
+    // apart; swapping one for the other would leave both green. What this
+    // catches is an explicit h24, and it records which cycle is intended.
+    expect(TIME_FMT.resolvedOptions().hourCycle).toBe('h23');
   });
 
   test('abbreviates the month', () => {

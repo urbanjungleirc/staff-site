@@ -4143,11 +4143,19 @@
       // would report the *previous* build as the current one — telling you the
       // page is fresh at exactly the moment it is stale. That is worse than
       // showing nothing, so the one fetch that must never be cached is this one.
+      //
+      // Know what this does NOT catch. Because the fetch always reaches the
+      // origin, it reports the newest *deployed* build, not the build of the
+      // index.html you are looking at. A browser serving a cached hub page will
+      // print the current version beside stale code. Detecting that needs a
+      // second version baked into the HTML to compare against, which is
+      // vouchers#66 — until then this answers "what is deployed?", not "am I
+      // running it?".
       async loadBuildVersion() {
         try {
           const res = await fetch('./version.json', { cache: 'no-store' });
-          if (!res.ok) return;
-          this.buildVersion = window.versionDisplay.formatBuildVersion(await res.json());
+          const payload = res.ok ? await res.json() : null;
+          this.buildVersion = window.versionDisplay.formatBuildVersion(payload);
         } catch {
           // Missing file, unparseable JSON, or a stale cached module without
           // the export. Nothing to show, and nothing worth telling staff about.

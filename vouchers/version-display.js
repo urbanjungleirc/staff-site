@@ -18,7 +18,9 @@
 // Assembled from formatToParts rather than by string-munging the formatted
 // output, because separator and field order are ICU details that differ between
 // browsers — and this formats client-side, on whatever ICU is there.
-const TIME_FMT = new Intl.DateTimeFormat('en-GB', {
+// Exported only so the resolved hour cycle can be asserted; nothing outside the
+// tests should reach for it.
+export const TIME_FMT = new Intl.DateTimeFormat('en-GB', {
   timeZone: 'Australia/Perth',
   day: 'numeric',
   month: 'short',
@@ -42,6 +44,11 @@ export function formatBuildVersion(payload) {
   // The generator emits a bare commit count, or "dev" when git could not be
   // trusted. Anything else means we are reading something other than what we
   // think we are, so none of it gets shown.
+  //
+  // These two shapes are the wire contract with scripts/version.mjs, which
+  // validates the same way before writing. Changing the payload format is
+  // therefore a two-file edit — deliberately, so a producer change cannot
+  // quietly start rendering here unreviewed.
   if (typeof version !== 'string' || !/^\d+$/.test(version)) return '';
 
   return [
