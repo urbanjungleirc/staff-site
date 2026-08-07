@@ -27,8 +27,13 @@
        Alpine component below. Module scripts are deferred, and deferred scripts run in
        document order — so this sits ABOVE the Alpine tag deliberately, to guarantee
        window.imagePipeline exists before any picker expression evaluates. -->
+  <!-- ?v= MUST be bumped whenever image-pipeline.js gains or renames an export.
+       This is a static Pages file with no build step, so a browser that cached an
+       earlier copy of the module will keep serving it against newer HTML, and the
+       calls to whatever is new throw. That exact regression shipped on the
+       unsubscribes page; uploadImage() checks for it so this one says so instead. -->
   <script type="module">
-    import * as pipeline from './image-pipeline.js';
+    import * as pipeline from './image-pipeline.js?v=1';
     window.imagePipeline = pipeline;
   </script>
   <script defer src="https://cdn.jsdelivr.net/npm/alpinejs@3.x.x/dist/cdn.min.js"></script>
@@ -2906,6 +2911,13 @@
     // Production talks to the payments Worker through the same-origin proxy, so
     // Cloudflare Access authenticates every call and no secret is needed.
     // Localhost has no Access in front of it, so it keeps the shared-secret path.
+    // Everything uploadImage() calls on window.imagePipeline. Checked there, so a
+    // stale cached module names itself instead of throwing mid-upload.
+    const IMAGE_PIPELINE_REQUIRED = [
+      'isAcceptedType', 'tooLargeToProcess', 'formatBytes',
+      'resizeImage', 'isTooSmall', 'overSoftBudget', 'overHardCap',
+    ];
+
     const IS_LOCAL = ['localhost', '127.0.0.1'].includes(window.location.hostname);
     const WORKER = IS_LOCAL ? 'https://uj-payments.urbanjungle.workers.dev' : '/api/payments';
 
@@ -4664,6 +4676,22 @@
         if (!file || this.imgBusy) return;
         const P = window.imagePipeline;
         const role = this.imgRole();
+
+        // A browser holding an older cached image-pipeline.js would otherwise
+        // throw partway through the upload — after the file is chosen, and with
+        // nothing said about why. Checked here rather than at boot deliberately:
+        // this module drives the image picker alone, and the rest of this page
+        // (search, redemption, cancel/restore) must keep working regardless.
+        const missing = IMAGE_PIPELINE_REQUIRED.filter((fn) => typeof P?.[fn] !== 'function');
+        if (missing.length) {
+          this.setImgMsg(
+            'This page loaded an out-of-date script, so images cannot be uploaded. '
+            + 'Reload with Ctrl+Shift+R (Cmd+Shift+R on a Mac). '
+            + `If it keeps happening, tell Jiri — missing: ${missing.join(', ')}.`,
+            'error',
+          );
+          return;
+        }
 
         // Format first: an unsupported type cannot be salvaged, and checking it
         // before size means a dropped SVG reads as "not supported" rather than
