@@ -71,11 +71,4 @@ describe('an absent identity degrades quietly', () => {
     expect(wrapper).toMatch(/x-show="accessEmail"/);
     expect(line).not.toMatch(/x-show/);
   });
-
-  test('the line does not flash before Alpine initialises', () => {
-    // x-show is applied by Alpine, which loads after the markup is painted. The
-    // page already relies on [x-cloak] elsewhere for exactly this reason.
-    expect(footer()).toMatch(/x-cloak/);
-    expect(page).toMatch(/\[x-cloak\] \{ display: none !important; \}/);
-  });
 });

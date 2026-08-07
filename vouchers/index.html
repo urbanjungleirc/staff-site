@@ -1890,8 +1890,7 @@
     <div class="border-t border-neutral-200 pt-4 flex flex-wrap items-center gap-x-5 gap-y-1">
       <!-- Hidden outright when there is no email rather than showing the label
            with a blank after it. Local development authenticates by shared
-           secret and carries no Access identity, so that is a real state.
-           x-cloak because x-show only applies once Alpine has initialised. -->
+           secret and carries no Access identity, so that is a real state. -->
       <span x-show="accessEmail" x-cloak>
         Signed in as <span class="font-medium text-neutral-600" x-text="accessEmail"></span>
       </span>
