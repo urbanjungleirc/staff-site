@@ -1879,6 +1879,24 @@
     </div>
   </main>
 
+  <!-- ── Footer ──────────────────────────────────────────────────────────────
+       Quiet page context, in document flow after <main>. The modals and the
+       toast below are fixed overlays and are not in flow, so nothing here
+       displaces them and nothing they do displaces this.
+
+       Sized for more than one item on purpose: the build version sits here too
+       (vouchers#58), beside the identity rather than under it. -->
+  <footer class="max-w-[1100px] mx-auto w-full px-4 pb-8 text-xs text-neutral-500">
+    <div class="border-t border-neutral-200 pt-4 flex flex-wrap items-center gap-x-5 gap-y-1">
+      <!-- Hidden outright when there is no email rather than showing the label
+           with a blank after it. Local development authenticates by shared
+           secret and carries no Access identity, so that is a real state. -->
+      <span x-show="accessEmail" x-cloak>
+        Signed in as <span class="font-medium text-neutral-600" x-text="accessEmail"></span>
+      </span>
+    </div>
+  </footer>
+
   <!-- ── Redeem modal ──────────────────────────────────────────────────────── -->
   <div x-show="discardOpen" x-cloak class="fixed inset-0 z-[60] flex items-center justify-center p-4"
     @keydown.escape.window="cancelDiscard()">
