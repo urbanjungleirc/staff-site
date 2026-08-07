@@ -72,13 +72,13 @@ before publishing, because a staging mistake would otherwise publish a site
 missing whole tools — and the zone sits behind Cloudflare Access, so fetching
 the live URL returns 200 with the login page and could never tell us.
 
-**The switchover has an order, and it is not the obvious one.** The workflow
-must be on `main` *before* the Pages source is changed. Flipping first leaves
-the site with no publisher, frozen at its last legacy build:
+**The switchover had an order, and it is not the obvious one.** The workflow
+had to be on `main` *before* the Pages source was changed, because flipping
+first leaves the site with no publisher, frozen at its last legacy build. Done
+on 2026-08-07, in this order:
 
 ```bash
-# 1. merge this branch to main (the workflow lands; its deploy step fails —
-#    the site keeps serving the legacy build, so there is no outage)
+# 1. merge to main
 # 2. switch the Pages source
 gh api -X PUT repos/urbanjungleirc/staff-site/pages -f build_type=workflow
 # 3. publish the first Actions build
@@ -86,6 +86,17 @@ gh workflow run pages.yml --repo urbanjungleirc/staff-site
 # 4. confirm
 gh run list --workflow=pages.yml --repo urbanjungleirc/staff-site --limit 1
 ```
+
+**`legacy` and `workflow` are not mutually exclusive, which this ADR originally
+got wrong.** Step 1 was predicted to leave the deploy step failing until step 2
+switched the source over. It did not fail: `actions/deploy-pages@v4` published
+successfully while `build_type` was still `legacy`, so for the two minutes
+between the merge and the flip *both* publishers were live — the legacy branch
+build and the workflow — racing to serve the same commit. It was harmless here
+because they published identical content, but it would not have been had the
+workflow staged the site differently. Anyone repeating this on another repo
+should flip immediately after the merge rather than treating a red run as the
+signal to proceed.
 
 **A shallow checkout would silently pin the version.** `git rev-list --count`
 answers `1` under `--depth 1` and reports no error, so an unguarded generator
