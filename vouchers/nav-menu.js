@@ -10,10 +10,10 @@
 //   'page' — leaves for another page, and carries `href`
 
 export const SECONDARY_MENU = [
-  { id: 'voucherTypes', label: 'Voucher Types', kind: 'view', view: 'voucherTypes' },
-  { id: 'export', label: 'Export', kind: 'view', view: 'export' },
-  { id: 'stats', label: 'Stats', kind: 'page', href: '/vouchers/stats.html' },
-  { id: 'unsubscribes', label: 'Unsubscribes', kind: 'page', href: '/vouchers/unsubscribes.html' },
+  { label: 'Voucher Types', kind: 'view', view: 'voucherTypes' },
+  { label: 'Export', kind: 'view', view: 'export' },
+  { label: 'Stats', kind: 'page', href: '/vouchers/stats.html' },
+  { label: 'Unsubscribes', kind: 'page', href: '/vouchers/unsubscribes.html' },
 ];
 
 // The item the hub's current view belongs to, or null when the view is one of

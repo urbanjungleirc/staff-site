@@ -29,7 +29,14 @@ function menuRows() {
     // Cut at the row's own closing tag: what follows it belongs to the group
     // heading or to the next row, not to this one's label.
     const markup = chunk.slice(0, chunk.search(/<\/(?:a|button)>/));
-    return { markup, label: markup.replace(/<[^>]*>/g, ' ').replace(/\s+/g, ' ').trim() };
+    // <title> is what a screen reader reads out, not what the row says — strip
+    // it with the tags so `label` stays the words staff see.
+    const label = markup
+      .replace(/<title>[\s\S]*?<\/title>/g, '')
+      .replace(/<[^>]*>/g, ' ')
+      .replace(/\s+/g, ' ')
+      .trim();
+    return { markup, label };
   });
 }
 
@@ -194,6 +201,16 @@ describe('leaving the hub is visible before the click', () => {
       const row = menuRows().find(r => r.label === item.label);
       expect(row, `no row for ${item.label}`).toBeTruthy();
       expect(row.markup.includes('nav-menu-away')).toBe(item.kind === 'page');
+    }
+  });
+
+  it('says so to a screen reader too, not only to the eye', () => {
+    // An unlabelled arrow is decoration; the row then sounds exactly like the
+    // in-page ones, which is the surprise this is meant to prevent.
+    const away = menuRows().filter(r => r.markup.includes('nav-menu-away'));
+    expect(away).toHaveLength(SECONDARY_MENU.filter(i => i.kind === 'page').length);
+    for (const row of away) {
+      expect(row.markup).toMatch(/<title>Opens another page<\/title>/);
     }
   });
 

@@ -36,6 +36,12 @@ describe('the hub has a footer', () => {
     expect(page).toMatch(/<footer[\s>]/);
   });
 
+  test('its two items sit at opposite ends of the line', () => {
+    // Who you are on the left, which build you are on at the right. They answer
+    // unrelated questions and reading them as one run-on phrase helps nobody.
+    expect(footer()).toMatch(/justify-between/);
+  });
+
   test('the footer is in document flow after the main content', () => {
     // The modals and the toast are fixed overlays and are not in flow, so the
     // footer has nothing to displace — but only if it is not fixed itself. A

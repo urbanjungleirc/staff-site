@@ -480,63 +480,39 @@
        that. .day-menu already opts out; the status menu needs a floor. */
     .combo-sm .combo-menu { min-width: 100%; width: max-content; }
     .combo-sm .day-menu { width: 268px; }
-    /* Header hamburger. The trigger itself is a nav button like the ones beside
-       it and keeps their Tailwind classes; only the panel is styled here, and it
-       borrows the combo panel's card so a menu in the dark header still reads as
-       part of the same app. */
+    /* Header hamburger. The trigger is a nav button like the ones beside it and
+       keeps their Tailwind classes. The panel IS the combo dropdown — same card,
+       same rows, same heading — so a menu in the dark header still reads as part
+       of the same app; only what a header menu needs differently is set here. */
     .nav-menu {
       position: relative;
     }
+    /* A combo panel stretches to the width of its trigger. This one hangs off a
+       trigger far narrower than the labels it holds, so it sets its own width
+       and pins to the right, under the right-aligned nav. */
     .nav-menu-panel {
-      position: absolute;
-      z-index: 60;
+      left: auto;
       right: 0;
-      top: calc(100% + 6px);
       min-width: 208px;
-      padding: 6px;
-      border-radius: 14px;
-      border: 1px solid rgba(139, 28, 35, 0.14);
-      background: #fff;
-      box-shadow: 0 18px 36px -26px rgba(15, 23, 42, 0.75);
       text-align: left;
     }
-    /* The header is right-aligned from sm up but starts at the left edge on a
-       phone, where a right-pinned panel would hang off the screen. */
+    /* Except on a phone, where the header starts at the left edge and a
+       right-pinned panel would hang off the screen. */
     @media (max-width: 639px) {
       .nav-menu-panel { right: auto; left: 0; }
     }
+    /* A combo option puts its two ends apart, because the right end is a tick.
+       Here the row is icon-then-label, and only the away arrow wants the far
+       edge — it claims it itself. */
     .nav-menu-item {
-      width: 100%;
-      display: flex;
-      align-items: center;
-      gap: 10px;
-      border: 0;
-      border-radius: 10px;
-      padding: 8px 10px;
-      background: transparent;
-      color: #1f2937;
-      font-size: 0.875rem;
+      justify-content: flex-start;
       font-weight: 500;
-      text-align: left;
-      cursor: pointer;
-    }
-    .nav-menu-item:hover,
-    .nav-menu-item.active {
-      background: rgba(139, 28, 35, 0.08);
-      color: var(--uj);
-    }
-    .nav-menu-item.active {
-      font-weight: 700;
+      text-decoration: none;
     }
     .nav-menu-heading {
       padding: 8px 10px 4px;
       margin-top: 4px;
       border-top: 1px solid rgba(31, 41, 55, 0.08);
-      font-size: 0.62rem;
-      font-weight: 600;
-      letter-spacing: 0.08em;
-      text-transform: uppercase;
-      color: #9ca3af;
     }
     /* The "you are leaving the hub" arrow, pushed to the far edge of the row. */
     .nav-menu-away {
@@ -843,31 +819,34 @@
             <span x-text="activeMenuLabel() || 'More'"></span>
           </button>
           <!-- Hamburger panel -->
-          <div class="nav-menu-panel" x-show="navMenuOpen" x-cloak @click="navMenuOpen = false">
+          <div class="combo-menu nav-menu-panel" x-show="navMenuOpen" x-transition.origin.top x-cloak
+            @click="navMenuOpen = false">
             <button type="button" @click="goVoucherTypes()"
-              class="nav-menu-item" :class="view==='voucherTypes' && 'active'"
+              class="combo-option nav-menu-item" :class="view==='voucherTypes' && 'active'"
               :aria-current="view==='voucherTypes' ? 'true' : false">
               <span class="nav-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="4" width="18" height="16" rx="2"/><path d="M3 10h18M8 4v16"/></svg></span>
               Voucher Types
             </button>
             <button type="button" @click="goExport()"
-              class="nav-menu-item" :class="view==='export' && 'active'"
+              class="combo-option nav-menu-item" :class="view==='export' && 'active'"
               :aria-current="view==='export' ? 'true' : false">
               <span class="nav-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 3v12"/><path d="m8 11 4 4 4-4"/><path d="M4 17v2a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-2"/></svg></span>
               Export
             </button>
             <!-- Below the divider the hub is left behind entirely. Grouped and
-                 arrow-marked so that is clear before the click, not after it. -->
-            <div class="nav-menu-heading">Other pages</div>
-            <a href="/vouchers/stats.html" class="nav-menu-item">
+                 arrow-marked so that is clear before the click, not after it —
+                 and the arrow carries a title, so it is clear to a screen reader
+                 too rather than only to the eye. -->
+            <div class="filter-heading nav-menu-heading">Other pages</div>
+            <a href="/vouchers/stats.html" class="combo-option nav-menu-item">
               <span class="nav-icon"><svg viewBox="0 0 24 24"><path d="M4.5 19.5h15"/><path d="M8 16v-6"/><path d="M13 16V8"/><path d="M18 16v-4"/></svg></span>
               Stats
-              <span class="nav-menu-away"><svg viewBox="0 0 24 24"><path d="M8.5 15.5 15.5 8.5"/><path d="M9.5 8.5h6v6"/></svg></span>
+              <span class="nav-menu-away"><svg viewBox="0 0 24 24" role="img" aria-label="Opens another page"><title>Opens another page</title><path d="M8.5 15.5 15.5 8.5"/><path d="M9.5 8.5h6v6"/></svg></span>
             </a>
-            <a href="/vouchers/unsubscribes.html" class="nav-menu-item">
+            <a href="/vouchers/unsubscribes.html" class="combo-option nav-menu-item">
               <span class="nav-icon"><svg viewBox="0 0 24 24"><rect x="3" y="5" width="18" height="14" rx="2"/><path d="M3.5 7l8.5 5.5L20.5 7"/></svg></span>
               Unsubscribes
-              <span class="nav-menu-away"><svg viewBox="0 0 24 24"><path d="M8.5 15.5 15.5 8.5"/><path d="M9.5 8.5h6v6"/></svg></span>
+              <span class="nav-menu-away"><svg viewBox="0 0 24 24" role="img" aria-label="Opens another page"><title>Opens another page</title><path d="M8.5 15.5 15.5 8.5"/><path d="M9.5 8.5h6v6"/></svg></span>
             </a>
           </div>
           <!-- /Hamburger panel -->
@@ -1995,7 +1974,7 @@
        Sized for more than one item on purpose: the build version sits here too
        (vouchers#58), beside the identity rather than under it. -->
   <footer class="max-w-[1100px] mx-auto w-full px-4 pb-8 text-xs text-neutral-500">
-    <div class="border-t border-neutral-200 pt-4 flex flex-wrap items-center gap-x-5 gap-y-1">
+    <div class="border-t border-neutral-200 pt-4 flex flex-wrap items-center justify-between gap-x-5 gap-y-1">
       <!-- Hidden outright when there is no email rather than showing the label
            with a blank after it. Local development authenticates by shared
            secret and carries no Access identity, so that is a real state. -->
