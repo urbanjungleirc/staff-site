@@ -22,6 +22,7 @@ vouchers/unsubscribes.html - who is not receiving automatic voucher emails, and 
 vouchers/unsubscribes-logic.js - pure suppression rules behind that page (unit tested)
 vouchers/delete-logic.js - pure confirmation rules behind the hard-delete action (unit tested)
 vouchers/type-surfaces.js - which voucher-type fields feed which output surface (unit tested)
+vouchers/nav-menu.js    - what the header hamburger holds, and which section it is hiding (unit tested)
 vouchers/scripts/version.mjs - derives the hub's build version from git at deploy time (unit tested)
 vouchers/version-display.js - formats that version for the footer, in Perth time (unit tested)
 .github/workflows/pages.yml - publishes the site to Pages; the repo's only build step

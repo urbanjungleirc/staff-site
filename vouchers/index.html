@@ -44,6 +44,11 @@
     // A stale cached copy would leave the type editor with no tabs to render.
     import * as typeSurfaces from './type-surfaces.js?v=1';
     window.typeSurfaces = typeSurfaces;
+    // Same rule again for the ?v= here. A stale cached copy of this one costs
+    // only the label on the hamburger, so activeMenuLabel() degrades to '' and
+    // the menu keeps working rather than throwing on every render.
+    import * as navMenu from './nav-menu.js?v=1';
+    window.navMenu = navMenu;
     // And here: bump it whenever version-display.js gains or renames an export.
     // A stale cached copy of this one is the mildest of the four — the footer
     // loses its version line and nothing else changes — which is the whole
@@ -475,6 +480,77 @@
        that. .day-menu already opts out; the status menu needs a floor. */
     .combo-sm .combo-menu { min-width: 100%; width: max-content; }
     .combo-sm .day-menu { width: 268px; }
+    /* Header hamburger. The trigger itself is a nav button like the ones beside
+       it and keeps their Tailwind classes; only the panel is styled here, and it
+       borrows the combo panel's card so a menu in the dark header still reads as
+       part of the same app. */
+    .nav-menu {
+      position: relative;
+    }
+    .nav-menu-panel {
+      position: absolute;
+      z-index: 60;
+      right: 0;
+      top: calc(100% + 6px);
+      min-width: 208px;
+      padding: 6px;
+      border-radius: 14px;
+      border: 1px solid rgba(139, 28, 35, 0.14);
+      background: #fff;
+      box-shadow: 0 18px 36px -26px rgba(15, 23, 42, 0.75);
+      text-align: left;
+    }
+    /* The header is right-aligned from sm up but starts at the left edge on a
+       phone, where a right-pinned panel would hang off the screen. */
+    @media (max-width: 639px) {
+      .nav-menu-panel { right: auto; left: 0; }
+    }
+    .nav-menu-item {
+      width: 100%;
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      border: 0;
+      border-radius: 10px;
+      padding: 8px 10px;
+      background: transparent;
+      color: #1f2937;
+      font-size: 0.875rem;
+      font-weight: 500;
+      text-align: left;
+      cursor: pointer;
+    }
+    .nav-menu-item:hover,
+    .nav-menu-item.active {
+      background: rgba(139, 28, 35, 0.08);
+      color: var(--uj);
+    }
+    .nav-menu-item.active {
+      font-weight: 700;
+    }
+    .nav-menu-heading {
+      padding: 8px 10px 4px;
+      margin-top: 4px;
+      border-top: 1px solid rgba(31, 41, 55, 0.08);
+      font-size: 0.62rem;
+      font-weight: 600;
+      letter-spacing: 0.08em;
+      text-transform: uppercase;
+      color: #9ca3af;
+    }
+    /* The "you are leaving the hub" arrow, pushed to the far edge of the row. */
+    .nav-menu-away {
+      margin-left: auto;
+      width: 14px;
+      height: 14px;
+      color: #9ca3af;
+      fill: none;
+      stroke: currentColor;
+      stroke-width: 2;
+      stroke-linecap: round;
+      stroke-linejoin: round;
+    }
+    .nav-menu-away svg { width: 100%; height: 100%; }
 
     /* Day picker.
        Native <input type="date"> renders OS-supplied chrome that no stylesheet
@@ -719,7 +795,8 @@
         </div>
       </div>
 
-      <!-- Nav — primary actions on row 1, Reports/Voucher Types pinned to row 2 -->
+      <!-- Nav — primary actions on row 1; Reports pinned to row 2 beside the menu
+           holding everything else. See vouchers#54. -->
       <nav class="flex flex-col gap-1.5 sm:items-end">
         <div class="flex items-center gap-1.5 flex-wrap sm:justify-end">
         <button @click="view='search'; stopScannerIfActive()"
@@ -744,34 +821,57 @@
         </button>
         </div>
         <div class="flex items-center gap-1.5 flex-wrap sm:justify-end">
-        <button @click="goReport()"
-          :class="view==='report' ? 'bg-white/[0.16] text-white font-semibold' : 'text-white/70 hover:text-white hover:bg-white/10'"
+        <button @click="goReports()"
+          :class="view==='reports' ? 'bg-white/[0.16] text-white font-semibold' : 'text-white/70 hover:text-white hover:bg-white/10'"
           class="px-3 py-2 rounded-xl text-[0.84rem] font-medium transition-all inline-flex items-center gap-1.5">
           <span class="nav-icon"><svg viewBox="0 0 24 24"><path d="M4.5 19.5h15"/><path d="M7 16v-5"/><path d="M12 16V6.5"/><path d="M17 16v-8"/></svg></span>
           Reports
         </button>
-        <button @click="goVoucherTypes()"
-          :class="view==='voucherTypes' ? 'bg-white/[0.16] text-white font-semibold' : 'text-white/70 hover:text-white hover:bg-white/10'"
-          class="px-3 py-2 rounded-xl text-[0.84rem] font-medium transition-all inline-flex items-center gap-1.5">
-          <span class="nav-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="4" width="18" height="16" rx="2"/><path d="M3 10h18M8 4v16"/></svg></span>
-          Voucher Types
-        </button>
-        <button @click="goExport()"
-          :class="view==='export' ? 'bg-white/[0.16] text-white font-semibold' : 'text-white/70 hover:text-white hover:bg-white/10'"
-          class="px-3 py-2 rounded-xl text-[0.84rem] font-medium transition-all inline-flex items-center gap-1.5">
-          <span class="nav-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 3v12"/><path d="m8 11 4 4 4-4"/><path d="M4 17v2a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-2"/></svg></span>
-          Export
-        </button>
-        <a href="/vouchers/stats.html"
-          class="px-3 py-2 rounded-xl text-[0.84rem] font-medium transition-all inline-flex items-center gap-1.5 text-white/70 hover:text-white hover:bg-white/10">
-          <span class="nav-icon"><svg viewBox="0 0 24 24"><path d="M4.5 19.5h15"/><path d="M8 16v-6"/><path d="M13 16V8"/><path d="M18 16v-4"/></svg></span>
-          Stats
-        </a>
-        <a href="/vouchers/unsubscribes.html"
-          class="px-3 py-2 rounded-xl text-[0.84rem] font-medium transition-all inline-flex items-center gap-1.5 text-white/70 hover:text-white hover:bg-white/10">
-          <span class="nav-icon"><svg viewBox="0 0 24 24"><rect x="3" y="5" width="18" height="14" rx="2"/><path d="M3.5 7l8.5 5.5L20.5 7"/></svg></span>
-          Unsubscribes
-        </a>
+
+        <!-- Everything else the row used to carry, in one menu. It collapses at
+             every width deliberately: the row grew an item at a time until it
+             wrapped, and a desktop-only escape hatch would let that happen
+             again. The trigger names the section when the open view is one of
+             the hidden ones, so collapsing does not cost staff their bearings. -->
+        <div class="nav-menu" @click.outside="navMenuOpen = false" @keydown.escape.window="navMenuOpen = false">
+          <button type="button" @click="navMenuOpen = !navMenuOpen"
+            :class="activeMenuLabel() ? 'bg-white/[0.16] text-white font-semibold' : 'text-white/70 hover:text-white hover:bg-white/10'"
+            class="px-3 py-2 rounded-xl text-[0.84rem] font-medium transition-all inline-flex items-center gap-1.5"
+            aria-haspopup="true" :aria-expanded="navMenuOpen ? 'true' : 'false'"
+            :aria-label="activeMenuLabel() ? 'More — currently on ' + activeMenuLabel() : 'More'">
+            <span class="nav-icon"><svg viewBox="0 0 24 24"><path d="M4 7h16"/><path d="M4 12h16"/><path d="M4 17h16"/></svg></span>
+            <span x-text="activeMenuLabel() || 'More'"></span>
+          </button>
+          <!-- Hamburger panel -->
+          <div class="nav-menu-panel" x-show="navMenuOpen" x-cloak @click="navMenuOpen = false">
+            <button type="button" @click="goVoucherTypes()"
+              class="nav-menu-item" :class="view==='voucherTypes' && 'active'"
+              :aria-current="view==='voucherTypes' ? 'true' : false">
+              <span class="nav-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="4" width="18" height="16" rx="2"/><path d="M3 10h18M8 4v16"/></svg></span>
+              Voucher Types
+            </button>
+            <button type="button" @click="goExport()"
+              class="nav-menu-item" :class="view==='export' && 'active'"
+              :aria-current="view==='export' ? 'true' : false">
+              <span class="nav-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 3v12"/><path d="m8 11 4 4 4-4"/><path d="M4 17v2a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-2"/></svg></span>
+              Export
+            </button>
+            <!-- Below the divider the hub is left behind entirely. Grouped and
+                 arrow-marked so that is clear before the click, not after it. -->
+            <div class="nav-menu-heading">Other pages</div>
+            <a href="/vouchers/stats.html" class="nav-menu-item">
+              <span class="nav-icon"><svg viewBox="0 0 24 24"><path d="M4.5 19.5h15"/><path d="M8 16v-6"/><path d="M13 16V8"/><path d="M18 16v-4"/></svg></span>
+              Stats
+              <span class="nav-menu-away"><svg viewBox="0 0 24 24"><path d="M8.5 15.5 15.5 8.5"/><path d="M9.5 8.5h6v6"/></svg></span>
+            </a>
+            <a href="/vouchers/unsubscribes.html" class="nav-menu-item">
+              <span class="nav-icon"><svg viewBox="0 0 24 24"><rect x="3" y="5" width="18" height="14" rx="2"/><path d="M3.5 7l8.5 5.5L20.5 7"/></svg></span>
+              Unsubscribes
+              <span class="nav-menu-away"><svg viewBox="0 0 24 24"><path d="M8.5 15.5 15.5 8.5"/><path d="M9.5 8.5h6v6"/></svg></span>
+            </a>
+          </div>
+          <!-- /Hamburger panel -->
+        </div>
         </div>
       </nav>
 
@@ -1027,12 +1127,12 @@
 
     <!-- ── Detail ────────────────────────────────────────────────────────── -->
     <div x-show="view==='detail'">
-      <button @click="view = detailOrigin === 'report' ? 'report' : 'search'"
+      <button @click="view = detailOrigin === 'reports' ? 'reports' : 'search'"
         class="flex items-center gap-1.5 text-sm text-neutral-500 hover:text-neutral-800 mb-5 transition-colors">
         <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
           <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.75" d="M15 19l-7-7 7-7"/>
         </svg>
-        <span x-text="detailOrigin === 'report' ? 'Back to reports' : 'Back to search'"></span>
+        <span x-text="detailOrigin === 'reports' ? 'Back to reports' : 'Back to search'"></span>
       </button>
 
       <div x-show="detailLoading" class="flex flex-col items-center justify-center gap-3 py-16 text-neutral-400 text-sm">
@@ -1474,7 +1574,7 @@
     </div>
 
     <!-- ── Reports ───────────────────────────────────────────────────────── -->
-    <div x-show="view==='report'">
+    <div x-show="view==='reports'">
       <div class="flex flex-wrap items-center gap-3 mb-5">
         <h2 class="text-base font-semibold text-neutral-800 inline-flex items-center gap-2">
           <span class="section-icon"><svg viewBox="0 0 24 24"><path d="M4.5 19.5h15"/><path d="M7 16v-5"/><path d="M12 16V6.5"/><path d="M17 16v-8"/></svg></span>
@@ -1556,7 +1656,7 @@
               </thead>
               <tbody class="divide-y divide-neutral-50">
                 <template x-for="v in pagedReportIssued()" :key="v.voucher_id">
-                  <tr @click="openVoucher(v.voucher_id, 'report')" class="hover:bg-uj/[0.025] cursor-pointer transition-colors">
+                  <tr @click="openVoucher(v.voucher_id, 'reports')" class="hover:bg-uj/[0.025] cursor-pointer transition-colors">
                     <td class="px-4 py-3 font-mono text-xs font-bold text-uj" x-text="v.voucher_id"></td>
                     <td class="px-4 py-3 hidden sm:table-cell">
                       <div class="text-sm text-neutral-800" x-text="v.customer_name||'—'"></div>
@@ -1620,7 +1720,7 @@
               </thead>
               <tbody class="divide-y divide-neutral-50">
                 <template x-for="v in pagedReportRedeemed()" :key="v.voucher_id">
-                  <tr @click="openVoucher(v.voucher_id, 'report')" class="hover:bg-uj/[0.025] cursor-pointer transition-colors">
+                  <tr @click="openVoucher(v.voucher_id, 'reports')" class="hover:bg-uj/[0.025] cursor-pointer transition-colors">
                     <td class="px-4 py-3 font-mono text-xs font-bold text-uj" x-text="v.voucher_id"></td>
                     <td class="px-4 py-3 hidden sm:table-cell text-sm text-neutral-700" x-text="v.customer_name||'—'"></td>
                     <td class="px-4 py-3 text-right text-sm font-semibold text-emerald-700 tabular-nums" x-text="fmtMoney(v.last_redeemed_amount)"></td>
@@ -3213,6 +3313,7 @@
 
       // Navigation
       view: 'search',
+      navMenuOpen: false,
 
       // Export
       exportDataset: 'purchases',
@@ -3257,7 +3358,7 @@
       voucher: null,
       detailLoading: false,
       detailError: '',
-      detailOrigin: 'search', // where the detail view was opened from: 'search' | 'report'
+      detailOrigin: 'search', // where the detail view was opened from: 'search' | 'reports'
 
       // Redeem modal
       redeemOpen: false,
@@ -4228,7 +4329,7 @@
             this.report.redeemed = window.deleteLogic.withoutVoucher(this.report.redeemed, code);
           }
           this.voucher = null;
-          this.view = this.detailOrigin === 'report' ? 'report' : 'search';
+          this.view = this.detailOrigin === 'reports' ? 'reports' : 'search';
           // The dashboard counters we are about to land back on counted this
           // voucher. Re-read them rather than leave visibly wrong totals sitting
           // there until the next five-minute tick.
@@ -4502,10 +4603,20 @@
         }
       },
 
+      // ── Header nav ───────────────────────────────────────────────────────
+      // What the hamburger calls itself: the section it is currently hiding, or
+      // nothing when the open view is one still visible in the header. Read
+      // through window and guarded, so a browser holding a stale cached
+      // nav-menu.js loses the label rather than every render of the header.
+      activeMenuLabel() {
+        const item = window.navMenu?.activeMenuItem?.(this.view);
+        return item ? item.label : '';
+      },
+
       // ── Reports ──────────────────────────────────────────────────────────
-      async goReport() {
+      async goReports() {
         this.stopScannerIfActive();
-        this.view = 'report';
+        this.view = 'reports';
         await this.loadReport();
       },
 
@@ -4534,7 +4645,7 @@
 
       async showTodayReport() {
         this.reportTab = 'today';
-        await this.goReport();
+        await this.goReports();
       },
 
       async loadDashStats() {
@@ -4576,7 +4687,7 @@
             if (recent) p.set('limit', '99');
             this.results = await this.api('/v1/vouchers/search?' + p.toString());
             this.recentListing = recent;
-          } else if (this.view === 'report') {
+          } else if (this.view === 'reports') {
             this.report = await this.api('/v1/vouchers/report?type=' + this.reportTab);
           }
         } catch { /* background refresh — fail silently */ }
