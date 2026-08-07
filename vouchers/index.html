@@ -2332,10 +2332,10 @@
              two editable controls for one setting would be worse than a jump. -->
         <div class="flex flex-wrap items-center gap-3 rounded-2xl border border-neutral-200 bg-neutral-50/70 px-4 py-3">
           <span class="h-7 w-7 rounded-lg ring-1 ring-inset ring-black/10 shrink-0"
-            :style="`background:${typeForm.accent_color || '#ae222a'}`"></span>
+            :style="`background:${accentColour()}`"></span>
           <div class="leading-tight">
             <p class="text-xs font-semibold text-neutral-700">Brand colour
-              <span class="font-mono font-normal text-neutral-500" x-text="typeForm.accent_color || '#ae222a'"></span>
+              <span class="font-mono font-normal text-neutral-500" x-text="accentColour()"></span>
             </p>
             <p class="text-[0.7rem] text-neutral-400">Themes this page. Set on the Email tab.</p>
           </div>
@@ -2460,10 +2460,9 @@
                   <div class="flex-1 min-w-[11rem]">
                     <p class="text-sm font-semibold text-neutral-700 truncate"
                       x-text="imgMeta('hero_image_url').name || 'No artwork'"></p>
-                    <!-- Unlike the backdrop, artwork has no colour fallback and
-                         is never inherited from another type. -->
+                    <!-- Unlike the backdrop, artwork has no colour fallback. -->
                     <p x-show="!typeForm.hero_image_url" class="text-xs text-neutral-400">
-                      Blank shows nothing — artwork never falls back.
+                      Blank shows nothing — no colour fallback.
                     </p>
                     <p class="text-xs text-neutral-400" x-text="imgMeta('hero_image_url').size"></p>
                     <p class="text-xs text-neutral-400 mt-0.5" x-text="imgMeta('hero_image_url').used"></p>
@@ -2791,13 +2790,15 @@
         <span class="font-semibold" x-text="unreviewedLabels()"></span>
         on this new type.
       </p>
-      <p x-show="_pendingUnreviewedIds.includes('public')" class="text-sm text-neutral-700 mb-3">
-        Any public page field left blank falls back to the Gift Voucher type's wording, and the hero
-        artwork does not fall back at all — so the customer page may show another product's copy with
-        no artwork on it.
-      </p>
-      <p x-show="_pendingUnreviewedIds.includes('email')" class="text-sm text-neutral-700 mb-3">
-        Any email field left blank falls back to the built-in default wording.
+      <!-- States what the customer actually gets, which on a NEW type is the
+           Gift Voucher type's own wording and artwork: openTypeEditor() seeds a
+           new draft from that record, so unopened fields are not blank — they
+           are already that product's copy. Anything genuinely left blank then
+           falls back to the same place when the page renders. -->
+      <p class="text-sm text-neutral-700 mb-3">
+        A new type starts from the Gift Voucher type's settings, so anything you have not looked at
+        is still <span class="font-semibold">that product's wording and artwork</span> — and any field
+        you do clear falls back to it again when the customer page is rendered.
       </p>
       <p class="text-sm text-neutral-500 mb-6">That may be exactly what you want.</p>
       <div class="flex gap-2.5">
@@ -3118,6 +3119,14 @@
       'canSubmitDelete', 'deleteWarnings', 'deleteErrorMessage', 'withoutVoucher',
     ];
 
+    // Everything the type editor calls on window.typeSurfaces. Same hazard
+    // again, and here a throw inside the tab strip's x-for renders no tabs at
+    // all — Setup would be the only reachable surface, with nothing saying why.
+    // Checked before the editor can be opened.
+    const TYPE_SURFACES_REQUIRED = [
+      'chipFor', 'unreviewedSurfaces', 'backdropFallbackCss',
+    ];
+
     const IS_LOCAL = ['localhost', '127.0.0.1'].includes(window.location.hostname);
     const WORKER = IS_LOCAL ? 'https://uj-payments.urbanjungle.workers.dev' : '/api/payments';
 
@@ -3233,7 +3242,7 @@
       typeTabsVisited: ['setup'],
       unreviewedConfirmOpen: false,
       _pendingUnreviewedPayload: null,
-      _pendingUnreviewedIds: [],
+      _pendingUnreviewed: [],
       previewHtml: '',
       previewLoading: false,
       // The preview only refreshes while the Email tab is showing, so this
@@ -4788,6 +4797,17 @@
       },
 
       openTypeEditor(t = null) {
+        const missing = TYPE_SURFACES_REQUIRED.filter((fn) => typeof window.typeSurfaces?.[fn] !== 'function');
+        if (!Array.isArray(window.typeSurfaces?.SURFACES)) missing.push('SURFACES');
+        if (missing.length) {
+          this.showToast(
+            'This page loaded an out-of-date script, so the type editor is disabled. '
+            + 'Reload with Ctrl+Shift+R (Cmd+Shift+R on a Mac). '
+            + `If it keeps happening, tell Jiri — missing: ${missing.join(', ')}.`,
+            'error',
+          );
+          return;
+        }
         this.typeEditorError = '';
         this.editingExisting = !!t;
         // Remember the class as loaded, so saveVoucherType() can tell a genuine
@@ -4872,10 +4892,12 @@
       },
 
       unreviewedLabels() {
-        const labels = this._pendingUnreviewedIds
-          .map(id => (window.typeSurfaces.SURFACES.find(s => s.id === id) || {}).label)
-          .filter(Boolean);
+        const labels = this._pendingUnreviewed.map(s => s.label);
         return labels.length === 2 ? labels.join(' or ') : labels.join(', ');
+      },
+
+      accentColour() {
+        return this.typeForm.accent_color || window.typeSurfaces.DEFAULT_ACCENT;
       },
 
       refreshPreview() {
@@ -5253,21 +5275,13 @@
         // Creating a type without having looked at a customer-facing surface is
         // how an unconfigured customer page gets published. Editing an existing
         // type is routine and never asks.
-        //
-        // A browser holding a stale cached type-surfaces.js would throw here and
-        // save nothing, with no explanation — the same trap the delete modal and
-        // the image pipeline already guard. Say so instead.
-        if (typeof window.typeSurfaces?.unreviewedSurfaces !== 'function') {
-          this.typeEditorError = 'The editor did not finish loading. Hard-refresh the page (Ctrl+Shift+R) and try again.';
-          return;
-        }
         const unreviewed = window.typeSurfaces.unreviewedSurfaces({
           editingExisting: this.editingExisting,
           visited: this.typeTabsVisited,
         });
         if (unreviewed.length) {
           this._pendingUnreviewedPayload = payload;
-          this._pendingUnreviewedIds = unreviewed.map(s => s.id);
+          this._pendingUnreviewed = unreviewed;
           this.unreviewedConfirmOpen = true;
           return;
         }
@@ -5287,7 +5301,7 @@
         this._pendingUnreviewedPayload = null;
         // Land on the first surface they skipped, so "go and look" needs no
         // second decision about where.
-        if (this._pendingUnreviewedIds.length) this.setTypeTab(this._pendingUnreviewedIds[0]);
+        if (this._pendingUnreviewed.length) this.setTypeTab(this._pendingUnreviewed[0].id);
       },
 
       async _doSaveVoucherType(payload) {

@@ -118,11 +118,16 @@ hero. Left blank, the page draws a gradient derived from the type's brand
 colour, so a blank backdrop still renders something.
 
 The **hero artwork** (`hero_image_url`) sits beside the hero copy. Left blank,
-nothing renders — there is no fallback, and it is never inherited from another
-type.
+nothing renders — there is no colour fallback for it.
 
 *Avoid*: "hero image" unqualified. It reads as either one and the difference is
 the whole point.
+
+Note that neither image is *theme-inherited* at render time (below), but both
+are **seeded** into a new type from the Gift Voucher type by the editor — so a
+new type does start out carrying that product's artwork. Seeding and
+inheritance are different mechanisms and the difference matters when reasoning
+about what a customer will see.
 
 ### Theme inheritance
 
@@ -134,3 +139,9 @@ the fields left blank. The two hero image fields are exempt — they do not
 inherit at all (see above). The editor makes this visible with a chip on an
 untouched tab and, when creating a type, a confirmation before saving a surface
 that was never opened; neither changes the cascade itself.
+
+Inheritance applies to types whose columns are **null**. Because the editor
+seeds a new draft from the Gift Voucher record, a type created through the UI
+usually has no null columns to inherit through — it holds copies instead. The
+chip therefore appears mainly on types created before seeding, or through the
+API. See [ADR 0003](docs/adr/0003-voucher-type-editor-organised-by-surface.md).

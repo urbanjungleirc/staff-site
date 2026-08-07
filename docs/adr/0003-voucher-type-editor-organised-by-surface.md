@@ -91,11 +91,33 @@ decorative:
   (`redemption_instructions`, `voucher_label`) do not count as customisation; if
   they did, every type would read as customised forever.
 - A **save guard on creation only**. If a surface was never opened, saving a new
-  type asks first, and states the actual consequence — the customer page will
-  use the Gift Voucher type's wording and show no hero artwork. Editing an
-  existing type never asks.
+  type asks first, and states the actual consequence. Editing an existing type
+  never asks.
 
 If either is dropped later, reopen this trade rather than accepting it quietly.
+
+**The chip and the create path do not meet, and that is worth knowing.**
+`openTypeEditor()` seeds a new draft from the live Gift Voucher record — it has
+done so since long before this change. Those fields therefore arrive *populated*,
+not blank, so on the create path neither chip appears: there is nothing to
+inherit, because the type holds copies. The chip does its job on the edit path,
+where types created before seeding (or through the API) genuinely carry nulls.
+
+The spec's chip rule was written as "chip when the fields are blank", and that
+is what shipped. Two consequences follow, both deliberate:
+
+- The **save guard carries the whole weight on the create path**, which is the
+  path the guard was written for. That is why its text says the unopened surface
+  still holds *the Gift Voucher type's own wording and artwork* rather than the
+  spec's "will use the Gift Voucher type's wording and show no hero artwork" —
+  the latter describes the inheritance cascade, which a seeded type does not
+  reach. Stating the cascade there would have been false.
+- Making the chip mean "still identical to the Gift Voucher template" would give
+  it a job on the create path too. It is a real option, it changes the rule the
+  spec pinned down precisely, and it was **not** taken here. Reopen it as its own
+  decision rather than folding it into a reorganisation.
+
+Changing the seeding behaviour was not considered in scope.
 
 **The chip is deliberately imprecise.** Theme inheritance is per field, so a
 partially filled public page still inherits for the fields left blank, and the

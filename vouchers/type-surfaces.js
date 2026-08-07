@@ -51,8 +51,6 @@ export const SURFACES = [
   },
 ];
 
-export const SURFACE_IDS = SURFACES.map(s => s.id);
-
 // The free-text email fields that arrive BLANK on a new draft. The other two
 // text fields on that surface (redemption_instructions, voucher_label) ship
 // pre-filled, so counting them would make every type read as customised
@@ -71,8 +69,9 @@ const UNTOUCHED_TEST_FIELDS = {
 };
 
 // The house accent, matching blankTypeForm() and the payload default in
-// saveVoucherType(). Used only to render a preview of an empty colour input.
-const DEFAULT_ACCENT = '#ae222a';
+// saveVoucherType(). Exported so the editor's swatch reads it from here rather
+// than inlining a fourth copy of the literal.
+export const DEFAULT_ACCENT = '#ae222a';
 
 export function surfaceOf(field) {
   const surface = SURFACES.find(s => s.fields.includes(field));
@@ -102,9 +101,9 @@ export function chipFor(surfaceId, draft) {
 // an existing type is a routine act and must not be nagged.
 export function unreviewedSurfaces({ editingExisting, visited }) {
   if (editingExisting) return [];
-  const seen = new Set(visited || []);
+  const seen = visited || [];
   return SURFACES
-    .filter(s => !seen.has(s.id))
+    .filter(s => !seen.includes(s.id))
     .map(s => ({ id: s.id, label: s.label }));
 }
 

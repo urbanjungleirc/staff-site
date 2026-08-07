@@ -1,12 +1,23 @@
+import { readFileSync } from 'node:fs';
 import { describe, it, expect } from 'vitest';
 import {
-  SURFACES, SURFACE_IDS, EMAIL_CUSTOMISABLE_FIELDS, PUBLIC_PAGE_FIELDS,
+  SURFACES, EMAIL_CUSTOMISABLE_FIELDS, PUBLIC_PAGE_FIELDS, DEFAULT_ACCENT,
   surfaceOf, isUntouched, chipFor, unreviewedSurfaces, backdropFallbackCss,
 } from '../type-surfaces.js';
 
-// A blank draft as blankTypeForm() in index.html produces it. Two fields carry
-// pre-filled defaults (redemption_instructions, voucher_label) — that is the
-// point of the "defaults don't count as customisation" rule below.
+// The columns blankTypeForm() actually seeds, read out of index.html rather
+// than copied. A field added to the editor and to no surface has to fail the
+// partition test below, and it only can if this list comes from the source.
+function editorDraftFields() {
+  const html = readFileSync(new URL('../index.html', import.meta.url), 'utf8');
+  const body = html.match(/blankTypeForm\(\)\s*\{\s*return\s*\{([\s\S]*?)\n\s*\};/);
+  if (!body) throw new Error('could not find blankTypeForm() in index.html');
+  return [...body[1].matchAll(/(?:^|[{,])\s*([a-z_][a-z0-9_]*)\s*:/gi)].map(m => m[1]);
+}
+
+// A blank draft as blankTypeForm() produces it. Two fields carry pre-filled
+// defaults (redemption_instructions, voucher_label) — that is the point of the
+// "defaults don't count as customisation" rule below.
 const blankDraft = () => ({
   type_id: '', display_name: '', description: '',
   availability: 'both', revenue_class: 'sale', expiry_months: '', max_per_customer: '',
@@ -25,19 +36,24 @@ const blankDraft = () => ({
 
 describe('the surface partition', () => {
   it('has exactly three surfaces, in editor order', () => {
-    expect(SURFACE_IDS).toEqual(['setup', 'email', 'public']);
+    expect(SURFACES.map(s => s.id)).toEqual(['setup', 'email', 'public']);
   });
 
-  it('assigns every field of a draft type to exactly one surface', () => {
-    const fields = Object.keys(blankDraft());
-    for (const field of fields) {
+  // Guards the fixture above: if it drifts from the editor, every other test in
+  // this file is asserting against a type that no longer exists.
+  it('has a fixture matching the editor blank form field for field', () => {
+    expect(Object.keys(blankDraft()).sort()).toEqual(editorDraftFields().sort());
+  });
+
+  it('assigns every field the editor puts on a draft to exactly one surface', () => {
+    for (const field of editorDraftFields()) {
       const owners = SURFACES.filter(s => s.fields.includes(field));
       expect(owners, `${field} should belong to exactly one surface`).toHaveLength(1);
     }
   });
 
-  it('claims no field the draft does not have', () => {
-    const fields = new Set(Object.keys(blankDraft()));
+  it('claims no field the editor does not put on a draft', () => {
+    const fields = new Set(editorDraftFields());
     for (const surface of SURFACES) {
       for (const field of surface.fields) {
         expect(fields.has(field), `${field} is on ${surface.id} but not on the draft`).toBe(true);
@@ -146,9 +162,9 @@ describe('unreviewed surfaces', () => {
     expect(unreviewedSurfaces({ editingExisting: true, visited: ['setup'] })).toEqual([]);
   });
 
-  it('accepts a Set as well as an array', () => {
-    expect(unreviewedSurfaces({ editingExisting: false, visited: new Set(['setup', 'email']) })
-      .map(s => s.id)).toEqual(['public']);
+  it('carries the label the guard needs, so the caller need not look it up', () => {
+    expect(unreviewedSurfaces({ editingExisting: false, visited: ['setup', 'email'] }))
+      .toEqual([{ id: 'public', label: 'Public page' }]);
   });
 });
 
@@ -171,7 +187,8 @@ describe('backdrop fallback', () => {
 
   // The colour input can be empty on a draft that has never been saved.
   it('falls back to the house accent when none is set', () => {
-    expect(backdropFallbackCss('')).toContain('#ae222a');
-    expect(backdropFallbackCss(null)).toContain('#ae222a');
+    expect(DEFAULT_ACCENT).toBe('#ae222a');
+    expect(backdropFallbackCss('')).toContain(DEFAULT_ACCENT);
+    expect(backdropFallbackCss(null)).toContain(DEFAULT_ACCENT);
   });
 });
