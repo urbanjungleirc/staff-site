@@ -69,6 +69,16 @@ export function matchMembers(members = [], query, suppressedEmails = []) {
     .map((m) => ({ ...m, alreadySuppressed: suppressed.has(norm(m.email)) }));
 }
 
+// Narrows the rendered list to what staff are looking for. Matches the same way
+// the member picker does — address or any name on the row — so one habit works
+// in both places. An empty search means "no filter", not "no matches".
+export function filterSuppressions(rows = [], query) {
+  const q = norm(query);
+  if (!q) return [...rows];
+
+  return rows.filter((r) => norm(r.email).includes(q) || (r.names || []).some((n) => norm(n).includes(q)));
+}
+
 // Offered only when the text is plausibly an address AND no member already
 // holds it, so the free-text escape hatch never shadows the picker.
 export function isFreeTextOffer(members = [], query) {

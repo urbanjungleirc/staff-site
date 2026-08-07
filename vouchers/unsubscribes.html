@@ -287,7 +287,7 @@
             <div>
               <h2 class="text-lg font-bold" style="color: var(--ink-primary);">
                 Not receiving automatic voucher emails
-                <span class="text-neutral-400 font-semibold" x-text="`· ${current.length}`"></span>
+                <span class="text-neutral-400 font-semibold" x-text="`· ${currentFiltered.length}`"></span>
               </h2>
               <p class="text-xs mt-1" style="color: var(--ink-muted);" x-text="listFreshness"></p>
             </div>
@@ -360,19 +360,35 @@
             </div>
           </div>
 
+          <!-- ── Search ──────────────────────────────────────────────────────
+               Staff arrive here with one person in mind, so filtering beats
+               scrolling. It narrows both groups at once: someone who has left is
+               exactly who you would search for and find nowhere else. -->
+          <div x-show="suppressions.length" class="mb-4">
+            <label class="field-label" for="row-search">Find someone</label>
+            <input id="row-search" type="search" class="text-input" autocomplete="off"
+              placeholder="Search by name or email…" x-model="search"
+              @input="showAllCurrent = false; showAllFormer = false">
+          </div>
+
           <!-- ── Current members ─────────────────────────────────────────── -->
-          <!-- With no member list stored, every address falls into the "former"
-               group because none can be matched. Claiming everyone is fine here
-               would be the confidently-wrong answer this page exists to prevent. -->
-          <div x-show="!current.length" class="py-8 text-center text-sm text-neutral-500">
-            <span x-show="memberList">Everyone on the current member list is receiving these emails.</span>
-            <span x-show="!memberList">
+          <!-- Three different reasons this list can be empty, and only one of
+               them means "everyone is fine". With no member list stored every
+               address falls into the "former" group because none can be matched;
+               claiming everyone is receiving email there would be the
+               confidently-wrong answer this page exists to prevent. -->
+          <div x-show="!currentFiltered.length" class="py-8 text-center text-sm text-neutral-500">
+            <span x-show="search.trim()">
+              No one matching “<span x-text="search.trim()"></span>” is suppressed.
+            </span>
+            <span x-show="!search.trim() && memberList">Everyone on the current member list is receiving these emails.</span>
+            <span x-show="!search.trim() && !memberList">
               No member list has arrived, so who is currently suppressed cannot be shown.
               Anything already recorded is listed below.
             </span>
           </div>
 
-          <template x-for="row in current" :key="row.email">
+          <template x-for="row in currentVisible" :key="row.email">
             <div class="row">
               <div class="min-w-0">
                 <div class="row-email" x-text="row.email"></div>
@@ -403,8 +419,18 @@
             </div>
           </template>
 
+          <!-- Long lists are capped rather than paginated: searching is how staff
+               find a row, and a page number is a worse handle than a name. -->
+          <div x-show="currentFiltered.length > currentVisible.length" class="mt-3 text-center">
+            <button type="button" class="btn btn-quiet" @click="showAllCurrent = true">
+              <span x-text="`Show all ${currentFiltered.length}`"></span>
+            </button>
+            <p class="text-xs mt-2" style="color: var(--ink-muted);"
+              x-text="`Showing ${currentVisible.length} of ${currentFiltered.length}`"></p>
+          </div>
+
           <!-- ── Former members ──────────────────────────────────────────── -->
-          <div x-show="former.length" class="mt-7">
+          <div x-show="formerFiltered.length" class="mt-7">
             <button type="button" class="flex items-center gap-2 text-sm font-semibold"
               style="color: var(--ink-secondary);" @click="showFormer = !showFormer">
               <span class="nav-icon">
@@ -413,7 +439,7 @@
                 </svg>
               </span>
               Not in the current member list
-              <span class="text-neutral-400 font-medium" x-text="`· ${former.length}`"></span>
+              <span class="text-neutral-400 font-medium" x-text="`· ${formerFiltered.length}`"></span>
             </button>
 
             <div x-show="showFormer" class="mt-3">
@@ -422,7 +448,7 @@
                 These are kept deliberately — if they rejoin, this is what stops us emailing someone who
                 asked us not to. Leave them unless the member asks otherwise.
               </p>
-              <template x-for="row in former" :key="row.email">
+              <template x-for="row in formerVisible" :key="row.email">
                 <div class="row">
                   <div class="min-w-0">
                     <div class="row-email" x-text="row.email"></div>
@@ -440,6 +466,14 @@
                   </div>
                 </div>
               </template>
+
+              <div x-show="formerFiltered.length > formerVisible.length" class="mt-3 text-center">
+                <button type="button" class="btn btn-quiet" @click="showAllFormer = true">
+                  <span x-text="`Show all ${formerFiltered.length}`"></span>
+                </button>
+                <p class="text-xs mt-2" style="color: var(--ink-muted);"
+                  x-text="`Showing ${formerVisible.length} of ${formerFiltered.length}`"></p>
+              </div>
             </div>
           </div>
 
@@ -512,6 +546,11 @@
     const IS_LOCAL = ['localhost', '127.0.0.1'].includes(window.location.hostname);
     const WORKER = IS_LOCAL ? 'https://uj-payments.urbanjungle.workers.dev' : '/api/payments';
 
+    // Rows rendered before "Show all" is offered. High enough that the current
+    // list (single figures today) never sees it, low enough that hundreds of
+    // Alpine-bound rows are not built for a lookup that wants one of them.
+    const ROW_CAP = 50;
+
     const PERTH_DATE = new Intl.DateTimeFormat('en-AU', {
       timeZone: 'Australia/Perth', day: 'numeric', month: 'short', year: 'numeric',
     });
@@ -539,6 +578,12 @@
         chosen: '',
 
         showFormer: false,
+
+        // Search narrows both groups; the cap keeps an unfiltered list of
+        // hundreds from rendering in full before anyone has said who they want.
+        search: '',
+        showAllCurrent: false,
+        showAllFormer: false,
         confirm: { open: false, email: '', names: '', memberCount: 0, alsoClubworx: false, error: '' },
 
         // Addresses resubscribed in this sitting that Clubworx still suppresses.
@@ -580,6 +625,18 @@
         // browser; see vouchers/test/unsubscribes-logic.test.js.
         get current() { return window.unsubscribeLogic.partitionSuppressions(this.suppressions).current; },
         get former()  { return window.unsubscribeLogic.partitionSuppressions(this.suppressions).former; },
+
+        get currentFiltered() { return window.unsubscribeLogic.filterSuppressions(this.current, this.search); },
+        get formerFiltered()  { return window.unsubscribeLogic.filterSuppressions(this.former, this.search); },
+
+        // Capped until asked otherwise. A search almost always cuts the list
+        // below the cap, so the button is a fallback for browsing, not the path.
+        get currentVisible() {
+          return this.showAllCurrent ? this.currentFiltered : this.currentFiltered.slice(0, ROW_CAP);
+        },
+        get formerVisible() {
+          return this.showAllFormer ? this.formerFiltered : this.formerFiltered.slice(0, ROW_CAP);
+        },
 
         get suppressedEmails() { return new Set(this.suppressions.map((s) => s.email)); },
 
