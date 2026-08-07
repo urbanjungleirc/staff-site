@@ -44,6 +44,14 @@
     // A stale cached copy would leave the type editor with no tabs to render.
     import * as typeSurfaces from './type-surfaces.js?v=1';
     window.typeSurfaces = typeSurfaces;
+    // And here: bump it whenever version-display.js gains or renames an export.
+    // A stale cached copy of this one is the mildest of the four — the footer
+    // loses its version line and nothing else changes — which is the whole
+    // point: the version display must never be able to break the page it is
+    // describing. loadBuildVersion() treats a missing export like a missing
+    // file.
+    import * as versionDisplay from './version-display.js?v=1';
+    window.versionDisplay = versionDisplay;
   </script>
   <script defer src="https://cdn.jsdelivr.net/npm/alpinejs@3.x.x/dist/cdn.min.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/qrcode@1.5.3/build/qrcode.min.js"></script>
@@ -1894,6 +1902,15 @@
       <span x-show="accessEmail" x-cloak>
         Signed in as <span class="font-medium text-neutral-600" x-text="accessEmail"></span>
       </span>
+      <!-- Same rule, same reason: no version.json in local development, and
+           none whenever git could not be trusted at build time. Hidden rather
+           than blank — a version display that shows a broken placeholder is
+           worse than one that shows nothing.
+
+           The SHA is deliberately not a link. staff-site is a private repo and
+           the people reading this footer are on the front desk, so a commit
+           link would 404 for almost everyone who clicked it. -->
+      <span x-show="buildVersion" x-cloak x-text="buildVersion" class="tabular-nums"></span>
     </div>
   </footer>
 
@@ -3359,6 +3376,10 @@
       cancelLoading: false,
       cancelError: '',
       accessEmail: '',
+      // Formatted footer build version, or '' for "do not show a version".
+      // Starts empty so the footer never flashes a placeholder before the
+      // fetch lands, and stays empty on every failure path.
+      buildVersion: '',
 
       // Restore (un-cancel). Same manager gate; secret likewise never stored.
       restoreOpen: false,
@@ -3474,6 +3495,7 @@
           .then((r) => (r.ok ? r.json() : null))
           .then((d) => { if (d && d.email) this.accessEmail = d.email; })
           .catch(() => {});
+        this.loadBuildVersion();
         // Position help-tip bubbles on hover/focus so they escape the editor
         // panel's overflow and stay inside the viewport near a form edge.
         const onTip = (e) => { const t = e.target.closest && e.target.closest('.help-tip'); if (t) this.positionTip(t); };
@@ -4109,6 +4131,27 @@
           this.canDelete = me.can_delete === true;
         } catch {
           this.canDelete = false;
+        }
+      },
+
+      // The footer build version. Generated into version.json at deploy time,
+      // so it is absent in local development and after any failed deploy —
+      // both of which land on '' and simply hide the line.
+      //
+      // no-store is the point of the whole exercise, not a precaution. This
+      // file sits beside the HTML on the same static origin, so a cached copy
+      // would report the *previous* build as the current one — telling you the
+      // page is fresh at exactly the moment it is stale. That is worse than
+      // showing nothing, so the one fetch that must never be cached is this one.
+      async loadBuildVersion() {
+        try {
+          const res = await fetch('./version.json', { cache: 'no-store' });
+          if (!res.ok) return;
+          this.buildVersion = window.versionDisplay.formatBuildVersion(await res.json());
+        } catch {
+          // Missing file, unparseable JSON, or a stale cached module without
+          // the export. Nothing to show, and nothing worth telling staff about.
+          this.buildVersion = '';
         }
       },
 

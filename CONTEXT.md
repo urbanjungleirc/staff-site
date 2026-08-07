@@ -179,6 +179,13 @@ It is scoped to `vouchers/`, so it moves when the hub moves and stays put when
 the roster or the HVT copy changes. See
 [ADR 0004](docs/adr/0004-voucher-hub-build-version.md).
 
+It renders in the hub footer beside the signed-in email, as
+`v67 · 32ef795 · 7 Aug 18:41`, formatted by `vouchers/version-display.js` in
+Perth time. **That fetch is `no-store`, and this is the point rather than a
+precaution**: `version.json` sits on the same static origin as the HTML, so a
+cached copy would name the previous build as the current one — announcing the
+page is fresh at exactly the moment it is stale.
+
 *Avoid*: "release" and "semver". The count orders builds; it claims nothing
 about compatibility, and nobody chooses it.
 
