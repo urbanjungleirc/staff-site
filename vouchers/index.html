@@ -35,6 +35,11 @@
   <script type="module">
     import * as pipeline from './image-pipeline.js?v=1';
     window.imagePipeline = pipeline;
+    // Same rule for the ?v= here: bump it whenever delete-logic.js gains or
+    // renames an export. A stale cached copy would disarm every guard on the
+    // delete modal at once; openDelete() and submitDelete() both check for it.
+    import * as deleteLogic from './delete-logic.js?v=1';
+    window.deleteLogic = deleteLogic;
   </script>
   <script defer src="https://cdn.jsdelivr.net/npm/alpinejs@3.x.x/dist/cdn.min.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/qrcode@1.5.3/build/qrcode.min.js"></script>
@@ -1189,6 +1194,16 @@
                 class="bg-white hover:bg-emerald-50 text-emerald-700 px-4 py-2 rounded-xl text-sm font-medium border border-emerald-200 hover:border-emerald-300 transition-colors inline-flex items-center gap-1.5">
                 <span class="button-icon"><svg viewBox="0 0 24 24"><path d="M8 7.5H4.5V4"/><path d="M5 7.25a7.5 7.5 0 1 1 1.4 9.25"/></svg></span>
                 Restore Voucher
+              </button>
+              <!-- Hard delete. Rendered only for an address on the Worker's
+                   DELETE_ALLOWED_EMAILS allowlist, so nobody is shown a button
+                   that can only 403. Deliberately SOLID where Cancel is
+                   outlined: the two sit side by side and do very different
+                   things, and only one of them can be undone. -->
+              <button x-show="canDelete && voucher" @click="openDelete()"
+                class="bg-rose-600 hover:bg-rose-700 text-white px-4 py-2 rounded-xl text-sm font-semibold transition-colors inline-flex items-center gap-1.5">
+                <span class="button-icon"><svg viewBox="0 0 24 24"><path d="M5.5 7.5h13"/><path d="M9.5 7.5V5h5v2.5"/><path d="M7 7.5 7.75 19h8.5L17 7.5"/><path d="M10.5 10.5v5.5"/><path d="M13.5 10.5v5.5"/></svg></span>
+                Delete Permanently
               </button>
             </div>
             <p x-show="!voucher?.customer_email && !voucher?.is_physical"
@@ -2742,6 +2757,65 @@
     </div>
   </div>
 
+  <!-- ── Delete voucher modal (Access-email gated HARD delete) ─────────────
+       Deliberately heavier than the cancel modal above: cancel keeps the record
+       and can be restored, this removes the row. The typed code is what the
+       allowlist cannot supply — it authenticates the session, not the person at
+       an unlocked laptop. -->
+  <div x-show="deleteOpen" x-cloak class="fixed inset-0 z-50 flex items-center justify-center p-4"
+    @keydown.escape.window="deleteOpen = false">
+    <div class="absolute inset-0 bg-black/40 backdrop-blur-sm" @click="deleteOpen = false"></div>
+    <div class="relative bg-white rounded-card shadow-2xl shadow-neutral-900/15 w-full max-w-md p-6 border border-rose-200">
+      <div class="flex items-center justify-between mb-4">
+        <h3 class="text-base font-semibold text-rose-700">Permanently delete this voucher?</h3>
+        <button @click="deleteOpen = false" class="text-neutral-400 hover:text-neutral-700 text-xl leading-none">&times;</button>
+      </div>
+
+      <div class="bg-neutral-50 border border-neutral-200 rounded-xl px-3.5 py-2.5 text-sm mb-4">
+        <div class="font-mono font-semibold text-neutral-900" x-text="voucher?.voucher_id"></div>
+        <div class="text-neutral-600 text-xs mt-1">
+          <span x-show="voucher?.customer_name" x-text="voucher?.customer_name"></span>
+          <span x-show="voucher?.customer_name"> · </span>
+          <span x-text="fmtMoney(voucher?.balance)"></span> of <span x-text="fmtMoney(voucher?.value)"></span>
+          · <span class="uppercase tracking-wide" x-text="voucher?.status"></span>
+        </div>
+      </div>
+
+      <p class="text-sm text-neutral-700 mb-4">
+        This <b>erases the voucher from the database</b>, along with the purchase
+        record that counts against the buyer's limit. Unlike <b>Cancel</b>, it
+        <b class="text-rose-700">cannot be undone</b> from this page.
+      </p>
+
+      <!-- Loud only when there is something real to lose. A test artefact gets
+           the plain warning above; a paid or redeemed voucher gets this too. -->
+      <template x-for="warning in deleteWarnings()" :key="warning">
+        <div class="bg-amber-50 border border-amber-200 text-amber-800 rounded-xl px-3.5 py-2.5 text-xs mb-2.5" x-text="warning"></div>
+      </template>
+
+      <label class="block text-xs font-semibold text-neutral-500 uppercase tracking-wider mb-1.5 mt-4">Reason <span class="text-rose-500">*</span></label>
+      <textarea x-model="deleteReason" rows="2" maxlength="500" placeholder="e.g. test voucher created while checking the email template"
+        class="w-full border border-neutral-200 rounded-xl px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-rose-500/30 focus:border-rose-400 mb-4"></textarea>
+
+      <label class="block text-xs font-semibold text-neutral-500 uppercase tracking-wider mb-1.5">
+        Type <b class="font-mono normal-case text-neutral-900 tracking-normal" x-text="voucher?.voucher_id"></b> to confirm <span class="text-rose-500">*</span>
+      </label>
+      <input type="text" x-model="deleteTypedCode" autocomplete="off" spellcheck="false"
+        class="w-full border border-neutral-200 rounded-xl px-3 py-2 text-sm font-mono uppercase focus:outline-none focus:ring-2 focus:ring-rose-500/30 focus:border-rose-400 mb-2">
+
+      <p x-show="deleteError" class="text-sm text-rose-600 mb-2" x-text="deleteError"></p>
+
+      <div class="flex gap-2.5 mt-3">
+        <button @click="deleteOpen = false"
+          class="flex-1 border border-neutral-200 hover:bg-neutral-50 text-neutral-700 font-medium rounded-xl py-2.5 text-sm transition-colors">Keep voucher</button>
+        <button @click="submitDelete()" :disabled="!canSubmitDelete()"
+          class="flex-1 bg-rose-600 hover:bg-rose-700 disabled:opacity-40 disabled:cursor-not-allowed text-white font-semibold rounded-xl py-2.5 text-sm transition-colors">
+          <span x-text="deleteLoading ? 'Deleting…' : 'Delete permanently'"></span>
+        </button>
+      </div>
+    </div>
+  </div>
+
   <!-- ── Restore voucher modal (manager-gated un-cancel) ──────────────────── -->
   <div x-show="restoreOpen" x-cloak class="fixed inset-0 z-50 flex items-center justify-center p-4"
     @keydown.escape.window="restoreOpen = false">
@@ -2916,6 +2990,15 @@
     const IMAGE_PIPELINE_REQUIRED = [
       'isAcceptedType', 'tooLargeToProcess', 'formatBytes',
       'resizeImage', 'isTooSmall', 'overSoftBudget', 'overHardCap',
+    ];
+
+    // Everything this page calls on window.deleteLogic. Same stale-cache hazard
+    // as IMAGE_PIPELINE_REQUIRED, but the failure is worse: an Alpine expression
+    // that throws leaves :disabled unapplied, so a missing canSubmitDelete()
+    // would ENABLE the confirm button rather than disable it. Checked before the
+    // modal can be opened at all.
+    const DELETE_LOGIC_REQUIRED = [
+      'canSubmitDelete', 'deleteWarnings', 'deleteErrorMessage', 'withoutVoucher',
     ];
 
     const IS_LOCAL = ['localhost', '127.0.0.1'].includes(window.location.hostname);
@@ -3100,6 +3183,17 @@
       restoreError: '',
       undoLoading: false,
 
+      // Hard delete (Access-email allowlist, not a second password). canDelete
+      // comes from GET /v1/staff/me and starts false so a failed identity call
+      // hides the button rather than offering one that 403s. It is a display
+      // gate only — the Worker re-checks the verified JWT on every DELETE.
+      canDelete: false,
+      deleteOpen: false,
+      deleteReason: '',
+      deleteTypedCode: '',
+      deleteLoading: false,
+      deleteError: '',
+
       // Formatting / placeholders help
       formatHelpOpen: false,
       formatHelpTab: 'markdown',
@@ -3200,6 +3294,7 @@
         if (this.isAuthed()) {
           await this.search();
           this.loadDashStats(); // fire and forget — don't block the search
+          this.loadStaffMe();   // likewise: only decides whether one button renders
         }
         // Background refresh: on tab focus (throttled inside refreshData) plus
         // a 5-minute tick that only fires while the tab is visible.
@@ -3809,6 +3904,98 @@
           this.cancelError = e.status === 403 ? 'Manager password incorrect' : e.message;
         } finally {
           this.cancelLoading = false;
+        }
+      },
+
+      // Whether the Worker will accept a delete from this identity. Only
+      // can_delete is kept — the email it also returns is already shown from
+      // /cdn-cgi/access/get-identity, and a second writer would race it.
+      // Failure is silent and leaves canDelete false: someone who cannot delete
+      // never sees the button, which is also the safe outcome when we could not ask.
+      async loadStaffMe() {
+        try {
+          const me = await this.api('/v1/staff/me');
+          this.canDelete = me.can_delete === true;
+        } catch {
+          this.canDelete = false;
+        }
+      },
+
+      // Refuses to open rather than opening a modal whose guards cannot run.
+      // A stale cached delete-logic.js is the one case where every protection in
+      // the modal — typed code, required reason, the disabled button — silently
+      // stops working at once, so the check belongs in front of the door.
+      openDelete() {
+        const missing = DELETE_LOGIC_REQUIRED.filter((fn) => typeof window.deleteLogic?.[fn] !== 'function');
+        if (missing.length) {
+          this.showToast(
+            'This page loaded an out-of-date script, so deleting is disabled. '
+            + 'Reload with Ctrl+Shift+R (Cmd+Shift+R on a Mac). '
+            + `If it keeps happening, tell Jiri — missing: ${missing.join(', ')}.`,
+            'error',
+          );
+          return;
+        }
+        this.deleteReason = '';
+        this.deleteTypedCode = '';
+        this.deleteError = '';
+        this.deleteOpen = true;
+      },
+
+      // Mirrors of the pure rules in delete-logic.js, so the template stays
+      // readable and the rules stay testable. Called bare, as the sibling
+      // modules are: openDelete() has already refused to open the modal if
+      // either is missing, and submitDelete() re-checks before sending.
+      deleteWarnings() {
+        return window.deleteLogic.deleteWarnings(this.voucher);
+      },
+
+      canSubmitDelete() {
+        return window.deleteLogic.canSubmitDelete({
+          voucher: this.voucher,
+          typedCode: this.deleteTypedCode,
+          reason: this.deleteReason,
+          busy: this.deleteLoading,
+        });
+      },
+
+      async submitDelete() {
+        // The disabled button is the visible guard; this is the one that decides.
+        // It is also what keeps a stale module fail-CLOSED: if canSubmitDelete
+        // were missing, this throws before the DELETE is sent rather than after.
+        if (!this.canSubmitDelete()) return;
+        this.deleteLoading = true;
+        this.deleteError = '';
+        const code = this.voucher.voucher_id;
+        try {
+          await this.api('/v1/vouchers/' + encodeURIComponent(code), {
+            method: 'DELETE',
+            body: JSON.stringify({
+              deleted_by: this.createIssuer || 'staff',
+              reason: this.deleteReason.trim(),
+            }),
+          });
+          this.deleteOpen = false;
+          // The row is gone server-side, so drop it from every list holding a
+          // copy — leaving one behind offers a detail view that 404s. The report
+          // lists matter as much as search: the detail panel can be opened from
+          // either, and we are about to send the user back to whichever it was.
+          this.results = window.deleteLogic.withoutVoucher(this.results, code);
+          if (this.report) {
+            this.report.issued = window.deleteLogic.withoutVoucher(this.report.issued, code);
+            this.report.redeemed = window.deleteLogic.withoutVoucher(this.report.redeemed, code);
+          }
+          this.voucher = null;
+          this.view = this.detailOrigin === 'report' ? 'report' : 'search';
+          // The dashboard counters we are about to land back on counted this
+          // voucher. Re-read them rather than leave visibly wrong totals sitting
+          // there until the next five-minute tick.
+          this.loadDashStats();
+          this.showToast('Voucher ' + code + ' deleted');
+        } catch (e) {
+          this.deleteError = window.deleteLogic.deleteErrorMessage(e);
+        } finally {
+          this.deleteLoading = false;
         }
       },
 
