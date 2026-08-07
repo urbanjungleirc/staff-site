@@ -22,6 +22,7 @@ liverumble*.html        - Rumble in the Jungle pages
 livescore_ssp*.html     - Super Social Pumpfest scoring/result pages
 iFrameTestBookingCalendar.html - booking calendar embed test
 vouchers/scripts/version.mjs - derives the hub's build version from git at deploy time (unit tested)
+vouchers/version-display.js - formats that version for the footer, in Perth time (unit tested)
 .github/workflows/pages.yml - publishes the site to Pages; the repo's only build step
 ```
 

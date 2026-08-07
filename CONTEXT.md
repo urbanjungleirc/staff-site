@@ -179,6 +179,19 @@ It is scoped to `vouchers/`, so it moves when the hub moves and stays put when
 the roster or the HVT copy changes. See
 [ADR 0004](docs/adr/0004-voucher-hub-build-version.md).
 
+It renders in the hub footer beside the signed-in email, as
+`v67 · 32ef795 · 7 Aug 18:41`, formatted by `vouchers/version-display.js` in
+Perth time. **That fetch is `no-store`, and this is the point rather than a
+precaution**: `version.json` sits on the same static origin as the HTML, so a
+cached copy would name the previous build as the current one — announcing the
+page is fresh at exactly the moment it is stale.
+
+Because that fetch always reaches the origin, the footer states **what is
+deployed, not what is running**. A browser serving a cached hub page prints the
+current version beside stale code. Telling those apart needs a second version
+carried by the page itself, which is
+[vouchers#66](https://github.com/urbanjungleirc/vouchers/issues/66).
+
 *Avoid*: "release" and "semver". The count orders builds; it claims nothing
 about compatibility, and nobody chooses it.
 

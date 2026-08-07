@@ -72,3 +72,47 @@ describe('an absent identity degrades quietly', () => {
     expect(line).not.toMatch(/x-show/);
   });
 });
+
+// The build version shares this footer, and shares reason (1) above: the
+// formatting is unit tested in version-display.test.js, but formatting a string
+// nothing renders would pass just as well. See vouchers#58.
+describe('the build version is shown beside the identity', () => {
+  test('the footer binds the formatted version', () => {
+    expect(footer()).toMatch(/x-text="buildVersion"/);
+  });
+
+  test('the value bound is the one the version fetch writes', () => {
+    // Same drift guard as the email: a binding and a loader on two different
+    // fields leaves the footer permanently empty and nothing else complains.
+    expect(between('async loadBuildVersion', '\n      },')).toMatch(/this\.buildVersion = /);
+  });
+
+  test('the loader actually runs on init', () => {
+    // Defining loadBuildVersion() and never calling it is the exact shape of
+    // the dead identity call this file was written for.
+    expect(page).toMatch(/this\.loadBuildVersion\(\);/);
+  });
+
+  test('the version is fetched with no-store', () => {
+    // Load-bearing, not a precaution: version.json sits on the same static
+    // origin as this HTML, so a cached copy would name the previous build as
+    // the current one — announcing the page is fresh at the moment it is
+    // stale. Nothing else in the system would catch that, which is why it is
+    // pinned here. See vouchers#58 and ADR 0004.
+    const loader = between('async loadBuildVersion', '\n      },');
+    expect(loader).toMatch(/fetch\('\.\/version\.json',\s*\{\s*cache:\s*'no-store'\s*\}\)/);
+  });
+});
+
+describe('an absent build version degrades quietly', () => {
+  test('the line is hidden rather than rendered empty', () => {
+    // version.json is absent in local development and after any failed deploy,
+    // so an empty slot or a bare "v" is a reachable state, not a hypothetical.
+    const versionSpan = between('x-show="buildVersion"', '</span>');
+    expect(versionSpan).toMatch(/x-text="buildVersion"/);
+  });
+
+  test('the version starts empty so nothing flashes before the fetch lands', () => {
+    expect(page).toMatch(/buildVersion: '',/);
+  });
+});
