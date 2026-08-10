@@ -57,6 +57,12 @@
     // file.
     import * as versionDisplay from './version-display.js?v=1';
     window.versionDisplay = versionDisplay;
+    // Same rule for the ?v= here. A stale cached copy of this one costs the
+    // "expiring soon" flag beside the expiry date and nothing else, so
+    // isExpiringSoon() treats a missing export as "do not flag" rather than
+    // throwing on every render of the detail view.
+    import * as expiryFlag from './expiry-flag.js?v=1';
+    window.expiryFlag = expiryFlag;
   </script>
   <script defer src="https://cdn.jsdelivr.net/npm/alpinejs@3.x.x/dist/cdn.min.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/qrcode@1.5.3/build/qrcode.min.js"></script>
@@ -1206,7 +1212,8 @@
                     <div><dt class="text-[0.62rem] font-semibold text-neutral-400 uppercase tracking-wider mb-1">Type</dt><dd class="text-neutral-700" x-text="voucher?._type_name || voucher?.voucher_type_id || '—'"></dd></div>
                     <div x-show="voucher?._item_name || voucher?.voucher_item_id"><dt class="text-[0.62rem] font-semibold text-neutral-400 uppercase tracking-wider mb-1">Item</dt><dd class="text-neutral-700" x-text="voucher?._item_name || voucher?.voucher_item_id"></dd></div>
                     <div><dt class="text-[0.62rem] font-semibold text-neutral-400 uppercase tracking-wider mb-1">Issued</dt><dd class="text-neutral-700" x-text="fmtDate(voucher?.issued_date)"></dd></div>
-                    <div><dt class="text-[0.62rem] font-semibold text-neutral-400 uppercase tracking-wider mb-1">Expires</dt><dd class="text-neutral-700" x-text="fmtDate(voucher?.expiry_date)"></dd></div>
+                    <div><dt class="text-[0.62rem] font-semibold text-neutral-400 uppercase tracking-wider mb-1">Expires</dt><dd class="text-neutral-700 flex items-center gap-2 flex-wrap"><span x-text="fmtDate(voucher?.expiry_date)"></span><span x-show="isExpiringSoon(voucher)"
+                      class="inline-flex items-center px-2 py-0.5 rounded-full text-[0.67rem] font-semibold uppercase tracking-wide bg-amber-50 text-amber-700 ring-1 ring-inset ring-amber-600/20">Expiring soon</span></dd></div>
                     <div x-show="voucher?.reason"><dt class="text-[0.62rem] font-semibold text-neutral-400 uppercase tracking-wider mb-1">Reason</dt><dd class="text-neutral-700" x-text="voucher?.reason"></dd></div>
                   </dl>
                 </section>
@@ -4928,6 +4935,14 @@
           expired:   'bg-amber-50 text-amber-700 ring-amber-600/20',
           cancelled: 'bg-rose-50 text-rose-700 ring-rose-600/20',
         })[s] || 'bg-neutral-100 text-neutral-500 ring-neutral-500/20';
+      },
+
+      // Caution beside the expiry date when a still-usable voucher is inside the
+      // dashboard's 30-day expiring-soon window. The rule lives in expiry-flag.js
+      // so it can be unit tested against the Worker's; read through window and
+      // guarded, so a stale cached copy loses the flag rather than the panel.
+      isExpiringSoon(v) {
+        return !!window.expiryFlag?.isExpiringSoon?.(v, this.perthToday());
       },
 
       // A voucher is "partially redeemed" when it's still usable (active) but some
