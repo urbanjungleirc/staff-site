@@ -161,6 +161,34 @@ usually has no null columns to inherit through — it holds copies instead. The
 chip therefore appears mainly on types created before seeding, or through the
 API. See [ADR 0003](docs/adr/0003-voucher-type-editor-organised-by-surface.md).
 
+## Voucher expiry
+
+Terms describing how close a voucher is to its expiry date. Implemented in
+`vouchers/expiry-flag.js` and, for the dashboard counter, in the payments
+Worker's `GET /v1/vouchers/stats`.
+
+### Expiring soon
+
+A voucher that is **still usable** and whose expiry falls within the next **30
+days**, counting from today in Perth. Both halves are load-bearing: a cancelled
+or fully redeemed voucher is not usable and never qualifies, a voucher with no
+expiry date never qualifies, and one that has *already* expired is **expired**,
+not expiring — it has its own status and must not read as a caution about
+something yet to happen.
+
+A voucher expiring **today** is expiring soon, not expired: it is redeemable all
+day. That boundary is why the comparison is `>=` today rather than `>`.
+
+There is exactly **one** definition, deliberately. It is stated twice — the
+dashboard counter derives it in the Worker, the detail-view flag derives it in
+the browser — and the two are matched down to the boundary. A page that counted
+"3 vouchers expiring in the next 30 days" and then showed a voucher inside that
+window without the flag would undermine both numbers, so the window moves in
+both places or neither.
+
+*Avoid*: "expiring", "nearly expired", "due" when you mean this. The dashboard,
+the detail flag and this glossary all read *expiring soon*.
+
 ## Voucher hub build version
 
 Terms describing how the hub identifies itself. Implemented in

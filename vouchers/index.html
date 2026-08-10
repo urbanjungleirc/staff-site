@@ -57,6 +57,12 @@
     // file.
     import * as versionDisplay from './version-display.js?v=1';
     window.versionDisplay = versionDisplay;
+    // Same rule for the ?v= here. A stale cached copy of this one costs the
+    // "expiring soon" flag beside the expiry date and nothing else, so
+    // isExpiringSoon() treats a missing export as "do not flag" rather than
+    // throwing on every render of the detail view.
+    import * as expiryFlag from './expiry-flag.js?v=1';
+    window.expiryFlag = expiryFlag;
   </script>
   <script defer src="https://cdn.jsdelivr.net/npm/alpinejs@3.x.x/dist/cdn.min.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/qrcode@1.5.3/build/qrcode.min.js"></script>
@@ -775,7 +781,7 @@
            holding everything else. See vouchers#54. -->
       <nav class="flex flex-col gap-1.5 sm:items-end">
         <div class="flex items-center gap-1.5 flex-wrap sm:justify-end">
-        <button @click="view='search'; stopScannerIfActive()"
+        <button @click="goSearch()"
           :class="view==='search' ? 'bg-white/25 border-white/50 text-white font-semibold' : 'bg-white/[0.12] border-white/30 text-white hover:bg-white/[0.22]'"
           class="px-4 py-2 rounded-xl border text-[0.9rem] font-semibold transition-all inline-flex items-center gap-1.5">
           <span class="nav-icon"><svg viewBox="0 0 24 24"><circle cx="11" cy="11" r="6.5"/><path d="m16 16 4 4"/></svg></span>
@@ -1106,7 +1112,7 @@
 
     <!-- ── Detail ────────────────────────────────────────────────────────── -->
     <div x-show="view==='detail'">
-      <button @click="view = detailOrigin === 'reports' ? 'reports' : 'search'"
+      <button @click="backFromDetail()"
         class="flex items-center gap-1.5 text-sm text-neutral-500 hover:text-neutral-800 mb-5 transition-colors">
         <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
           <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.75" d="M15 19l-7-7 7-7"/>
@@ -1206,7 +1212,8 @@
                     <div><dt class="text-[0.62rem] font-semibold text-neutral-400 uppercase tracking-wider mb-1">Type</dt><dd class="text-neutral-700" x-text="voucher?._type_name || voucher?.voucher_type_id || '—'"></dd></div>
                     <div x-show="voucher?._item_name || voucher?.voucher_item_id"><dt class="text-[0.62rem] font-semibold text-neutral-400 uppercase tracking-wider mb-1">Item</dt><dd class="text-neutral-700" x-text="voucher?._item_name || voucher?.voucher_item_id"></dd></div>
                     <div><dt class="text-[0.62rem] font-semibold text-neutral-400 uppercase tracking-wider mb-1">Issued</dt><dd class="text-neutral-700" x-text="fmtDate(voucher?.issued_date)"></dd></div>
-                    <div><dt class="text-[0.62rem] font-semibold text-neutral-400 uppercase tracking-wider mb-1">Expires</dt><dd class="text-neutral-700" x-text="fmtDate(voucher?.expiry_date)"></dd></div>
+                    <div><dt class="text-[0.62rem] font-semibold text-neutral-400 uppercase tracking-wider mb-1">Expires</dt><dd class="text-neutral-700 flex items-center gap-2 flex-wrap"><span x-text="fmtDate(voucher?.expiry_date)"></span><span x-show="isExpiringSoon(voucher)"
+                      class="inline-flex items-center px-2 py-0.5 rounded-full text-[0.67rem] font-semibold uppercase tracking-wide bg-amber-50 text-amber-700 ring-1 ring-inset ring-amber-600/20">Expiring soon</span></dd></div>
                     <div x-show="voucher?.reason"><dt class="text-[0.62rem] font-semibold text-neutral-400 uppercase tracking-wider mb-1">Reason</dt><dd class="text-neutral-700" x-text="voucher?.reason"></dd></div>
                   </dl>
                 </section>
@@ -1733,7 +1740,7 @@
     <!-- ── QR scan ────────────────────────────────────────────────────────── -->
     <div x-show="view==='scan'">
       <div class="flex items-center gap-3 mb-5">
-        <button @click="stopScannerIfActive(); view='search'"
+        <button @click="goSearch()"
           class="flex items-center gap-1.5 text-sm text-neutral-500 hover:text-neutral-800 transition-colors">
           <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
             <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.75" d="M15 19l-7-7 7-7"/>
@@ -3518,6 +3525,11 @@
       // Background refresh
       _lastRefresh: 0,
       _refreshTimer: null,
+      // Raised when something we did makes the held search results wrong — today
+      // that is issuing a voucher, which belongs at the top of the default
+      // listing the moment staff go looking for it. Landing on the search view
+      // with this up refreshes past the one-minute throttle. See vouchers#67.
+      _searchStale: false,
 
       // Reports
       reportTab: 'today',
@@ -4308,7 +4320,7 @@
             this.report.redeemed = window.deleteLogic.withoutVoucher(this.report.redeemed, code);
           }
           this.voucher = null;
-          this.view = this.detailOrigin === 'reports' ? 'reports' : 'search';
+          this.backFromDetail();
           // The dashboard counters we are about to land back on counted this
           // voucher. Re-read them rather than leave visibly wrong totals sitting
           // there until the next five-minute tick.
@@ -4564,6 +4576,10 @@
             }),
           });
           this.showToast(this.createdVoucher.voucher_id + ' created');
+          // The list behind us no longer has everything in it. Set here rather
+          // than refreshing now: the create form stays open for the next
+          // voucher, and refreshData() declines to run while it is.
+          this._searchStale = true;
           // Cleared with the customer fields, not kept for the next voucher: the
           // form stays open and usable after a create, so whoever steps up next
           // would otherwise inherit this name without it ever leaving the box.
@@ -4583,6 +4599,24 @@
       },
 
       // ── Header nav ───────────────────────────────────────────────────────
+      // The one way into the search view. Switching views does not re-fetch on
+      // its own, so anything that landed here after issuing a voucher used to
+      // show a list from before it existed — see vouchers#67. refreshData()
+      // rather than search(): it sends the filters that are in the bar and
+      // leaves the current page alone, where search() resets both.
+      goSearch() {
+        this.stopScannerIfActive();
+        this.view = 'search';
+        this.refreshData({ force: this._searchStale });
+      },
+
+      // Leaving the detail view returns to whichever list opened it. Shared by
+      // the back button and the post-delete return so the two cannot drift.
+      backFromDetail() {
+        if (this.detailOrigin === 'reports') { this.view = 'reports'; return; }
+        this.goSearch();
+      },
+
       // What the hamburger calls itself: the section it is currently hiding, or
       // nothing when the open view is one still visible in the header. Read
       // through window and guarded, so a browser holding a stale cached
@@ -4649,9 +4683,15 @@
 
       // Quietly re-fetch what's on screen: no spinners, no pagination reset,
       // never while a modal is open or the create form is in use.
-      async refreshData() {
+      //
+      // force skips the throttle, for the one case the throttle gets wrong: a
+      // voucher issued seconds ago, where waiting out the minute means staff
+      // look at a list that is missing it. It does not skip the modal and
+      // create-form guards — those are about not moving the ground under
+      // someone mid-task, which a deliberate navigation does not change.
+      async refreshData({ force = false } = {}) {
         if (!this.isAuthed()) return;
-        if (Date.now() - this._lastRefresh < 60 * 1000) return;
+        if (!force && Date.now() - this._lastRefresh < 60 * 1000) return;
         if (this._anyModalOpen() || this.view === 'create') return;
         this._lastRefresh = Date.now();
         this.loadDashStats();
@@ -4666,6 +4706,9 @@
             if (recent) p.set('limit', '99');
             this.results = await this.api('/v1/vouchers/search?' + p.toString());
             this.recentListing = recent;
+            // Only now: a refresh that threw still holds the old list, so the
+            // flag has to survive it and try again on the next landing.
+            this._searchStale = false;
           } else if (this.view === 'reports') {
             this.report = await this.api('/v1/vouchers/report?type=' + this.reportTab);
           }
@@ -4892,6 +4935,14 @@
           expired:   'bg-amber-50 text-amber-700 ring-amber-600/20',
           cancelled: 'bg-rose-50 text-rose-700 ring-rose-600/20',
         })[s] || 'bg-neutral-100 text-neutral-500 ring-neutral-500/20';
+      },
+
+      // Caution beside the expiry date when a still-usable voucher is inside the
+      // dashboard's 30-day expiring-soon window. The rule lives in expiry-flag.js
+      // so it can be unit tested against the Worker's; read through window and
+      // guarded, so a stale cached copy loses the flag rather than the panel.
+      isExpiringSoon(v) {
+        return !!window.expiryFlag?.isExpiringSoon?.(v, this.perthToday());
       },
 
       // A voucher is "partially redeemed" when it's still usable (active) but some
