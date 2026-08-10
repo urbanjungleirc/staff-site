@@ -401,8 +401,12 @@
     ::-webkit-scrollbar-thumb { background: rgba(139, 28, 35, 0.2); border-radius: 3px; }
   </style>
 </head>
+<!-- No x-init here. Alpine calls a component's own init() for us, so naming it
+     in x-init as well ran the whole bootstrap twice: two fetches, and a second
+     draw() that destroyed four charts while their opening animation was still
+     running. See vouchers#69. -->
 <body class="bg-neutral-100 text-neutral-900 min-h-screen antialiased font-sans"
-  x-data="voucherStats()" x-init="init()" x-cloak>
+  x-data="voucherStats()" x-cloak>
 
   <!-- ── Header ──────────────────────────────────────────────────────────── -->
   <header class="hub-header text-white">
@@ -904,6 +908,13 @@
       },
     };
 
+    // The live Chart.js instances, deliberately held in this closure rather than
+    // on the component below. Alpine deep-proxies everything the component
+    // holds, and Chart.js resolving its options through that proxy recurses
+    // until the stack gives out. Nothing in the template reads them, so they
+    // have no business being reactive.
+    const charts = {};
+
     return {
       WORKER,
       IS_LOCAL,
@@ -913,7 +924,6 @@
       rangeError: '',
       types: [],
       data: null,
-      charts: {},
       warnedClasses: new Set(),
       moneyMode: 'dollars',
       filters: { from: '', to: '', type: '', class: '' },
@@ -1105,11 +1115,10 @@
         } catch (e) {
           this.error = e.message;
           // A failed refetch must not leave the previous slice on screen under
-          // a filter bar that no longer describes it — drop the data and the
-          // charts so the page shows the error state, not a mislabelled one.
+          // a filter bar that no longer describes it — drop the data and empty
+          // the charts so the page shows the error state, not a mislabelled one.
           this.data = null;
-          Object.values(this.charts).forEach((c) => c?.destroy());
-          this.charts = {};
+          this.blankCharts();
         } finally {
           this.loading = false;
           this.refreshing = false;
@@ -1309,12 +1318,49 @@
         return '$' + n;
       },
 
+      // Put a chart on screen, reusing the one already on that canvas.
+      //
+      // Chart.js runs every animating chart through ONE shared rAF loop. A chart
+      // destroyed while it still has animations queued stays in that loop, which
+      // then calls draw() on the canvas it has just released — and the resulting
+      // exception escapes mid-iteration, taking the loop down for EVERY chart on
+      // the page, not just that one. Nothing restarts it. That is how a single
+      // fast re-render used to leave all four cards blank until a reload.
+      //
+      // So nothing here destroys a chart: a redraw updates the existing one in
+      // place, which is also what makes the transition animate instead of
+      // blinking. See vouchers#69.
+      paint(key, canvas, config) {
+        const chart = charts[key];
+        // canvas identity, not mere presence: a chart whose canvas has gone is
+        // no use to us, and reusing it would draw into nothing.
+        if (chart && chart.canvas === canvas) {
+          chart.data = config.data;
+          chart.options = config.options;
+          chart.update();
+          return;
+        }
+        charts[key] = new Chart(canvas, config);
+      },
+
+      // Leave the charts empty but alive. The alternative — destroying them —
+      // is the crash described on paint(), and it would have to happen on
+      // exactly the paths that are already going wrong. An empty chart on a
+      // hidden canvas costs nothing and is refilled in place by the next paint.
+      // 'none' skips the animation, so this queues nothing for the shared loop.
+      blankCharts() {
+        for (const chart of Object.values(charts)) {
+          if (!chart?.canvas) continue;
+          chart.data = { labels: [], datasets: [] };
+          chart.update('none');
+        }
+      },
+
       draw() {
         // Nothing in the window: the empty state is showing and the canvases are
         // display:none, so there is nothing to size a chart against.
         if (!this.hasRows()) {
-          Object.values(this.charts).forEach((c) => c?.destroy());
-          this.charts = {};
+          this.blankCharts();
           return;
         }
         const rows = this.byMonth();
@@ -1377,8 +1423,7 @@
             return `${ctx.dataset.label}: ${Math.round(n)} voucher${Math.round(n) === 1 ? '' : 's'}`;
           },
         };
-        this.charts.money?.destroy();
-        this.charts.money = new Chart(this.$refs.moneyChart, {
+        this.paint('money', this.$refs.moneyChart, {
           type: 'bar',
           data: { labels, datasets: moneyDatasets },
           options: moneyOpts,
@@ -1393,8 +1438,7 @@
           title: titleCb,
           label: (ctx) => `${ctx.dataset.label}: ${self.money(ctx.raw)}`,
         };
-        this.charts.liability?.destroy();
-        this.charts.liability = new Chart(this.$refs.liabilityChart, {
+        this.paint('liability', this.$refs.liabilityChart, {
           type: 'bar',
           data: {
             labels,
@@ -1436,8 +1480,7 @@
           title: titleCb,
           label: (ctx) => `${ctx.dataset.label}: ${self.money(ctx.raw)}`,
         };
-        this.charts.redeemed?.destroy();
-        this.charts.redeemed = new Chart(this.$refs.redeemedChart, {
+        this.paint('redeemed', this.$refs.redeemedChart, {
           type: 'bar',
           data: {
             labels,
@@ -1500,8 +1543,7 @@
             return out;
           },
         };
-        this.charts.cohort?.destroy();
-        this.charts.cohort = new Chart(this.$refs.cohortChart, {
+        this.paint('cohort', this.$refs.cohortChart, {
           type: 'bar',
           data: {
             labels: cohorts.map((c) => self.cohortLabel(c)),
