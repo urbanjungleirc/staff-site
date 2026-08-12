@@ -2660,9 +2660,9 @@
                      bubble. A bubble has to be opened to be read, and a second copy of
                      the rule is what let the old one drift into naming the wrong band.
                      Same constant renders in the image picker. -->
-                <p class="text-[0.7rem] text-neutral-500 leading-relaxed">
+                <p x-show="heroArtworkCompositionRule()" class="text-[0.7rem] text-neutral-500 leading-relaxed">
                   <span class="font-semibold text-neutral-600">Composing artwork:</span>
-                  <span x-text="heroCompositionRule()"></span>
+                  <span x-text="heroArtworkCompositionRule()"></span>
                 </p>
                 <div class="flex flex-wrap items-center gap-x-4 gap-y-2">
                   <div class="flex-1 min-w-[11rem]">
@@ -3357,7 +3357,7 @@
     // here and taking the whole component with it.
     const IMAGE_ROLES = {
       hero:       { field: 'hero_image_url',      title: 'Hero artwork library',
-                    rule: window.typeSurfaces?.HERO_COMPOSITION_RULE },
+                    rule: window.typeSurfaces?.HERO_ARTWORK_COMPOSITION_RULE },
       background: { field: 'hero_background_url', title: 'Hero background library' },
     };
 
@@ -5269,7 +5269,7 @@
 
       // The one rule string, for the crop control under the frames. The picker
       // reads the same constant off IMAGE_ROLES.hero.
-      heroCompositionRule() {
+      heroArtworkCompositionRule() {
         return IMAGE_ROLES.hero.rule || '';
       },
 

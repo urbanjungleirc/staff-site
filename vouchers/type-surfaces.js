@@ -73,7 +73,7 @@ const UNTOUCHED_TEST_FIELDS = {
 // than inlining a fourth copy of the literal.
 export const DEFAULT_ACCENT = '#ae222a';
 
-// What staff need to know before they choose hero artwork: the narrow surfaces
+// What staff need to know before they choose hero ARTWORK: the narrow surfaces
 // keep a 21:9 band off the top, which is 57% of the 4:3 the desktop shows.
 //
 // It lives here, as ONE constant, because it renders in two places — under the
@@ -81,10 +81,11 @@ export const DEFAULT_ACCENT = '#ae222a';
 // precisely how the old guidance drifted: the help bubble ended up naming the
 // wrong band and omitting the email altogether.
 //
-// The hero only. The backdrop has no composition rule to state (see
-// docs/adr/0003 and issue #85): it is `cover` against a box whose height is
-// content, so there is no fixed band to name.
-export const HERO_COMPOSITION_RULE =
+// Named for the artwork, never the bare "hero", because the hero BACKDROP has
+// no composition rule to state (issue #85): it is `cover` against a box whose
+// height is content, so there is no fixed band to name. CONTEXT.md keeps those
+// two images sharing no word, and this is exactly the pair it protects.
+export const HERO_ARTWORK_COMPOSITION_RULE =
   'Keep faces, logos and any words in the top 57% of your image — phones and '
   + 'the emailed voucher show only that band, and everything below it is '
   + 'cropped away.';

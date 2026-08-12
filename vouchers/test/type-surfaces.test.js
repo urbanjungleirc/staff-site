@@ -2,11 +2,15 @@ import { readFileSync } from 'node:fs';
 import { describe, it, expect } from 'vitest';
 import {
   SURFACES, EMAIL_CUSTOMISABLE_FIELDS, PUBLIC_PAGE_FIELDS, DEFAULT_ACCENT,
-  HERO_COMPOSITION_RULE,
+  HERO_ARTWORK_COMPOSITION_RULE,
   surfaceOf, isUntouched, chipFor, unreviewedSurfaces, backdropFallbackCss,
 } from '../type-surfaces.js';
 
-const indexHtml = () => readFileSync(new URL('../index.html', import.meta.url), 'utf8');
+// Read once — several tests below check the editor's markup, and re-reading a
+// 200KB file per assertion buys nothing.
+let cachedIndexHtml;
+const indexHtml = () => (cachedIndexHtml ??= readFileSync(
+  new URL('../index.html', import.meta.url), 'utf8'));
 
 // The columns blankTypeForm() actually seeds, read out of index.html rather
 // than copied. A field added to the editor and to no surface has to fail the
@@ -200,18 +204,18 @@ describe('backdrop fallback', () => {
 // copies is how the previous guidance drifted — the help bubble ended up
 // naming a band the page never cropped to — so "defined once, hero only" is
 // checked here rather than left to review.
-describe('the hero composition rule', () => {
+describe('the hero artwork composition rule', () => {
   it('names the band, both narrow surfaces, and what happens below it', () => {
-    expect(HERO_COMPOSITION_RULE).toBe(
+    expect(HERO_ARTWORK_COMPOSITION_RULE).toBe(
       'Keep faces, logos and any words in the top 57% of your image — phones and '
       + 'the emailed voucher show only that band, and everything below it is '
       + 'cropped away.');
   });
 
   // The upload advisory shares this phrase deliberately, so a future surface
-  // change greps to both.
+  // change greps to both. Asserted on index.html because that is the copy the
+  // shared phrase could drift away from.
   it('shares its wording with the upload advisory', () => {
-    expect(HERO_COMPOSITION_RULE).toContain('phones and the emailed voucher');
     expect(indexHtml()).toContain("so it'll look soft on phones and in the emailed voucher");
   });
 
@@ -221,9 +225,18 @@ describe('the hero composition rule', () => {
 
   it('reaches the crop control and the picker from that one constant', () => {
     const html = indexHtml();
-    expect(html).toContain('x-text="heroCompositionRule()"');
+    expect(html).toContain('x-text="heroArtworkCompositionRule()"');
     expect(html).toContain('x-text="imgRoleInfo().rule"');
-    expect(html).toMatch(/rule:\s*window\.typeSurfaces\?\.HERO_COMPOSITION_RULE/);
+    expect(html).toMatch(/rule:\s*window\.typeSurfaces\?\.HERO_ARTWORK_COMPOSITION_RULE/);
+  });
+
+  // Both render sites hide themselves when the rule is missing. Without this the
+  // editor would show a bolded "Composing artwork:" introducing nothing — which
+  // is precisely the stale-cache case the optional chaining exists for.
+  it('takes its lead-in with it when the constant cannot be read', () => {
+    const html = indexHtml();
+    expect(html).toContain('x-show="heroArtworkCompositionRule()"');
+    expect(html).toContain('x-show="imgRoleInfo().rule"');
   });
 
   // The picker is shared between the two roles, and the backdrop has no
@@ -242,9 +255,14 @@ describe('the hero composition rule', () => {
 // surfaces they claim to show, the rule above is being read beside a lie.
 describe('the hero crop frames', () => {
   it('anchors the narrow frame to the top, as the page and the email do', () => {
-    // voucher-site renders aspect-[21/9] ... object-top on phones; the email
-    // banner clips from the top and cannot move.
-    expect(indexHtml()).toMatch(/aspect-\[21\/9\][\s\S]{0,600}?object-cover object-top/);
+    // voucher-site renders aspect-[21/9] object-cover object-top on phones; the
+    // email banner clips from the top and cannot move. A centred preview here
+    // would point the opposite way to both.
+    const html = indexHtml();
+    const start = html.indexOf('aspect-[21/9]');
+    expect(start, 'no 21:9 frame in the hero crop control').toBeGreaterThan(-1);
+    const frame = html.slice(start, html.indexOf('</div>', start));
+    expect(frame).toContain('object-cover object-top');
   });
 
   it('marks the discarded region on the 4:3 frame, at the 21:9 boundary', () => {
