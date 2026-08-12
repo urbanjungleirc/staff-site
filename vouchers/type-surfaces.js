@@ -31,7 +31,9 @@ export const SURFACES = [
   {
     id: 'email',
     label: 'Email',
-    // Exactly the nine columns the email renderer consumes.
+    // The nine columns homed here. The email renderer also consumes
+    // hero_image_url, which stays on Public page by deliberate exception —
+    // see the 2026-08-12 amendment in ADR 0003.
     fields: [
       'email_subject', 'email_body', 'terms_conditions', 'usage_info',
       'redemption_instructions',

@@ -152,3 +152,30 @@ providing it.
 and tab strip; scrolling body; pinned footer carrying Cancel and Save. That
 fixes a pre-existing fault where Save sat below the fold on tall types, and it
 keeps the error banner visible on any tab at any scroll position.
+
+## Amendment — 2026-08-12 (#82)
+
+The voucher email banner (#27) added `hero_image_url` to the email renderer
+after this ADR was accepted. The renderer now consumes **ten** type columns, not
+nine: `email.js:96` takes `heroImageUrl` and `email.js:171` renders it as the
+banner across the top of the email.
+
+The field nevertheless stays homed on the **Public page** surface. The
+derivation rule — membership follows what the code consumes — yields here to a
+named exception.
+
+The brand colour is mirrored onto Public page because that tab has **no
+preview**; the mirror was the only way to see the colour while writing the page
+it themes. That rationale does not transfer. The Email tab *does* have a
+preview, `previewVoucherType()` passes `hero_image_url` from the draft
+(`index.js:799`), and the picker refreshes it across tabs (`applyImage()` →
+`refreshPreview()` → the dirty re-render in `setTypeTab()`). A staff member on
+the Email tab already sees the banner, live, so a read-only mirror would
+duplicate the preview sitting beneath it.
+
+`hero_background_url` is genuinely public-page-only and stays with Public page,
+so the field group does not split.
+
+The Email tab's membership is therefore "the nine columns homed here", not
+"everything the renderer consumes". If that sentence is ever re-derived from the
+code, this exception is why the tenth column is missing.
