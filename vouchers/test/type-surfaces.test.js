@@ -2,14 +2,21 @@ import { readFileSync } from 'node:fs';
 import { describe, it, expect } from 'vitest';
 import {
   SURFACES, EMAIL_CUSTOMISABLE_FIELDS, PUBLIC_PAGE_FIELDS, DEFAULT_ACCENT,
+  HERO_ARTWORK_COMPOSITION_RULE,
   surfaceOf, isUntouched, chipFor, unreviewedSurfaces, backdropFallbackCss,
 } from '../type-surfaces.js';
+
+// Read once — several tests below check the editor's markup, and re-reading a
+// 200KB file per assertion buys nothing.
+let cachedIndexHtml;
+const indexHtml = () => (cachedIndexHtml ??= readFileSync(
+  new URL('../index.html', import.meta.url), 'utf8'));
 
 // The columns blankTypeForm() actually seeds, read out of index.html rather
 // than copied. A field added to the editor and to no surface has to fail the
 // partition test below, and it only can if this list comes from the source.
 function editorDraftFields() {
-  const html = readFileSync(new URL('../index.html', import.meta.url), 'utf8');
+  const html = indexHtml();
   const body = html.match(/blankTypeForm\(\)\s*\{\s*return\s*\{([\s\S]*?)\n\s*\};/);
   if (!body) throw new Error('could not find blankTypeForm() in index.html');
   return [...body[1].matchAll(/(?:^|[{,])\s*([a-z_][a-z0-9_]*)\s*:/gi)].map(m => m[1]);
@@ -190,5 +197,86 @@ describe('backdrop fallback', () => {
     expect(DEFAULT_ACCENT).toBe('#ae222a');
     expect(backdropFallbackCss('')).toContain(DEFAULT_ACCENT);
     expect(backdropFallbackCss(null)).toContain(DEFAULT_ACCENT);
+  });
+});
+
+// The rule renders in two places and must stay ONE string. Two hand-typed
+// copies is how the previous guidance drifted — the help bubble ended up
+// naming a band the page never cropped to — so "defined once, hero only" is
+// checked here rather than left to review.
+describe('the hero artwork composition rule', () => {
+  it('names the band, both narrow surfaces, and what happens below it', () => {
+    expect(HERO_ARTWORK_COMPOSITION_RULE).toBe(
+      'Keep faces, logos and any words in the top 57% of your image — phones and '
+      + 'the emailed voucher show only that band, and everything below it is '
+      + 'cropped away.');
+  });
+
+  // The upload advisory shares this phrase deliberately, so a future surface
+  // change greps to both. Asserted on index.html because that is the copy the
+  // shared phrase could drift away from.
+  it('shares its wording with the upload advisory', () => {
+    expect(indexHtml()).toContain("so it'll look soft on phones and in the emailed voucher");
+  });
+
+  it('is not hand-copied into the editor', () => {
+    expect(indexHtml()).not.toContain('top 57% of your image');
+  });
+
+  it('reaches the crop control and the picker from that one constant', () => {
+    const html = indexHtml();
+    expect(html).toContain('x-text="heroArtworkCompositionRule()"');
+    expect(html).toContain('x-text="imgRoleInfo().rule"');
+    expect(html).toMatch(/rule:\s*window\.typeSurfaces\?\.HERO_ARTWORK_COMPOSITION_RULE/);
+  });
+
+  // Both render sites hide themselves when the rule is missing. Without this the
+  // editor would show a bolded "Composing artwork:" introducing nothing — which
+  // is precisely the stale-cache case the optional chaining exists for.
+  it('takes its lead-in with it when the constant cannot be read', () => {
+    const html = indexHtml();
+    expect(html).toContain('x-show="heroArtworkCompositionRule()"');
+    expect(html).toContain('x-show="imgRoleInfo().rule"');
+  });
+
+  // The picker is shared between the two roles, and the backdrop has no
+  // composition rule to state — it is `cover` against a content-height box.
+  it('is carried by the hero role and not by the background role', () => {
+    const roles = indexHtml().match(/const IMAGE_ROLES = \{([\s\S]*?)\n\s*\};/);
+    expect(roles, 'could not find IMAGE_ROLES in index.html').toBeTruthy();
+    const hero = roles[1].match(/hero:\s*\{([\s\S]*?)\}/)[1];
+    const background = roles[1].match(/background:\s*\{([\s\S]*?)\}/)[1];
+    expect(hero).toContain('rule:');
+    expect(background).not.toContain('rule:');
+  });
+});
+
+// The frames are the preview the rule describes. If they stop matching the
+// surfaces they claim to show, the rule above is being read beside a lie.
+describe('the hero crop frames', () => {
+  it('anchors the narrow frame to the top, as the page and the email do', () => {
+    // voucher-site renders aspect-[21/9] object-cover object-top on phones; the
+    // email banner clips from the top and cannot move. A centred preview here
+    // would point the opposite way to both.
+    const html = indexHtml();
+    const start = html.indexOf('aspect-[21/9]');
+    expect(start, 'no 21:9 frame in the hero crop control').toBeGreaterThan(-1);
+    const frame = html.slice(start, html.indexOf('</div>', start));
+    expect(frame).toContain('object-cover object-top');
+  });
+
+  it('marks the discarded region on the 4:3 frame, at the 21:9 boundary', () => {
+    const html = indexHtml();
+    expect(html).toContain('top-[57.14%]');
+    expect(html).toContain('Cut on phones &amp; email');
+  });
+
+  it('labels the two frames for the surfaces they show', () => {
+    const html = indexHtml();
+    expect(html).toContain('Desktop · 4:3');
+    expect(html).toContain('Phone &amp; email · 21:9');
+    // The backdrop's narrow frame carries no ratio: its box is content-height.
+    expect(html).toContain('Desktop · 16:9');
+    expect(html).not.toContain('Backdrop · 16:9');
   });
 });

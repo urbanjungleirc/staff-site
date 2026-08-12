@@ -42,7 +42,7 @@
     window.deleteLogic = deleteLogic;
     // And here: bump it whenever type-surfaces.js gains or renames an export.
     // A stale cached copy would leave the type editor with no tabs to render.
-    import * as typeSurfaces from './type-surfaces.js?v=1';
+    import * as typeSurfaces from './type-surfaces.js?v=2';
     window.typeSurfaces = typeSurfaces;
     // Same rule again for the ?v= here. A stale cached copy of this one costs
     // only the label on the hamburger, so activeMenuLabel() degrades to '' and
@@ -2506,12 +2506,17 @@
             <!-- Preview first at the full width available, details under it. This
                  is the field where the judgement call is "does white type stay
                  readable over this photo", and a thumbnail cannot answer it. -->
-            <div class="rounded-xl border border-neutral-200 bg-white p-4">
+            <div class="rounded-xl border border-neutral-200 bg-white p-4 grid gap-3">
+              <!-- Both viewport shapes side by side, as the hero artwork control does,
+                   with the details on their own row underneath. The backdrop needs no
+                   composition rule — `cover` runs against a box whose height is
+                   content, so there is no fixed band to name — but the phone crop was
+                   only ever described, and describing a crop is not showing it. -->
               <div class="flex flex-wrap gap-4 items-start">
                 <!-- Capped by WIDTH, not height: a max-height would fight the aspect
                      ratio and crop the preview. 500px at 16:9 is 281px tall, which
                      is enough to judge the photo without owning the tab — and it
-                     leaves room for the details beside it rather than beneath. -->
+                     leaves room for the narrow frame beside it. -->
                 <div class="flex-1 min-w-[18rem] max-w-[500px]">
                   <div class="w-full aspect-[16/9] rounded-xl overflow-hidden ring-1 ring-neutral-200 bg-neutral-100">
                     <img :src="typeForm.hero_background_url" x-show="typeForm.hero_background_url" alt=""
@@ -2523,8 +2528,28 @@
                     <div x-show="!typeForm.hero_background_url" class="w-full h-full"
                       :style="`background-image:${backdropFallbackCss()}`"></div>
                   </div>
-                  <p class="text-[0.6rem] text-neutral-400 mt-1 text-center">Backdrop · 16:9</p>
+                  <p class="text-[0.6rem] text-neutral-400 mt-1 text-center">Desktop · 16:9</p>
                 </div>
+                <!-- 4:5 is roughly the hero section's shape on a phone once the copy
+                     stack and the 21:9 artwork are stacked inside it (~390 x 460 CSS
+                     px at 390px wide; taller still without artwork). Deliberately a
+                     touch taller than measured, because this frame's whole job is to
+                     show the worse case, and a preview that flatters is the failure
+                     the crop map exists to fix.
+                     The label carries NO ratio: the real box is content-height, so
+                     there is not one to name, and inventing one for symmetry with the
+                     16:9 frame would be a number staff could not act on. -->
+                <div class="w-[10rem] shrink-0">
+                  <div class="w-full aspect-[4/5] rounded-xl overflow-hidden ring-1 ring-neutral-200 bg-neutral-100">
+                    <img :src="typeForm.hero_background_url" x-show="typeForm.hero_background_url" alt=""
+                      class="w-full h-full object-cover" />
+                    <div x-show="!typeForm.hero_background_url" class="w-full h-full"
+                      :style="`background-image:${backdropFallbackCss()}`"></div>
+                  </div>
+                  <p class="text-[0.6rem] text-neutral-400 mt-1 text-center">Phone</p>
+                </div>
+              </div>
+              <div class="flex flex-wrap items-center gap-x-4 gap-y-2">
                 <div class="flex-1 min-w-[11rem]">
                   <p class="text-sm font-semibold text-neutral-700 truncate"
                     x-text="imgMeta('hero_background_url').name || 'Brand colour gradient'"></p>
@@ -2533,13 +2558,13 @@
                   </p>
                   <p class="text-xs text-neutral-400" x-text="imgMeta('hero_background_url').size"></p>
                   <p class="text-xs text-neutral-400 mt-0.5" x-text="imgMeta('hero_background_url').used"></p>
-                  <div class="flex gap-2 mt-3">
-                    <button type="button" @click="openImgModal('background')"
-                      class="text-xs font-semibold px-3 py-1.5 rounded-lg bg-uj text-white hover:bg-uj-dark">Change image</button>
-                    <button type="button" @click="typeForm.hero_background_url = ''; refreshPreview()"
-                      x-show="typeForm.hero_background_url"
-                      class="text-xs font-semibold px-3 py-1.5 rounded-lg border border-neutral-200 text-neutral-600 hover:bg-neutral-50">Remove</button>
-                  </div>
+                </div>
+                <div class="flex gap-2 shrink-0">
+                  <button type="button" @click="openImgModal('background')"
+                    class="text-xs font-semibold px-3 py-1.5 rounded-lg bg-uj text-white hover:bg-uj-dark">Change image</button>
+                  <button type="button" @click="typeForm.hero_background_url = ''; refreshPreview()"
+                    x-show="typeForm.hero_background_url"
+                    class="text-xs font-semibold px-3 py-1.5 rounded-lg border border-neutral-200 text-neutral-600 hover:bg-neutral-50">Remove</button>
                 </div>
               </div>
               <p x-show="typeForm.hero_background_url && imgBroken['hero_background_url']"
@@ -2582,35 +2607,69 @@
 
             <!-- Hero artwork (sits beside the copy) -->
             <div>
-              <label class="block text-[0.67rem] font-semibold text-neutral-400 uppercase tracking-wider mb-1.5">Hero artwork<span class="help-tip" tabindex="0" role="note" aria-label="Help">?<span class="help-bubble">Artwork shown beside the hero copy. Leave blank to show no artwork. Aim for 1200 × 900 — it's cropped to a wide strip on phones, so keep the subject in the middle.</span></span></label>
+              <label class="block text-[0.67rem] font-semibold text-neutral-400 uppercase tracking-wider mb-1.5">Hero artwork<span class="help-tip" tabindex="0" role="note" aria-label="Help">?<span class="help-bubble">Artwork shown beside the hero copy. Leave blank to show no artwork. Aim for 1200 × 900.</span></span></label>
               <div class="rounded-xl border border-neutral-200 bg-white p-4 grid gap-3">
                 <!-- The crops stay side by side at every width — seeing them together
                      is the whole point — and they take the full width of the control,
-                     with the details on their own row underneath. -->
+                     with the details on their own row underneath.
+                     TWO frames, not three: the phone and the email render the same
+                     pixels now, so a third would repeat one of these and cut the
+                     desktop frame to a third of the width. -->
                 <div class="grid grid-cols-2 gap-3">
-                  <!-- desktop crop -->
+                  <!-- desktop crop: 4:3, centre-anchored, as the page renders it at
+                       md+. It is also the only frame that can honestly show what the
+                       narrow band discards, because it is the only one holding both
+                       regions — hence the band overlay below rather than on the 21:9
+                       frame, which would stop being a preview the moment it drew it. -->
                   <div>
-                    <div class="w-full aspect-[4/3] rounded-xl overflow-hidden ring-1 ring-neutral-200 bg-neutral-100">
+                    <div class="relative w-full aspect-[4/3] rounded-xl overflow-hidden ring-1 ring-neutral-200 bg-neutral-100">
                       <img :src="typeForm.hero_image_url" x-show="typeForm.hero_image_url" alt=""
                         class="w-full h-full object-cover"
                         x-on:load="imgBroken['hero_image_url'] = false"
                         x-on:error="imgBroken['hero_image_url'] = true" />
+                      <!-- A 21:9 band off the top of a 4:3 frame is exactly 57.14% of
+                           its height, whatever size the frame renders at — so the
+                           hairline is a constant, not a measurement. Absent on a blank
+                           frame: there is nothing there to annotate. -->
+                      <div x-show="typeForm.hero_image_url"
+                        class="absolute inset-x-0 bottom-0 top-[57.14%] bg-black/45 border-t border-dashed border-white/85 flex items-center justify-center">
+                        <span class="text-[0.6rem] font-semibold text-white px-1.5 text-center leading-tight">Cut on phones &amp; email</span>
+                      </div>
+                      <!-- Blank is the DEFAULT state on every type now, not an edge
+                           case, so a bare grey rectangle would read as broken. -->
+                      <div x-show="!typeForm.hero_image_url"
+                        class="absolute inset-0 flex items-center justify-center text-[0.65rem] text-neutral-400">No artwork</div>
                     </div>
                     <p class="text-[0.6rem] text-neutral-400 mt-1 text-center">Desktop · 4:3</p>
                   </div>
-                  <!-- mobile crop -->
+                  <!-- phone & email crop: 21:9 anchored to the TOP, matching both the
+                       live page (object-top) and the email banner. Centring this would
+                       be the original bug in miniature — a preview pointing one way
+                       while the surfaces crop the other. -->
                   <div>
-                    <div class="w-full aspect-[21/9] rounded-xl overflow-hidden ring-1 ring-neutral-200 bg-neutral-100">
+                    <div class="relative w-full aspect-[21/9] rounded-xl overflow-hidden ring-1 ring-neutral-200 bg-neutral-100">
                       <img :src="typeForm.hero_image_url" x-show="typeForm.hero_image_url" alt=""
-                        class="w-full h-full object-cover" />
+                        class="w-full h-full object-cover object-top" />
+                      <div x-show="!typeForm.hero_image_url"
+                        class="absolute inset-0 flex items-center justify-center text-[0.65rem] text-neutral-400">No artwork</div>
                     </div>
-                    <p class="text-[0.6rem] text-neutral-400 mt-1 text-center">Phone · 21:9</p>
+                    <p class="text-[0.6rem] text-neutral-400 mt-1 text-center">Phone &amp; email · 21:9</p>
                   </div>
                 </div>
+                <!-- The rule sits on the page permanently rather than in the help
+                     bubble. A bubble has to be opened to be read, and a second copy of
+                     the rule is what let the old one drift into naming the wrong band.
+                     Same constant renders in the image picker. -->
+                <p x-show="heroArtworkCompositionRule()" class="text-[0.7rem] text-neutral-500 leading-relaxed">
+                  <span class="font-semibold text-neutral-600">Composing artwork:</span>
+                  <span x-text="heroArtworkCompositionRule()"></span>
+                </p>
                 <div class="flex flex-wrap items-center gap-x-4 gap-y-2">
                   <div class="flex-1 min-w-[11rem]">
+                    <!-- An em dash, not "No artwork": the two frames already say that,
+                         and a third copy of the same fact is noise. -->
                     <p class="text-sm font-semibold text-neutral-700 truncate"
-                      x-text="imgMeta('hero_image_url').name || 'No artwork'"></p>
+                      x-text="imgMeta('hero_image_url').name || '—'"></p>
                     <!-- Unlike the backdrop, artwork has no colour fallback. -->
                     <p x-show="!typeForm.hero_image_url" class="text-xs text-neutral-400">
                       Blank shows nothing — no colour fallback.
@@ -2629,7 +2688,6 @@
               </div>
               <p x-show="typeForm.hero_image_url && imgBroken['hero_image_url']"
                 class="text-xs text-rose-600 mt-1.5">Image didn't load — check the URL is public and points directly at an image file.</p>
-              <p class="text-[0.7rem] text-neutral-500 mt-1.5">Both crops come from the same image — keep the subject in the middle.</p>
             </div>
           </div>
 
@@ -2710,6 +2768,14 @@
           class="ml-auto w-48 max-w-full border border-neutral-200 rounded-xl px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-uj/20 focus:border-uj" />
         <button @click="imgModal = null" class="text-neutral-400 hover:text-neutral-700 text-xl leading-none">&times;</button>
       </div>
+
+      <!-- The editor's rule line is read after the choice has been made; the
+           picker is where it is made. Same constant, not a shortened variant.
+           Role-conditional on purpose: this modal is shared between hero and
+           background, and the backdrop has no composition rule to state, so an
+           unconditional line would assert one for half its uses. -->
+      <p x-show="imgRoleInfo().rule" x-text="imgRoleInfo().rule"
+        class="shrink-0 px-5 pt-3 text-[0.7rem] text-neutral-500 leading-relaxed"></p>
 
       <!-- Library -->
       <div x-show="imgTab === 'Library'" class="p-5 overflow-y-auto grid grid-cols-3 gap-3">
@@ -3285,8 +3351,13 @@
     // the Worker uses — so the difference lives in one place rather than in a
     // ternary at every site that needs it. Mirrors ROLE_TARGETS in
     // image-pipeline.js, which is keyed the same way.
+    // `rule` is present on hero and ABSENT on background — the picker renders it
+    // conditionally on exactly that. Optional chaining so a stale cached copy of
+    // type-surfaces.js costs the rule line and nothing else, rather than throwing
+    // here and taking the whole component with it.
     const IMAGE_ROLES = {
-      hero:       { field: 'hero_image_url',      title: 'Hero artwork library' },
+      hero:       { field: 'hero_image_url',      title: 'Hero artwork library',
+                    rule: window.typeSurfaces?.HERO_ARTWORK_COMPOSITION_RULE },
       background: { field: 'hero_background_url', title: 'Hero background library' },
     };
 
@@ -5196,6 +5267,12 @@
         return IMAGE_ROLES[this.imgRole()];
       },
 
+      // The one rule string, for the crop control under the frames. The picker
+      // reads the same constant off IMAGE_ROLES.hero.
+      heroArtworkCompositionRule() {
+        return IMAGE_ROLES.hero.rule || '';
+      },
+
       imgField() {
         return this.imgRoleInfo().field;
       },
@@ -5340,7 +5417,10 @@
           // stays open at the end to show it.
           let advisory = '';
           if (P.isTooSmall({ role, width })) {
-            advisory = `This is only ${width} px wide, so it'll look soft on phones. Aim for 1200 × 900.`;
+            // "phones and the emailed voucher" is the same phrase the hero
+            // composition rule uses, deliberately: the two read as one voice,
+            // and a future surface change greps to both.
+            advisory = `This is only ${width} px wide, so it'll look soft on phones and in the emailed voucher. Aim for 1200 × 900.`;
             this.setImgMsg(advisory, 'warning');
           }
 
