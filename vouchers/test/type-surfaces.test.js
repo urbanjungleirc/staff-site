@@ -68,10 +68,13 @@ describe('the surface partition', () => {
     }
   });
 
-  // The email renderer in payments-worker consumes exactly these nine columns.
-  // That count is what fixes the Email tab's membership, and is why branding
-  // sits with the email rather than with the public page.
-  it('gives the email surface the nine fields the email renderer consumes', () => {
+  // The nine columns homed on this surface, which is what fixes the Email tab's
+  // membership and why branding sits with the email rather than the public page.
+  // NOT the same as what the renderer consumes: it also takes hero_image_url,
+  // which stays on Public page by deliberate exception — see the 2026-08-12
+  // amendment in ADR 0003. Re-deriving this count from the renderer would move
+  // that field and undo a decision without knowing it was made.
+  it('gives the email surface the nine columns homed there', () => {
     expect(surfaceOf('email_subject')).toBe('email');
     expect(surfaceOf('email_body')).toBe('email');
     expect(surfaceOf('terms_conditions')).toBe('email');
