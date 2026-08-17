@@ -199,6 +199,68 @@ export function summariseContacts(body, ourKeys = []) {
 }
 
 /**
+ * What a write response means — did a contact come into existence?
+ *
+ * Two questions that are not the same one: whether a record now exists, and
+ * whether the server told us why not. Clubworx cannot delete contacts through
+ * the API, so anything that *might* have landed has to be treated as though it
+ * did — the cleanup list is the only record anyone gets, and a contact missing
+ * from it is a permanent row nobody knows the key of.
+ *
+ * A lost response is therefore `mayExist: true`, and only a 4xx is a rejection.
+ *
+ * @param {{status?: number|null, error?: string|null, refused?: string|null}} sample
+ */
+export function classifyWrite({ status, error, refused } = {}) {
+  if (refused) return { outcome: 'refused', mayExist: false, conclusive: false };
+  if (error) return { outcome: 'failed', mayExist: true, conclusive: false };
+
+  // Clubworx answers 200 on create, not 201, so the whole 2xx range counts.
+  if (status >= 200 && status < 300) return { outcome: 'created', mayExist: true, conclusive: true };
+  if (status >= 400 && status < 500) return { outcome: 'rejected', mayExist: false, conclusive: true };
+
+  return { outcome: 'failed', mayExist: true, conclusive: false };
+}
+
+/**
+ * Does #49's answer collapse the school-marking scheme?
+ *
+ * The ticket: *"If plus-addressing is rejected, or email turns out to be
+ * unique-constrained, the marking decision ... **collapses** ... Say so
+ * explicitly rather than inventing a workaround."*
+ *
+ * Only a **conclusive rejection** means that. A timeout or a 500 means run it
+ * again — reporting either as a collapse would invent exactly the conclusion
+ * the ticket asked to be stated only when true, and would send someone to
+ * re-decide a design over a dropped packet.
+ *
+ * @param {{plus: object|null, duplicate: object|null}} outcomes Results of classifyWrite.
+ */
+export function schemeCollapses({ plus, duplicate }) {
+  if (plus?.outcome === 'rejected') {
+    return {
+      collapsed: true,
+      inconclusive: false,
+      reason: 'plus-addressing was rejected — the noreply+<school> marker cannot be written',
+    };
+  }
+  if (duplicate?.outcome === 'rejected') {
+    return {
+      collapsed: true,
+      inconclusive: false,
+      reason: 'email is unique per contact — siblings and whole schools cannot share an address',
+    };
+  }
+
+  const attempted = [plus, duplicate].filter(Boolean);
+  return {
+    collapsed: false,
+    inconclusive: attempted.length > 0 && attempted.some(o => !o.conclusive),
+    reason: null,
+  };
+}
+
+/**
  * Did a plus-tag search isolate the contacts carrying that tag?
  *
  * This is the question staff-site#46's school-marking scheme rests on. It has

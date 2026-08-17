@@ -36,7 +36,12 @@ import { createGetter } from './lib/http.mjs';
 import { createPoster } from './lib/write.mjs';
 import { loadAccountKey } from './lib/key.mjs';
 import { PROBE_CONTACTS, planContacts, pickProbeRows, plusTag } from './lib/identity.mjs';
-import { summariseContacts, describeIsolation } from './lib/report.mjs';
+import {
+  summariseContacts,
+  describeIsolation,
+  classifyWrite,
+  schemeCollapses,
+} from './lib/report.mjs';
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 const OUT_DIR = path.join(HERE, 'out');
@@ -114,14 +119,22 @@ async function searchExisting(get) {
   return [...byKey.values()];
 }
 
-/** Create what is missing. Every success here is permanent. */
-async function createContacts(post, toCreate) {
-  rule(`1–2. Creating ${toCreate.length} contact(s) — PERMANENT`);
+/**
+ * Create what is missing. Every success here is permanent.
+ *
+ * Called on a read-only run too, where the poster is inert and reports what it
+ * *would* send. That is deliberate: the same guard and the same payload run in
+ * both modes, so a dry pass exercises the real path rather than a description
+ * of it.
+ */
+async function createContacts(post, toCreate, { live }) {
+  rule(live ? `1–2. Creating ${toCreate.length} contact(s) — PERMANENT` : '1–2. Would create');
 
   const results = [];
   for (const contact of toCreate) {
     const res = await post('prospects', contact);
     const contact_key = keyOf(res.body);
+    const classification = classifyWrite(res);
 
     results.push({
       label: contact.label,
@@ -134,18 +147,26 @@ async function createContacts(post, toCreate) {
       refused: res.refused ?? null,
       error: res.error ?? null,
       bodyText: res.bodyText ?? null,
-      created: res.status >= 200 && res.status < 300,
+      // What the server stored, when it echoes the record back. Question 1 asks
+      // whether Clubworx normalises the `+` away, and this is the direct
+      // evidence for it rather than an inference from a later search.
+      emailEcho: res.body?.email ?? null,
+      dryRun: res.dryRun ?? false,
+      ...classification,
     });
 
     line(
       `${contact.label} ${contact.last_name} <+${plusTag(contact.email)}>`,
       res.refused
         ? `REFUSED locally: ${res.refused}`
-        : `HTTP ${res.status ?? 'n/a'}${contact_key ? ` · contact_key ${contact_key}` : ''}` +
-          (res.error ? ` · ${res.error}` : '') +
-          (res.bodyText ? ` · ${res.bodyText.slice(0, 120)}` : ''),
+        : res.dryRun
+          ? `would POST ${JSON.stringify(res.wouldSend)}`
+          : `HTTP ${res.status ?? 'n/a'} ${classification.outcome}` +
+            (contact_key ? ` · contact_key ${contact_key}` : '') +
+            (res.error ? ` · ${res.error}` : '') +
+            (res.bodyText ? ` · ${res.bodyText.slice(0, 120)}` : ''),
     );
-    await sleep(GAP_MS);
+    if (live) await sleep(GAP_MS);
   }
 
   return results;
@@ -201,7 +222,11 @@ async function probeSearchability(get, ourKeys, keysByEmail) {
       tags,
       // The partial match is only useful if it finds every contact the probe
       // created — that is what "find all school-created contacts" means.
-      partialFindsAll: ourKeys.length > 0 && partial.ours.length === ourKeys.length,
+      //
+      // `null`, not `false`, when this endpoint holds none of ours: a contact
+      // created as a prospect is not under /members at all, and recording that
+      // as a failed search would contradict the finding it belongs to.
+      partialFindsAll: partial.ours.length === 0 ? null : partial.ours.length === ourKeys.length,
     };
   }
 
@@ -221,25 +246,54 @@ function printCleanupList(contacts) {
   for (const c of contacts) {
     console.log(
       `  ${c.label}  ${c.first_name} ${c.last_name.padEnd(16)} ${c.email.padEnd(46)} ` +
-        `contact_key ${c.contact_key ?? 'UNKNOWN — check the UI'}${c.reused ? '  (from an earlier run)' : ''}`,
+        `contact_key ${c.contact_key ?? 'UNKNOWN — search the UI for this email'}` +
+        (c.reused ? '  (from an earlier run)' : ''),
+    );
+  }
+
+  // A write whose response was lost may or may not have landed. Listing it as
+  // certain would be wrong; leaving it out would be worse.
+  const uncertain = contacts.filter(c => c.conclusive === false);
+  if (uncertain.length) {
+    console.log(
+      `\n  ⚠️  ${uncertain.length} of these did not confirm (${uncertain.map(c => c.label).join(', ')}).\n` +
+        '      The request may still have been honoured. Search the UI for the\n' +
+        '      email before assuming it is absent, and before re-running --write.',
     );
   }
 }
 
 function printDryRun() {
   console.log('--dry-run: no requests issued, nothing created.\n');
-  console.log(`This run would search ${CONTACT_TYPES.length} endpoints × ${TAG_EMAILS.length} emails ` +
-    `= ${CONTACT_TYPES.length * TAG_EMAILS.length} reads,`);
-  console.log(`then create up to ${PROBE_CONTACTS.length} PERMANENT contacts (only with --write):\n`);
 
+  // Every request, not a count of them. A dry run that only reports arithmetic
+  // cannot be reviewed before a write against a production database.
+  let n = 0;
+  const req = (verb, path, params) =>
+    console.log(`  ${String(++n).padStart(2)}. ${verb.padEnd(4)} /${path}${params ? `?${params}` : ''}`);
+
+  console.log('0. Search first — is any of this already here?');
+  for (const type of CONTACT_TYPES) for (const email of TAG_EMAILS) req('GET', type, `email=${email}`);
+
+  console.log(`\n1–2. Create, only with --write — ${PROBE_CONTACTS.length} PERMANENT contacts:`);
   for (const c of PROBE_CONTACTS) {
-    console.log(`  ${c.label}  ${c.first_name} ${c.last_name.padEnd(16)} ${c.email.padEnd(46)} ${c.why}`);
+    req('POST', 'prospects');
+    console.log(
+      `      ${c.label}  ${c.first_name} ${c.last_name.padEnd(16)} ${c.email.padEnd(46)}\n` +
+        `          dob ${c.dob} — ${c.why}`,
+    );
+  }
+
+  console.log('\n3–4. Searchability:');
+  for (const type of CONTACT_TYPES) {
+    req('GET', type, `email=${PARTIAL_EMAIL}`);
+    for (const email of TAG_EMAILS) req('GET', type, `email=${email}`);
   }
 
   console.log(
-    `\nthen ${CONTACT_TYPES.length} × ${TAG_EMAILS.length + 1} reads to answer questions 3 and 4.`,
+    `\n${n} requests, paced at one per ${GAP_MS}ms (~${Math.round(60_000 / GAP_MS)}/min), per #51.`,
   );
-  console.log(`Paced at one request per ${GAP_MS}ms (~${Math.round(60_000 / GAP_MS)}/min), per #51.`);
+  console.log('Contacts already present are reused, so a re-run creates nothing.');
 }
 
 async function main() {
@@ -270,17 +324,19 @@ async function main() {
   line('still to create', plan.create.length ? plan.create.map(c => c.label).join(', ') : 'none');
 
   let created = [];
-  if (plan.create.length && WRITE) {
-    created = await createContacts(post, plan.create);
-  } else if (plan.create.length) {
-    rule('1–2. Creating contacts — SKIPPED');
-    console.log('  Read-only run. Re-run with --write to create them.');
+  if (plan.create.length) {
+    created = await createContacts(post, plan.create, { live: WRITE });
+    if (!WRITE) console.log('\n  Read-only run — nothing was sent. Re-run with --write.');
   }
   record.created = created;
 
   // Both halves of what exists now: what this run wrote, and what an earlier one did.
+  //
+  // `mayExist`, not `outcome === 'created'`. A POST the server honoured but
+  // whose response was lost leaves a permanent contact with no key recorded
+  // anywhere — precisely the row that most needs to reach the cleanup list.
   const everything = [
-    ...created.filter(c => c.created).map(c => ({ ...c, reused: false })),
+    ...created.filter(c => c.mayExist).map(c => ({ ...c, reused: false })),
     ...plan.reuse.map(c => ({
       label: c.label,
       first_name: c.first_name,
@@ -304,23 +360,42 @@ async function main() {
   }
 
   // The verdicts #49 actually asked for, stated rather than left to be inferred.
-  const a = created.find(c => c.label === 'A');
-  const b = created.find(c => c.label === 'B');
+  const attempted = label => created.find(c => c.label === label && !c.dryRun) ?? null;
+  const previously = label => (plan.reuse.some(c => c.label === label) ? 'previously' : null);
+
+  const plus = attempted('A');
+  const duplicate = attempted('B');
+  const collapse = schemeCollapses({ plus, duplicate });
+
   record.verdicts = {
-    plusAccepted: a ? a.created : plan.reuse.some(c => c.label === 'A') ? 'previously' : null,
-    duplicateEmailAccepted: b ? b.created : plan.reuse.some(c => c.label === 'B') ? 'previously' : null,
-    partialMatchWorks: Object.values(record.searchability ?? {}).map(v => v.partialFindsAll),
+    plusAccepted: plus ? plus.outcome === 'created' : previously('A'),
+    duplicateEmailAccepted: duplicate ? duplicate.outcome === 'created' : previously('B'),
+    partialMatchWorks: Object.fromEntries(
+      Object.entries(record.searchability ?? {}).map(([type, v]) => [type, v.partialFindsAll]),
+    ),
+    collapse,
   };
 
   rule('Verdicts');
   line('Q1  POST accepts noreply+tag@', String(record.verdicts.plusAccepted));
   line('Q2  many contacts share one email', String(record.verdicts.duplicateEmailAccepted));
-  if (record.verdicts.duplicateEmailAccepted === false) {
-    // #49: "Say so explicitly rather than inventing a workaround."
+
+  if (collapse.collapsed) {
+    // #49: "Say so explicitly rather than inventing a workaround." Only on a
+    // conclusive rejection — see schemeCollapses.
     console.log(
-      '\n  ⚠️  Email appears to be unique per contact. The school-marking scheme\n' +
-        '      decided while charting #46 COLLAPSES and must be re-decided — the\n' +
-        '      fallback is a dedicated prospect status, which loses which-school.',
+      `\n  ⚠️  ${collapse.reason}.\n` +
+        '      The school-marking scheme decided while charting #46 COLLAPSES and\n' +
+        '      must be re-decided — the fallback is a dedicated prospect status,\n' +
+        '      which loses the which-school record.',
+    );
+  } else if (collapse.inconclusive) {
+    // A timeout is not an answer, and must not be reported as one.
+    console.log(
+      '\n  ⚠️  A write did not complete (timeout or server error). This says\n' +
+        '      nothing about plus-addressing or uniqueness — re-run before\n' +
+        '      concluding anything, and check the cleanup list: a lost response\n' +
+        '      may still have created a contact.',
     );
   }
 

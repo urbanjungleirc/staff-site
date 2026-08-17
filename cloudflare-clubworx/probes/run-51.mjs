@@ -63,7 +63,11 @@ const perthDate = offsetDays => {
   return new Intl.DateTimeFormat('en-CA', { timeZone: 'Australia/Perth' }).format(d);
 };
 
-const DEV_VARS = path.join(HERE, '..', '.dev.vars');
+/** Points at a key outside the package — a git worktree, where .dev.vars is
+ * gitignored and so does not follow the checkout. */
+const DEV_VARS =
+  args.find(a => a.startsWith('--dev-vars='))?.split('=').slice(1).join('=') ||
+  path.join(HERE, '..', '.dev.vars');
 
 /** Run thunks with a bounded number in flight, preserving result order. */
 async function pool(thunks, concurrency) {

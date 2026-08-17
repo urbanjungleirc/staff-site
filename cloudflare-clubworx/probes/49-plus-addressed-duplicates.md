@@ -15,9 +15,15 @@ One thing did *not* get answered, and it is not the one that was expected — se
 ### 1. Does `POST /api/v2/prospects` accept a plus-addressed `noreply@`? — **Yes**
 
 `noreply+wayfindertest@urbanjungleirc.com` was accepted with no validation
-complaint about the `+`. The address came back on the created record unchanged:
-Clubworx does not normalise the tag away, which is what makes it usable as a
-provenance marker at all.
+complaint about the `+`.
+
+Clubworx also does not normalise the tag away, which is what makes it usable as
+a provenance marker at all — but the evidence for that is the **exact-match
+search**, not the create response. A later `GET ?email=noreply+wayfindertest@…`
+returned precisely the two contacts written on that address, which it could not
+do if the stored value differed from the one sent. The create response was never
+inspected for its `email` field; the probe now records it (`emailEcho`) so a
+future run has the direct measurement rather than this inference.
 
 **It answers `200`, not `201`.** A client that treats "created" as `201` will
 read every successful write as a failure. Check `2xx`, not the exact code.
@@ -81,6 +87,12 @@ This matters because #46's dedup pass relies on that filter on all three
 endpoints. Proving it needs a contact that is actually a member — which this
 probe cannot create, and which #50 may be able to arrange. Recorded as a gap
 rather than smoothed into the "yes" above.
+
+**So #49 closes on three and a half of its four questions.** Questions 1–3 are
+answered against writes. Question 4 is answered only in the sense that the
+endpoints were shown to be disjoint by status; the email filter on two of them
+remains unexercised. Whether that is enough to close the ticket is the issue
+owner's call, not the probe's.
 
 Also untested: pagination. Three contacts is far inside the default
 `page_size` of 50, so nothing here says how a school with 63 students on one
