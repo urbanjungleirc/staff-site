@@ -1,7 +1,7 @@
 {
-  "version": "1.5.0",
+  "version": "1.5.1",
   "buildDate": "2026-08-17",
-  "buildTime": "06:32:08 UTC",
+  "buildTime": "07:15:33 UTC",
   "branch": "fix/supabase-anon-lockdown",
   "commit": "dac9a2fcabf96f400b0cc29a492b73069f7e781c",
   "deployedBy": "happykcz"
