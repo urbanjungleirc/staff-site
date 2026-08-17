@@ -207,11 +207,36 @@ and this repo is public.
 - Probes are **#49 and #50's** work. #47 provisions access and stops there; it
   ran only a read-only `GET /locations` to prove the key authenticates.
 
+### Amendment, 2026-08-17: three contacts, not one — SPENT
+
+**Authorised by Jiri, 2026-08-17**, when #49 ran. One identity could not answer
+the ticket: question 2 asks whether *many* contacts may share an email, and
+question 3 asks whether a tag **isolates** a school — an exclusion needs a second
+tag to exclude. The set is declared in `probes/lib/identity.mjs` and is the whole
+blast radius.
+
+These three now exist in production and are **permanent**:
+
+| | Name | Email | `contact_key` |
+|---|---|---|---|
+| A | `Ztest Wayfinder` | `noreply+wayfindertest@urbanjungleirc.com` | `e35218ef-4e96-4928-a05f-1c14f56e574f` |
+| B | `Ztest Wayfindertwo` | `noreply+wayfindertest@urbanjungleirc.com` | `298dab8a-22b5-41f1-87b9-3936172f8ee1` |
+| C | `Ztest Wayfinderthree` | `noreply+wayfindertestb@urbanjungleirc.com` | `b39b1560-e76d-45bc-9f67-d19a1fbcb873` |
+
+**This authorisation is spent.** It covered #49's three contacts, not a standing
+allowance. **#50 must reuse them** — they are already the membership-less
+prospects that ticket needs. A fourth contact is a new decision.
+
+Findings: `probes/49-plus-addressed-duplicates.md`.
+
 ### Before the first write probe
 
 Search first. If `Ztest Wayfinder` already exists from an earlier run, reuse it
 rather than creating a second — the identity is only a blast-radius control if
 there is exactly one of it.
+
+`run-49.mjs` does this in code (`planContacts`), and a second run of it was
+verified to make zero writes. Any new write probe must do the same.
 
 ---
 

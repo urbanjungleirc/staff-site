@@ -166,3 +166,73 @@ export function sameIds(a, b) {
   const left = new Set(a);
   return b.every(id => left.has(id));
 }
+
+/**
+ * Reduce a contact list to its shape, naming only contacts this probe created.
+ *
+ * staff-site#49 searches on a *partial* email (`email=noreply%2B`), so whatever
+ * else in the gym happens to match comes back with it — real members, with real
+ * names and real addresses. The count is the finding; the rows are not. Only
+ * `contact_key`s already known to the caller survive, because those are the ones
+ * the probe wrote and is about to hand back as a cleanup list.
+ *
+ * @param {unknown} body
+ * @param {string[]} [ourKeys] Contact keys this probe created or reused.
+ */
+export function summariseContacts(body, ourKeys = []) {
+  if (!Array.isArray(body)) {
+    return { count: 0, fields: [], ours: [], strangers: 0, notAnArray: true };
+  }
+
+  const known = new Set(ourKeys);
+  const fields = new Set();
+  const ours = [];
+  let strangers = 0;
+
+  for (const row of body) {
+    for (const key of Object.keys(row ?? {})) fields.add(key);
+    if (known.has(row?.contact_key)) ours.push(row.contact_key);
+    else strangers += 1;
+  }
+
+  return { count: body.length, fields: [...fields], ours: ours.sort(), strangers, notAnArray: false };
+}
+
+/**
+ * Did a plus-tag search isolate the contacts carrying that tag?
+ *
+ * This is the question staff-site#46's school-marking scheme rests on. It has
+ * two distinct failure modes and they are not interchangeable: a tag that
+ * *leaks* another school's contacts makes the marker useless for selecting, and
+ * a tag that *misses* its own makes it useless for finding. Both are reported
+ * rather than collapsed into one boolean, so the write-up can say which.
+ *
+ * `endpointHoldsOurs` separates "the marker does not work here" from "our
+ * contacts are not here to be found". A contact created as a prospect does not
+ * appear under `/members` at all, and scoring that as an isolation failure would
+ * report a working marker as a broken one.
+ *
+ * @param {{returned?: string[], expected?: string[], excluded?: string[], endpointHoldsOurs?: boolean}} opts
+ */
+export function describeIsolation({
+  returned = [],
+  expected = [],
+  excluded = [],
+  endpointHoldsOurs = true,
+}) {
+  const got = new Set(returned);
+  const missing = expected.filter(key => !got.has(key));
+  const crossTag = excluded.filter(key => got.has(key));
+
+  if (!endpointHoldsOurs) {
+    return { applicable: false, isolated: null, missing, crossTag, returnedCount: returned.length };
+  }
+
+  return {
+    applicable: true,
+    isolated: returned.length > 0 && missing.length === 0 && crossTag.length === 0,
+    missing,
+    crossTag,
+    returnedCount: returned.length,
+  };
+}

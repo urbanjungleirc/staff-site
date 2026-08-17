@@ -268,3 +268,36 @@ The margin exists for other systems, not this one. There is **one Clubworx key
 for the whole gym** (see `cloudflare-clubworx/ACCESS.md`), so HVT's roster
 Worker, n8n and staff-site all spend the same allowance. A run here can throttle
 something unrelated, with nothing in either system's logs to explain it.
+
+## Clubworx school marking
+
+### School marker
+
+The plus-addressed email a school-created contact carries —
+`noreply+<school>@urbanjungleirc.com`. It is the **only** provenance signal this
+system has: Clubworx issues one API key per gym, so a contact cannot be
+attributed to the tool that made it, and the address is the substitute.
+
+Verified against writes in #49, not inferred: Clubworx accepts the `+`, stores
+the tag unchanged, partial-matches `noreply%2B` to find every marked contact, and
+returns exactly one school's contacts for a full tag. See
+`cloudflare-clubworx/probes/49-plus-addressed-duplicates.md`.
+
+### Shared email
+
+Two or more contacts holding the same address. **Clubworx permits it** — email is
+not unique per contact — which is what makes the marker workable at all, because
+siblings arrive on one parent's address and a whole school shares one
+`noreply+<school>@`.
+
+It also means an email can never identify a person here. Identity is surname plus
+date of birth (#46); the address identifies a *school*.
+
+### Contact status endpoints
+
+`/prospects`, `/members` and `/non_attending_contacts` are three disjoint views
+by status, not three indexes over one table. A contact created as a prospect
+appears in `/prospects` **only**, and moves when their status changes.
+
+So a lookup searches all three and merges. Which one holds a given student is a
+fact about their membership today, not about how they were created.
