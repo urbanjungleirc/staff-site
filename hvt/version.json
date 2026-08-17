@@ -1,8 +1,8 @@
 {
-  "version": "1.4.0",
-  "buildDate": "2026-07-07",
-  "buildTime": "09:52:05 UTC",
-  "branch": "main",
-  "commit": "ffab9e47f94ba78ffa75f91afaa5dec53ecb6f51",
+  "version": "1.5.0",
+  "buildDate": "2026-08-17",
+  "buildTime": "06:32:08 UTC",
+  "branch": "fix/supabase-anon-lockdown",
+  "commit": "dac9a2fcabf96f400b0cc29a492b73069f7e781c",
   "deployedBy": "happykcz"
 }
