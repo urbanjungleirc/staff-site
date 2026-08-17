@@ -4,37 +4,54 @@ Answer to [staff-site#47](https://github.com/urbanjungleirc/staff-site/issues/47
 part of the school-group booking map ([#46](https://github.com/urbanjungleirc/staff-site/issues/46)).
 Later tickets on that map (#48–#51) depend on all four sections below.
 
-Status: **sections 2 and 3 settled; sections 1 and 4 need Jiri.** No live probe
-may run until section 4 is signed off.
+Status: **sections 1, 2 and 3 settled; section 4 needs Jiri.** No live probe may
+run until section 4 is signed off.
 
 ---
 
-## 1. Source of the key — ACTION REQUIRED
+## 1. Source of the key — SETTLED: reuse, because there is only one
 
-**Where it comes from:** the Clubworx admin UI, **Settings → API**. (Same route
-already recorded for the HVT integration in `hvt/docs/CLUBWORX_IMPORT.md`.)
+**Clubworx issues exactly one key per gym.** Confirmed by Jiri, 2026-08-17. A
+separate key for this integration is **not available**, so the ticket's
+reuse-or-issue question is closed by the product: the existing gym key is
+reused, and there is no choice in it.
 
-**Why it cannot be recovered from what we already have.** The existing
-`uj-clubworx` Worker (in the `hvt` repo) holds the key as a Cloudflare secret,
-and Cloudflare does not read secrets back out. The local
-`uj/hvt-scoring-app/.env` was checked and holds only
-`VITE_CLUBWORX_WORKER_URL` and `VITE_CLUBWORX_STAFF_SECRET` — the address of
-that Worker and the shared secret used to call it, not the Clubworx key itself.
-The key is genuinely absent from this machine.
+The API reference already pointed this way — it calls `account_key` *"Your gym's
+unique API key"* on all **42** endpoints that take it, and never mentions
+issuing, revoking or regenerating one — but the admin UI is what settles it.
 
-**Reuse or issue a separate key?** The ticket asks for this to be decided so
-this tool's traffic is attributable. The API reference describes `account_key`
-as *"Your gym's unique API key"* — singular, one per gym — on all **42**
-endpoints that take it, and never mentions issuing, revoking or regenerating a
-key. That wording suggests per-integration keys are **not offered**, in which case
-attribution by key is impossible and the question is moot. This has not been
-confirmed against the admin UI, which is the only place that can answer it.
+**Consequence: per-integration attribution by key is impossible.** Every caller
+— this tool, the HVT roster Worker, any n8n workflow — presents the same key, so
+Clubworx cannot tell them apart, and nothing in an audit trail there will say
+which system created a record. Two things follow, and both matter later:
 
-> **To confirm while fetching the key:** does Settings → API let you issue a
-> second, separate key, or is there exactly one gym key? If there is only one,
-> attribution must come from somewhere else — the `noreply+<school>@` email
-> marker this map already adopted is the natural fallback, since it is per-record
-> rather than per-request.
+- **Attribution has to live in the data, not the request.** The
+  `noreply+<school>@urbanjungleirc.com` marker this map already adopted is what
+  identifies a record as this tool's work. That decision was made for dedup and
+  search; it is now also the *only* provenance signal, which raises its stakes.
+- **Blast radius is shared.** A key rotated for one integration breaks all of
+  them at once, and a key leaked from any one of them exposes the whole gym
+  database. That is an argument for the gitignore rule in section 2 being
+  load-bearing rather than tidy.
+
+**Where the key is.** Jiri holds it — it is already in use by another project.
+It is *not* recoverable from this machine or from Cloudflare: the `uj-clubworx`
+Worker holds it as a Cloudflare secret, and secrets do not read back out. The
+local `uj/hvt-scoring-app/.env` holds only `VITE_CLUBWORX_WORKER_URL` and
+`VITE_CLUBWORX_STAFF_SECRET` — the Worker's address and the secret used to call
+it, not the Clubworx key. If a fresh copy is ever needed: Clubworx admin UI,
+**Settings → API**.
+
+To place it for local probing:
+
+```bash
+cd cloudflare-clubworx
+cp .dev.vars.example .dev.vars
+# then paste the key after CLUBWORX_ACCOUNT_KEY=
+```
+
+`.dev.vars` is gitignored, so it stays on the machine and never appears on
+GitHub — see section 2.
 
 ### A read-only path that needs no key at all
 
@@ -155,7 +172,7 @@ Record the answers here and on #47 when given.
 |---|---|
 | No sandbox exists | All probing is against production; unavoidable, not a choice |
 | Contacts cannot be deleted via API | Every write probe leaves a permanent record; bookings are reversible, contacts are not |
-| `account_key` is documented as one key per gym | Per-integration attribution may be impossible; confirm in admin UI |
+| Clubworx issues **one key per gym**, confirmed | Attribution by key is impossible; the `noreply+<school>@` marker is the only provenance signal. One key's leak or rotation hits every integration |
 | Rate limits undocumented | Unknown, not absent. Probe #51 discovers them; assume they exist meanwhile |
 | Existing `uj-clubworx` Worker caps paging at 300 records | Usable for read probes, but cannot answer #51's burst question |
 | Cloudflare secrets are write-only | The existing key cannot be recovered; it must come from the admin UI |
