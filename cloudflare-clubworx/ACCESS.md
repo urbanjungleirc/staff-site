@@ -4,8 +4,9 @@ Answer to [staff-site#47](https://github.com/urbanjungleirc/staff-site/issues/47
 part of the school-group booking map ([#46](https://github.com/urbanjungleirc/staff-site/issues/46)).
 Later tickets on that map (#48–#51) depend on all four sections below.
 
-Status: **sections 1, 2 and 3 settled; section 4 needs Jiri.** No live probe may
-run until section 4 is signed off.
+Status: **all four sections settled, 2026-08-17.** #47 is answered and closed.
+Write probes on #49 and #50 are authorised against production, under the test
+identity in section 4.
 
 ---
 
@@ -52,6 +53,17 @@ cp .dev.vars.example .dev.vars
 
 `.dev.vars` is gitignored, so it stays on the machine and never appears on
 GitHub — see section 2.
+
+**Verified working, 2026-08-17.** The key was placed and exercised with a single
+read-only `GET /locations`: **HTTP 200**, 5 location rows, ~1.1s. Access is
+provisioned, not merely configured.
+
+That request also answered something #51 wants: **Clubworx advertises no
+rate-limit headers** — no `Retry-After`, no `X-RateLimit-*`, nothing. So a
+client cannot self-throttle from response metadata and cannot learn it is
+approaching a ceiling before hitting one. Whatever limits exist must be
+discovered by observing failures, which makes conservative pacing in the
+bulk-create loop a design requirement rather than a nicety.
 
 ### A read-only path that needs no key at all
 
@@ -103,6 +115,16 @@ and permanent in history. Three things now hold that closed:
 - In production the key is a **Wrangler secret** (`npx wrangler secret put
   CLUBWORX_ACCOUNT_KEY`), never `[vars]` in `wrangler.toml`, which is committed.
 
+> ⚠️ **The rule only protects the branch it is on.** This was hit twice on
+> 2026-08-17: the session-start sync hook returns this submodule to `main`,
+> which does not carry the rule, while a real `.dev.vars` sits on disk. On that
+> checkout git reports `?? cloudflare-clubworx/` — untracked but *not ignored* —
+> so a `git add .` or an `-A` commit would stage the key into a public repo.
+>
+> Merging this `.gitignore` change to `main` is what actually closes the hole.
+> Until then, check `git check-ignore cloudflare-clubworx/.dev.vars` returns a
+> match before staging anything in this repo.
+
 The key must also never reach the page. The browser talks to this Worker; only
 the Worker talks to Clubworx.
 
@@ -139,30 +161,49 @@ reference describes throttling, retry-after, or a burst ceiling. Probe #51 is
 what would discover them empirically. Until it runs, assume limits exist and
 are unknown — do not hammer the API.
 
-## 4. Authorisation and test identity — ACTION REQUIRED
+## 4. Authorisation and test identity — SETTLED
 
-Not yet given. Explicitly needed before any write probe runs, because the two
-write probes create permanent production records:
+**Authorised by Jiri, 2026-08-17.** Write probes may run against **production**
+Clubworx — the only environment there is. This covers:
 
 - **#49** — create contacts on plus-addressed variants of `noreply@` to see
   whether Clubworx treats them as duplicates.
 - **#50** — create a prospect with no membership, then attempt to book it.
 
-**Requested:**
+### The agreed test identity
 
-1. Confirmation that write probes against **production** Clubworx are
-   authorised, given no sandbox exists and created contacts are permanent.
-2. The single fake test identity all probes reuse, so the blast radius is one
-   known record rather than a scatter. Proposed, pending approval:
-   - name: `Ztest Wayfinder`
-   - DOB: `1900-01-01`
-   - email: `noreply+wayfindertest@urbanjungleirc.com`
-   - Chosen so it sorts to the end of an alphabetical list, is obviously not a
-     student, and carries the same `noreply+` marker convention this map
-     already adopted for schools. **No real student name, DOB or school may be
-     used** — #46's standing constraint, and this repo is public.
+Every write probe on this map reuses **one** identity, so the blast radius is a
+single known record rather than a scatter of orphans nobody can find later:
 
-Record the answers here and on #47 when given.
+| Field | Value |
+|---|---|
+| First name | `Ztest` |
+| Last name | `Wayfinder` |
+| DOB | `1900-01-01` |
+| Email | `noreply+wayfindertest@urbanjungleirc.com` |
+
+Chosen so it sorts to the end of an alphabetical list, is unmistakably not a
+student, and carries the `noreply+` marker convention this map already adopted.
+**No real student name, DOB or school may be used** — #46's standing constraint,
+and this repo is public.
+
+### What authorisation does and does not cover
+
+- It covers **creating** the records the probes need, under that identity, in
+  production.
+- It does **not** make them disposable. Contacts cannot be deleted through the
+  API, so every probe contact is permanent and removable only by hand in the
+  Clubworx UI. Reuse the one identity; do not improvise new ones per run.
+- Bookings *are* reversible (`DELETE /api/v2/bookings/:id`), so #50 should clean
+  up the booking it creates even though it cannot clean up the contact.
+- Probes are **#49 and #50's** work. #47 provisions access and stops there; it
+  ran only a read-only `GET /locations` to prove the key authenticates.
+
+### Before the first write probe
+
+Search first. If `Ztest Wayfinder` already exists from an earlier run, reuse it
+rather than creating a second — the identity is only a blast-radius control if
+there is exactly one of it.
 
 ---
 
@@ -173,7 +214,8 @@ Record the answers here and on #47 when given.
 | No sandbox exists | All probing is against production; unavoidable, not a choice |
 | Contacts cannot be deleted via API | Every write probe leaves a permanent record; bookings are reversible, contacts are not |
 | Clubworx issues **one key per gym**, confirmed | Attribution by key is impossible; the `noreply+<school>@` marker is the only provenance signal. One key's leak or rotation hits every integration |
-| Rate limits undocumented | Unknown, not absent. Probe #51 discovers them; assume they exist meanwhile |
+| Rate limits undocumented **and unadvertised** | Confirmed live: no `Retry-After` or `X-RateLimit-*` headers come back. A client cannot self-throttle from response metadata or see a ceiling approaching — only hit it. Pace conservatively |
+| The gitignore rule is **branch-local until merged** | Observed twice on 2026-08-17: the session-start sync hook returns this submodule to `main`, where the rule does not exist, while `.dev.vars` stays on disk. On that checkout the key is untracked-but-not-ignored, so `git add .` would stage it into a public repo. Merging the rule to `main` is what actually closes this |
 | Existing `uj-clubworx` Worker caps paging at 300 records | Usable for read probes, but cannot answer #51's burst question |
 | Cloudflare secrets are write-only | The existing key cannot be recovered; it must come from the admin UI |
 | This repo runs no tests in CI | The secret-hygiene guard is advisory until that changes — see below |
