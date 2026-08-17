@@ -19,6 +19,10 @@ cloudflare-payments-proxy/ - Worker bridging vouchers/ to uj-payments with the A
 cloudflare-clubworx/    - Clubworx API access for the school-group booking tool (#46).
                           ACCESS.md is the answer to #47: where the key comes from,
                           where it lives, and what is still owed. No Worker code yet.
+cloudflare-clubworx/probes/ - read-only probes against the live Clubworx API, and
+                          what they found. Start with probes/README.md — it carries
+                          the rules (no production data recorded, pace under
+                          75 req/min) that any new probe has to follow.
 vouchers/               - voucher management portal (auth = Cloudflare Access)
 vouchers/stats.html     - voucher analytics: revenue, liability, redemption, product mix
 vouchers/unsubscribes.html - who is not receiving automatic voucher emails, and why
