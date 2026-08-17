@@ -1,4 +1,6 @@
-.dev.vars
+# .dev.vars and friends are ignored repo-wide from the root .gitignore, which
+# also covers Worker directories that do not exist yet. Kept out of here so
+# there is one place to look, not two that can disagree.
 node_modules/
 .wrangler/
 package-lock.json

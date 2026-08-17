@@ -1,0 +1,17 @@
+# Template for cloudflare-clubworx/.dev.vars — copy, then fill in locally.
+#
+#   cp .dev.vars.example .dev.vars
+#
+# .dev.vars is gitignored repo-wide (see the root .gitignore). This file, the
+# .example, is committed and must never carry a real value.
+#
+# staff-site is a PUBLIC repo. In production these are Wrangler secrets
+# (`npx wrangler secret put <NAME>`), never [vars] in wrangler.toml.
+
+# The gym's Clubworx API key. Clubworx admin UI -> Settings -> API.
+# Sent as the account_key query parameter on every api/v2 request.
+#
+# This is the only variable staff-site#47 settles. The Worker's own auth is a
+# separate decision — the #46 map calls for it to be Access-gated — so nothing
+# is pre-declared for it here. Add what that ticket decides, when it decides it.
+CLUBWORX_ACCOUNT_KEY=

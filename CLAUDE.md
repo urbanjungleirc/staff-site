@@ -16,6 +16,9 @@ tools.json              - source of truth for hub entries
 roster.html             - daily staff roster, pulled from Deputy via Cloudflare Worker
 cloudflare-worker/      - Worker for roster API and tools.json editor API
 cloudflare-payments-proxy/ - Worker bridging vouchers/ to uj-payments with the Access JWT
+cloudflare-clubworx/    - Clubworx API access for the school-group booking tool (#46).
+                          ACCESS.md is the answer to #47: where the key comes from,
+                          where it lives, and what is still owed. No Worker code yet.
 vouchers/               - voucher management portal (auth = Cloudflare Access)
 vouchers/stats.html     - voucher analytics: revenue, liability, redemption, product mix
 vouchers/unsubscribes.html - who is not receiving automatic voucher emails, and why

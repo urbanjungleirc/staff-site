@@ -16,3 +16,21 @@ node_modules/
 
 # Staging directory built by .github/workflows/pages.yml
 _site/
+
+# Worker secrets, at any depth. This repo is PUBLIC, and a key that reaches a
+# commit here is world-readable and permanent in history. cloudflare-worker/
+# had its own rule, but a per-directory rule only protects directories that
+# already exist — the next Worker directory starts unprotected, which is
+# exactly how a key gets committed.
+#
+# Wrangler reads .dev.vars and .dev.vars.<environment>, and .env is the habit
+# people arrive with, so all of them are covered — matching only the bare name
+# would certify a gap it does not close. The .example template is the one file
+# here meant to be committed.
+.dev.vars
+.dev.vars.*
+!.dev.vars.example
+.env
+
+# Checked by cloudflare-worker/test/secret-hygiene.test.js — run by hand, not in
+# CI, because pages.yml runs no tests. The rule above is the actual control.
