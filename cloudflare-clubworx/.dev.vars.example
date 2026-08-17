@@ -10,8 +10,8 @@
 
 # The gym's Clubworx API key. Clubworx admin UI -> Settings -> API.
 # Sent as the account_key query parameter on every api/v2 request.
+#
+# This is the only variable staff-site#47 settles. The Worker's own auth is a
+# separate decision — the #46 map calls for it to be Access-gated — so nothing
+# is pre-declared for it here. Add what that ticket decides, when it decides it.
 CLUBWORX_ACCOUNT_KEY=
-
-# Shared secret the staff-portal page sends as X-Staff-Secret when running
-# against a local `wrangler dev`. Generate with: openssl rand -hex 24
-STAFF_SHARED_SECRET=

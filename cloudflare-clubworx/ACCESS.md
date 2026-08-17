@@ -24,8 +24,9 @@ The key is genuinely absent from this machine.
 
 **Reuse or issue a separate key?** The ticket asks for this to be decided so
 this tool's traffic is attributable. The API reference describes `account_key`
-as *"Your gym's unique API key"* — singular, one per gym — on all 30+ endpoints.
-That wording suggests per-integration keys are **not offered**, in which case
+as *"Your gym's unique API key"* — singular, one per gym — on all **42**
+endpoints that take it, and never mentions issuing, revoking or regenerating a
+key. That wording suggests per-integration keys are **not offered**, in which case
 attribution by key is impossible and the question is moot. This has not been
 confirmed against the admin UI, which is the only place that can answer it.
 
@@ -38,9 +39,10 @@ confirmed against the admin UI, which is the only place that can answer it.
 ### A read-only path that needs no key at all
 
 Worth knowing before anyone hurries the key out of the admin UI: the deployed
-`uj-clubworx` Worker already proxies Clubworx reads, authenticated by the
-`X-Staff-Secret` we *do* hold locally. It exposes `/v1/events`, `/v1/roster`
-and `/v1/lookup`.
+`uj-clubworx` Worker already proxies a small number of Clubworx **read**
+endpoints, and the shared secret needed to call it *is* held locally. Its
+routes and auth model are documented in the `hvt` repo alongside its source —
+not restated here, since this file is public.
 
 That covers part of the **read** side of probe [#51](https://github.com/urbanjungleirc/staff-site/issues/51)
 (event listing) without this project ever holding the raw key. It does **not**
@@ -49,10 +51,10 @@ cover the write probes — that Worker exposes no create path — so
 duplicate emails) and [#50](https://github.com/urbanjungleirc/staff-site/issues/50)
 (booking a membership-less prospect) still need the key.
 
-Two caveats if that shortcut is used: its paging is capped at
-`MAX_PAGES = 3 × PAGE_SIZE = 100`, i.e. **300 records**, after which it sets a
-`capped` flag rather than continuing — so it cannot answer #51's burst-behaviour
-question. And its upstream timeout is 10s.
+One caveat if that shortcut is used: it stops paging after a few hundred records
+and flags the result as capped rather than continuing, so it cannot answer #51's
+burst-behaviour question. Read its source for the exact limits before relying on
+them.
 
 ## 2. Location for probing — SETTLED
 
@@ -63,20 +65,39 @@ directory and fill it in.
 `"visibility": "PUBLIC"`). A key that reaches a commit here is world-readable
 and permanent in history. Three things now hold that closed:
 
-- `.dev.vars` is ignored **repo-wide** from the root `.gitignore`. Previously
-  only `cloudflare-worker/` ignored it, via its own file — which protected that
-  one directory and nothing else. A `.dev.vars` in this new directory would
-  have been committable. That gap was real and is now closed.
-- `cloudflare-worker/test/secret-hygiene.test.js` asserts it: `.dev.vars` is
-  ignored in every Worker directory *including ones not yet created*, no
-  `.dev.vars` is tracked anywhere, and no committed file carries a literal
-  `account_key=` value. Both failure modes were verified by planting a fake key
-  and a tracked `.dev.vars` and watching the suite go red.
+- Secret files are ignored **repo-wide** from the root `.gitignore` —
+  `.dev.vars`, `.dev.vars.<environment>` (Wrangler's own convention) and `.env`,
+  with `.dev.vars.example` excepted so the template stays committable.
+  Previously only `cloudflare-worker/` ignored `.dev.vars`, via its own file,
+  which protected that one directory and nothing else: a `.dev.vars` in this new
+  directory would have been committable. That gap was real and is now closed.
+  **This rule is the actual control.**
+- `cloudflare-worker/test/secret-hygiene.test.js` checks it: every secret
+  filename is ignored in every Worker directory *including ones not yet
+  created*, none is tracked anywhere, and no committed file carries a literal
+  `account_key=` value. Each was verified able to fail, by planting a fake key
+  and a tracked `.dev.vars` and watching the suite go red — one of them first
+  passed for the wrong reason and was repaired.
+
+  **It is a check, not a gate.** `pages.yml` is this repo's only workflow and it
+  runs no tests, so nothing executes this guard automatically; it fires only
+  when someone runs vitest by hand. Wiring it into CI is the open recommendation
+  at the end of this file.
 - In production the key is a **Wrangler secret** (`npx wrangler secret put
   CLUBWORX_ACCOUNT_KEY`), never `[vars]` in `wrangler.toml`, which is committed.
 
 The key must also never reach the page. The browser talks to this Worker; only
 the Worker talks to Clubworx.
+
+One thing that surprises people about this repo: **`.github/workflows/pages.yml`
+rsyncs the whole tree into the published site**, excluding only `.git`,
+`node_modules` and `_site`. So this directory is itself served — `ACCESS.md` and
+`.dev.vars.example` are reachable under `ujstaff.happyk.au/cloudflare-clubworx/`,
+and are on GitHub publicly regardless. That is safe *because* the rsync runs
+against a CI checkout, which only ever contains tracked files: a gitignored
+`.dev.vars` does not exist in CI and cannot be published. It is the same posture
+`cloudflare-worker/` has had all along — but it is the reason the gitignore rule
+is the load-bearing control here, not a tidiness preference.
 
 ## 3. Environment — SETTLED: production only
 
@@ -138,3 +159,18 @@ Record the answers here and on #47 when given.
 | Rate limits undocumented | Unknown, not absent. Probe #51 discovers them; assume they exist meanwhile |
 | Existing `uj-clubworx` Worker caps paging at 300 records | Usable for read probes, but cannot answer #51's burst question |
 | Cloudflare secrets are write-only | The existing key cannot be recovered; it must come from the admin UI |
+| This repo runs no tests in CI | The secret-hygiene guard is advisory until that changes — see below |
+
+## Open recommendation: run the guard in CI
+
+`.github/workflows/pages.yml` is the only workflow here, and it runs no tests —
+checkout, version, stage, check, deploy. So the secret-hygiene guard protects
+nothing on its own; it only reports when a human runs it.
+
+Given `main` **is** production and merging is deploying, the cheap fix is a
+separate workflow on push and pull request that runs just this file. Deliberately
+*not* a step inside `pages.yml`: a failing test there would freeze the site on
+its previous build, turning a hygiene check into an outage.
+
+Not done here because it changes CI on a public, auto-deploying repo, which is
+Jiri's call rather than a detail of #47.
