@@ -34,3 +34,10 @@ _site/
 
 # Checked by cloudflare-worker/test/secret-hygiene.test.js — run by hand, not in
 # CI, because pages.yml runs no tests. The rule above is the actual control.
+
+# Raw output from the Clubworx probes. Everything the probes write is already
+# reduced to counts, ids and timings before it lands (see probes/lib/report.mjs),
+# so this is a second line rather than the first — but pages.yml rsyncs the whole
+# tree to a public site, and the write probes on #49/#50 will hold contact keys.
+# The findings that matter are written up by hand in probes/*.md.
+cloudflare-clubworx/probes/out/

@@ -1,0 +1,168 @@
+/**
+ * Turning live probe responses into something publishable.
+ *
+ * Everything a probe records goes through here first. The rule is that the
+ * output holds counts, ids, status codes, header names and timings — and no row
+ * of production data. Clubworx holds ~60,000 real people and staff-site#46's
+ * standing constraint forbids real names reaching this public repo, so the
+ * summariser is what makes a findings document safe to commit rather than a
+ * gitignore rule somebody has to remember.
+ */
+
+/** Nearest-rank percentile. Null for an empty set, so it never prints as NaN. */
+export function percentile(values, p) {
+  if (!values.length) return null;
+  const sorted = [...values].sort((a, b) => a - b);
+  const rank = Math.ceil((p / 100) * sorted.length);
+  return sorted[Math.min(Math.max(rank, 1), sorted.length) - 1];
+}
+
+/**
+ * Summarise a burst of responses.
+ *
+ * @param {Array<{status?: number, ms: number, error?: string}>} samples
+ */
+export function summariseBurst(samples) {
+  const byStatus = {};
+  const errors = {};
+  const latencies = [];
+  let firstThrottledIndex = null;
+
+  samples.forEach((sample, i) => {
+    latencies.push(sample.ms);
+
+    if (sample.error) {
+      errors[sample.error] = (errors[sample.error] ?? 0) + 1;
+      return;
+    }
+
+    byStatus[sample.status] = (byStatus[sample.status] ?? 0) + 1;
+    // Index 0 is a real answer — a ceiling hit on the very first call — so this
+    // stays null rather than 0 when nothing was throttled.
+    if (sample.status === 429 && firstThrottledIndex === null) firstThrottledIndex = i;
+  });
+
+  const statuses = samples.filter(s => !s.error).map(s => s.status);
+
+  return {
+    count: samples.length,
+    byStatus,
+    errors,
+    throttled: statuses.filter(s => s === 429).length,
+    firstThrottledIndex,
+    clean: samples.length > 0 && samples.every(s => !s.error && s.status >= 200 && s.status < 300),
+    ms: {
+      min: percentile(latencies, 0) ?? null,
+      p50: percentile(latencies, 50),
+      p95: percentile(latencies, 95),
+      max: percentile(latencies, 100),
+    },
+  };
+}
+
+// The spellings seen in the wild: RFC 6585's Retry-After, the draft
+// RateLimit-* family, and the older X- prefixed variants.
+const RATE_LIMIT = /^(retry-after|x-)?(rate-?limit)/i;
+
+/**
+ * Pick out any header a client could self-throttle from.
+ *
+ * @param {Headers|Record<string,string>} headers
+ * @returns {Record<string,string>}
+ */
+export function rateLimitHeaders(headers) {
+  const entries =
+    typeof headers?.entries === 'function' ? [...headers.entries()] : Object.entries(headers ?? {});
+
+  const found = {};
+  for (const [name, value] of entries) {
+    const lower = String(name).toLowerCase();
+    if (lower === 'retry-after' || RATE_LIMIT.test(lower)) found[lower] = String(value);
+  }
+  return found;
+}
+
+/**
+ * Reduce an /events response to its shape.
+ *
+ * Ids and the field list only. Event names at UJ carry school names, and
+ * `instructor_name` is a staff member — neither may be written down here.
+ *
+ * @param {unknown} body
+ */
+export function summariseEvents(body) {
+  if (!Array.isArray(body)) {
+    return { count: 0, ids: [], fields: [], earliest: null, latest: null, notAnArray: true };
+  }
+
+  const fields = new Set();
+  const starts = [];
+  for (const row of body) {
+    for (const key of Object.keys(row ?? {})) fields.add(key);
+    if (row?.event_start_at) starts.push(row.event_start_at);
+  }
+  starts.sort();
+
+  return {
+    count: body.length,
+    ids: body.map(r => r?.event_id).sort((a, b) => a - b),
+    fields: [...fields],
+    earliest: starts[0] ?? null,
+    latest: starts[starts.length - 1] ?? null,
+    notAnArray: false,
+  };
+}
+
+/**
+ * Describe an observed ceiling as requests per minute.
+ *
+ * Clubworx sends no rate-limit headers even while returning 429 (staff-site#51,
+ * confirmed under live throttling), so a client cannot read a limit — it can
+ * only measure one. Two numbers are needed and both come from a probe: how many
+ * requests were accepted before the wall, and how long the wall lasted.
+ *
+ * The result is an inference, not a published figure, so the raw measurements
+ * travel with it.
+ *
+ * @param {{allowed: number, windowMs: number}} observed
+ */
+export function deriveRateLimit({ allowed, windowMs }) {
+  if (!(windowMs > 0)) throw new Error('deriveRateLimit: window must be a positive duration');
+  if (!(allowed > 0)) {
+    throw new Error(
+      'deriveRateLimit: allowed must be positive — a run that was never throttled ' +
+        'shows the limit is above what was tried, not what it is',
+    );
+  }
+  return { allowed, windowMs, perMinute: Math.round((allowed / windowMs) * 60_000) };
+}
+
+/**
+ * A pace to run at, given a measured ceiling.
+ *
+ * Concurrency is always 1. Under a per-window quota, eight requests in flight
+ * spend the allowance exactly as fast as one — concurrency changes only how
+ * soon the wall arrives, so the lever that matters is the gap between requests.
+ *
+ * @param {{allowed: number, windowMs: number, safety?: number, reads?: number}} opts
+ */
+export function recommendPacing({ allowed, windowMs, safety = 0.8, reads }) {
+  const { perMinute: ceiling } = deriveRateLimit({ allowed, windowMs });
+  const perMinute = Math.floor(ceiling * safety);
+  const gapMs = Math.round(60_000 / perMinute);
+
+  return {
+    concurrency: 1,
+    perMinute,
+    gapMs,
+    safety,
+    estimatedMsFor: reads ? reads * gapMs : null,
+  };
+}
+
+/** Do two runs describe the same set of events, regardless of order? */
+export function sameIds(a, b) {
+  if (a.length !== b.length) return false;
+  const left = new Set(a);
+  return b.every(id => left.has(id));
+}

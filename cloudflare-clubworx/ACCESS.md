@@ -65,6 +65,10 @@ approaching a ceiling before hitting one. Whatever limits exist must be
 discovered by observing failures, which makes conservative pacing in the
 bulk-create loop a design requirement rather than a nicety.
 
+That has since been done — [#51](https://github.com/urbanjungleirc/staff-site/issues/51)
+measured the ceiling and a pace that clears it, and confirmed the headers stay
+absent even mid-throttle. See `probes/51-events-and-burst.md`.
+
 ### A read-only path that needs no key at all
 
 Worth knowing before anyone hurries the key out of the admin UI: the deployed
@@ -156,10 +160,14 @@ expose list / show / create / update only. So each write probe leaves a
 Bookings are the exception — `DELETE /api/v2/bookings/:id` exists, so the
 booking half of probe #50 is reversible; the contact it needs is not.
 
-**Rate limits are undocumented rather than known to be absent.** Nothing in the
-reference describes throttling, retry-after, or a burst ceiling. Probe #51 is
-what would discover them empirically. Until it runs, assume limits exist and
-are unknown — do not hammer the API.
+**Rate limits are undocumented but no longer unknown.** Nothing in the reference
+describes throttling, retry-after, or a burst ceiling. Probe #51 has since
+measured them: roughly **50 requests** get through when spent faster than ~3/s,
+after which the API returns 429 for about **18 seconds**, with no headers of any
+kind to warn or explain. **75 requests/minute, one in flight, ran clean.**
+
+Anything talking to Clubworx from this repo — probes included — paces at or under
+that. Full evidence and the reasoning: `probes/51-events-and-burst.md`.
 
 ## 4. Authorisation and test identity — SETTLED
 
@@ -214,7 +222,9 @@ there is exactly one of it.
 | No sandbox exists | All probing is against production; unavoidable, not a choice |
 | Contacts cannot be deleted via API | Every write probe leaves a permanent record; bookings are reversible, contacts are not |
 | Clubworx issues **one key per gym**, confirmed | Attribution by key is impossible; the `noreply+<school>@` marker is the only provenance signal. One key's leak or rotation hits every integration |
-| Rate limits undocumented **and unadvertised** | Confirmed live: no `Retry-After` or `X-RateLimit-*` headers come back. A client cannot self-throttle from response metadata or see a ceiling approaching — only hit it. Pace conservatively |
+| Rate limits undocumented **and unadvertised** | Confirmed live, and confirmed again *while being throttled* (#51): no `Retry-After` or `X-RateLimit-*` headers come back at any point. A client cannot self-throttle from response metadata or see a ceiling approaching — only hit it |
+| The ceiling is **tight**: ~50 fast requests, then ~18s of 429 (#51) | 75 req/min ran clean; 120 did not. Every caller must pace, and the allowance is shared across the whole gym key, so this tool can throttle HVT and vice versa |
+| `GET /events` ignores `contact_key` entirely (#51) | The event picker works gym-wide — but this contradicts the published reference, so it may be enforced one day. The paste-the-event-id fallback is mandatory, not a nicety |
 | The gitignore rule is **branch-local until merged** | Observed twice on 2026-08-17: the session-start sync hook returns this submodule to `main`, where the rule does not exist, while `.dev.vars` stays on disk. On that checkout the key is untracked-but-not-ignored, so `git add .` would stage it into a public repo. Merging the rule to `main` is what actually closes this |
 | Existing `uj-clubworx` Worker caps paging at 300 records | Usable for read probes, but cannot answer #51's burst question |
 | Cloudflare secrets are write-only | The existing key cannot be recovered; it must come from the admin UI |
