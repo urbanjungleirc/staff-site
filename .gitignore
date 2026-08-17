@@ -16,3 +16,11 @@ node_modules/
 
 # Staging directory built by .github/workflows/pages.yml
 _site/
+
+# Worker secrets, at any depth. This repo is PUBLIC, and a key that reaches a
+# commit here is world-readable and permanent in history. cloudflare-worker/
+# had its own rule, but a per-directory rule only protects directories that
+# already exist — the next Worker directory starts unprotected, which is
+# exactly how a key gets committed. Guarded by
+# cloudflare-worker/test/secret-hygiene.test.js.
+.dev.vars
