@@ -4,12 +4,19 @@ import { buildUrl, redact } from './request.mjs';
 // The two things a probe against a public repo's live production API must get
 // right before it makes a single call: the URL it asks for, and the text it is
 // allowed to print afterwards.
+//
+// The fake key starts with `unique-` on purpose. cloudflare-worker/test/
+// secret-hygiene.test.js greps every tracked file for a real-looking value on
+// the account key query parameter, and treats that prefix as a declared
+// placeholder. A fixture named anything else fails the guard — correctly, since
+// from the outside an invented key and a real one are the same string of
+// characters. Naming one here in an example would trip it too.
 
 describe('buildUrl', () => {
-  const opts = { path: 'events', accountKey: 'KEY123456' };
+  const opts = { path: 'events', accountKey: 'unique-not-a-real-key' };
 
   it('puts the account key on every request, because all 42 endpoints require it', () => {
-    expect(buildUrl(opts)).toContain('account_key=KEY123456');
+    expect(buildUrl(opts)).toContain('account_key=unique-not-a-real-key');
   });
 
   it('hits the documented api/v2 base', () => {
@@ -49,14 +56,14 @@ describe('buildUrl', () => {
 
 describe('redact', () => {
   it('replaces the key wherever it appears', () => {
-    expect(redact('GET /events?account_key=KEY123456&page=1', 'KEY123456')).toBe(
+    expect(redact('GET /events?account_key=unique-not-a-real-key&page=1', 'unique-not-a-real-key')).toBe(
       'GET /events?account_key=<CLUBWORX_ACCOUNT_KEY>&page=1',
     );
   });
 
   it('replaces every occurrence, not just the first', () => {
-    const out = redact('KEY123456 ... KEY123456', 'KEY123456');
-    expect(out).not.toContain('KEY123456');
+    const out = redact('unique-not-a-real-key ... unique-not-a-real-key', 'unique-not-a-real-key');
+    expect(out).not.toContain('unique-not-a-real-key');
   });
 
   it('catches a percent-encoded copy of the key, which a naive replace would miss', () => {
@@ -78,6 +85,6 @@ describe('redact', () => {
   });
 
   it('leaves non-string input alone by stringifying it first', () => {
-    expect(redact(404, 'KEY123456')).toBe('404');
+    expect(redact(404, 'unique-not-a-real-key')).toBe('404');
   });
 });

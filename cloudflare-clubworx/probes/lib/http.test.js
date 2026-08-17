@@ -17,7 +17,7 @@ const fakeFetch = (calls, response = {}) => {
 };
 
 describe('createGetter', () => {
-  const key = 'KEY123456';
+  const key = 'unique-not-a-real-key';
 
   it('issues GET and nothing else — every probe on this map is read-only', async () => {
     const calls = [];
