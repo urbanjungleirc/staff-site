@@ -234,3 +234,37 @@ runs on the deploy path and must never be able to stop the site publishing. A
 plain checkout has no `version.json` at all, so anything reading it must treat
 missing and `dev` alike as "no version" — that is the normal state during local
 development, not a fault.
+
+## Clubworx pacing
+
+Terms for talking to the Clubworx API without being cut off. Measured in
+[staff-site#51](https://github.com/urbanjungleirc/staff-site/issues/51); evidence
+in `cloudflare-clubworx/probes/51-events-and-burst.md`.
+
+### Rate ceiling
+
+The point at which Clubworx starts returning **429**. It is undocumented and,
+unlike most APIs, **unadvertised**: no `Retry-After`, no `X-RateLimit-*`, not
+even on the 429 itself. A client cannot read it, cannot see it approaching, and
+cannot be told when it lifts — it can only measure it.
+
+Measured: spent faster than ~3 requests/second, roughly **50 requests** get
+through, after which the API refuses for about **18 seconds**.
+
+Say *ceiling* rather than "rate limit" when referring to the observed boundary,
+because "the rate limit" implies a published figure and there is none.
+
+### Pacing
+
+The gap a client deliberately leaves between Clubworx requests. **75 requests
+per minute, one in flight, 800ms apart** is the house figure — verified to run a
+full 90-read lookup clean, twice, with margin left over.
+
+Pacing is the control, not concurrency. Requests in flight change only how fast
+the ceiling arrives, never how much is allowed: four concurrent reached it
+*sooner* than one and then failed 41 requests in a row.
+
+The margin exists for other systems, not this one. There is **one Clubworx key
+for the whole gym** (see `cloudflare-clubworx/ACCESS.md`), so HVT's roster
+Worker, n8n and staff-site all spend the same allowance. A run here can throttle
+something unrelated, with nothing in either system's logs to explain it.
