@@ -51,6 +51,21 @@ spaces, so choosing by sort order means choosing somebody's actual session; the
 read-only run lists the candidates and a human picks one. Everything it books,
 it cancels — and it prints anything it could not.
 
+**Book it into a purpose-made test event.** Whether a membership-less prospect
+can book is a property of *the event*, not of the API: UJ's school sessions are
+configured with a limited number of prospect places, which is what stops
+somebody booking into a school group by accident on the day. An open-climb
+session is configured differently, so a booking there answers a different
+question to the one #46 needs. Create an event configured like a school session
+and pass its id.
+
+`GET /events` **does not expose that allowance** — its fields are `event_id`,
+`event_name`, `event_start_at`, `event_end_at`, `location_id`, `location_name`,
+`free_class`, `instructor_name`, `event_full`, `spaces_available` and
+`event_description` (verified 2026-08-18). So #46's picker cannot pre-validate
+it: a session whose prospect places are used up looks exactly like one with
+room, and the tool only finds out when a write is rejected.
+
 Runs write a JSON summary to `probes/out/`, which is gitignored.
 
 ## The rules these scripts follow

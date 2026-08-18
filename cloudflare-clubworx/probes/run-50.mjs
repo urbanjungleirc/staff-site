@@ -33,6 +33,35 @@
  * This probe **creates no contacts**. ACCESS.md section 4: the three-contact
  * authorisation is spent, and #50 must reuse what #49 left behind. If those
  * contacts are missing the run stops rather than creating a fourth.
+ *
+ * ## The answer is per-event, and the API does not show why
+ *
+ * A school session at UJ is normally configured to accept a **limited number of
+ * prospects** — that limit is what stops somebody booking themselves into a
+ * school group by accident on the day, and allowing prospects at all is what
+ * means a student needs no membership (Jiri, 2026-08-18). So questions 1 and 2
+ * are not properties of the API: they are properties of *the event booked into*.
+ *
+ * That matters twice over.
+ *
+ * **`GET /events` does not expose it.** The fields are `event_id`,
+ * `event_name`, `event_start_at`, `event_end_at`, `location_id`,
+ * `location_name`, `free_class`, `instructor_name`, `event_full`,
+ * `spaces_available` and `event_description` — verified against production on
+ * 2026-08-18, and there is no prospect allowance among them. #46's picker
+ * therefore **cannot pre-validate** it: a session whose prospect places are
+ * exhausted looks identical to one with room, and the tool finds out only when
+ * a write is rejected. Whatever this probe records, that gap is already real.
+ *
+ * **So `free_class` may not be the discriminator #50 guessed at.** The ticket
+ * named it as the likely candidate, but a per-event prospect allowance is the
+ * mechanism staff actually use. `--free-event=<id>` is therefore better read as
+ * "a comparison event configured differently" than as "a free class"; what
+ * separates the two answers is the configuration, not the flag's name.
+ *
+ * Booking a generic open-climb session would answer a *different question* to
+ * the one #46 needs — which is why the event is a deliberate choice rather than
+ * a default.
  */
 
 import { writeFileSync, mkdirSync } from 'node:fs';
@@ -398,6 +427,21 @@ async function main() {
     );
     record.candidates = events.bookable;
   }
+
+  // Which event was booked is part of the finding, not run metadata: the answer
+  // is a property of the event's configuration, so a verdict recorded without
+  // the event beside it cannot be read later. `null` when the id is outside the
+  // listed window — a purpose-made test event may well be, and the probe still
+  // books it by id.
+  const describeTarget = id =>
+    [...events.bookable.paid, ...events.bookable.free].find(
+      e => String(e.event_id) === String(id),
+    ) ?? null;
+
+  record.targets = {
+    paid: EVENT_ID ? { event_id: EVENT_ID, ...(describeTarget(EVENT_ID) ?? {}) } : null,
+    free: FREE_EVENT_ID ? { event_id: FREE_EVENT_ID, ...(describeTarget(FREE_EVENT_ID) ?? {}) } : null,
+  };
 
   const booker = createBooker({
     accountKey,

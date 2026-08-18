@@ -354,9 +354,17 @@ export function summariseBookings(body, ourKeys = []) {
  *
  * staff-site#50 asks this only if question 1 fails, and names the candidate
  * discriminator itself: `GET /events` returns a `free_class` boolean. Comparing
- * a paid event against a free one is what separates "a membership-less contact
- * cannot book at all" from "it can book, but only a free class" — and those two
+ * one event against another is what separates "a membership-less contact cannot
+ * book at all" from "it can book, but only into certain events" — and those two
  * answers change #46's tool in very different ways.
+ *
+ * `free_class` is a *candidate* discriminator, not a confirmed one. UJ's school
+ * sessions are configured with a limited number of prospect places, which is the
+ * mechanism staff actually rely on, and `GET /events` does not return it at all
+ * (verified 2026-08-18). So `paid` and `free` here are really "the event asked
+ * about" and "an event configured differently" — the names follow the ticket's
+ * wording rather than a proven mechanism, and a caller must record *which
+ * events* were compared, not just the verdict.
  *
  * One attempt cannot answer it, so an unattempted half is `null` rather than a
  * guess. The ticket asks for a failure here to be flagged loudly, which the
