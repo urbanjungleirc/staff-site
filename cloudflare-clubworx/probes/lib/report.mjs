@@ -592,6 +592,149 @@ export function describeCancellation({ cancel = null, countBefore = null, countA
 }
 
 /**
+ * Resolve a membership plan by name, and refuse to guess.
+ *
+ * The tool has to turn a plan *name* into a `membership_plan_id`, because a
+ * hard-coded id is a number nobody can check against the Clubworx UI. Two
+ * things make that lookup treacherous, and both are real here:
+ *
+ * **The list truncates silently.** `GET /membership_plans` returned exactly 50
+ * — the default `page_size` — on 2026-08-18, and UJ has 57 plans. `School Pass`
+ * was among the seven missing. A caller using the default page would conclude
+ * the plan does not exist, which is the same trap #51 documented on `/events`
+ * and the reason `requestedPageSize` is reported back here.
+ *
+ * **A near-duplicate name would be ambiguous.** Assigning the wrong plan is a
+ * permanent mark on a real person, so more than one match is an error rather
+ * than a first-wins.
+ *
+ * @param {unknown} body A `GET /membership_plans` response.
+ * @param {string} name Exact plan name, compared case-insensitively.
+ * @param {{requestedPageSize?: number}} [opts]
+ */
+export function findPlanByName(body, name, { requestedPageSize = null } = {}) {
+  if (!Array.isArray(body)) {
+    return { plan: null, matches: 0, truncated: false, count: 0, notAnArray: true };
+  }
+
+  const wanted = String(name ?? '').trim().toLowerCase();
+  const matches = body.filter(p => String(p?.name ?? '').trim().toLowerCase() === wanted);
+
+  // A page that came back exactly full is indistinguishable from a complete
+  // list — there is no total and no next-page link — so "not found" on a full
+  // page is not an answer.
+  const truncated = requestedPageSize !== null && body.length >= requestedPageSize;
+
+  return {
+    plan: matches.length === 1 ? matches[0] : null,
+    matches: matches.length,
+    ambiguous: matches.length > 1,
+    truncated,
+    count: body.length,
+    notAnArray: false,
+  };
+}
+
+/**
+ * Reduce a memberships response to something publishable.
+ *
+ * `GET /memberships?contact_key=` is how a probe answers "does this contact
+ * already hold the pass?" before assigning another one. Memberships have no
+ * delete endpoint, so search-first is not a courtesy here — it is the only
+ * thing standing between a re-run and a pile of duplicate permanent records.
+ *
+ * **There is no `status` field.** A membership record carries `start_date` and
+ * `expiration_date` and nothing that says "active" — verified against a real
+ * record on 2026-08-18. Whether a School Pass is active, which is what a School
+ * Session actually checks, has to be derived from those two dates. A caller
+ * looking for `status` would find `undefined` and could read a live pass as
+ * inactive.
+ *
+ * @param {unknown} body
+ * @param {string|number} [planId] The plan being looked for.
+ * @param {{on?: string}} [opts] The date to judge activity against.
+ */
+export function summariseMemberships(body, planId = null, { on = null } = {}) {
+  if (!Array.isArray(body)) {
+    return { count: 0, fields: [], holdsPlan: false, holdsActivePlan: false, planStates: [], notAnArray: true };
+  }
+
+  const today = (on ?? new Date().toISOString()).slice(0, 10);
+  const fields = new Set();
+  const planStates = [];
+  let holdsPlan = false;
+  let holdsActivePlan = false;
+
+  for (const row of body) {
+    for (const key of Object.keys(row ?? {})) fields.add(key);
+
+    if (planId !== null && String(row?.membership_plan_id) === String(planId)) {
+      holdsPlan = true;
+
+      const start = row?.start_date ?? null;
+      const expires = row?.expiration_date ?? null;
+      // Dates are plain `YYYY-MM-DD`, so string comparison is the date
+      // comparison — no timezone to get wrong. Inclusive at both ends: a pass
+      // starting today is usable today.
+      const active =
+        (!start || start <= today) && (!expires || expires >= today);
+
+      if (active) holdsActivePlan = true;
+
+      planStates.push({
+        start_date: start,
+        expiration_date: expires,
+        active,
+        classes_booked: row?.classes_booked ?? null,
+        classes_remaining: row?.classes_remaining ?? null,
+        class_access: row?.class_access ?? null,
+      });
+    }
+  }
+
+  return {
+    count: body.length,
+    fields: [...fields],
+    holdsPlan,
+    holdsActivePlan,
+    planStates,
+    notAnArray: false,
+  };
+}
+
+/**
+ * How long until an event starts, and whether a lead-time rule would allow it.
+ *
+ * UJ's School Sessions require booking at least a day ahead, so that somebody
+ * cannot book themselves in on the day. The tool has to pre-empt that rather
+ * than surface a raw rejection — but the rule lives in Clubworx's configuration
+ * and is exposed by no endpoint, so this computes the *observable* part and
+ * leaves the verdict to a measurement.
+ *
+ * @param {string} eventStartAt ISO timestamp, with offset.
+ * @param {{now?: string, minLeadHours?: number}} [opts]
+ */
+export function describeLeadTime(eventStartAt, { now = new Date().toISOString(), minLeadHours = 24 } = {}) {
+  const starts = Date.parse(eventStartAt);
+  const from = Date.parse(now);
+
+  if (Number.isNaN(starts) || Number.isNaN(from)) {
+    return { hoursAhead: null, withinLeadTime: null, past: null, unreadable: true };
+  }
+
+  const hoursAhead = (starts - from) / 3_600_000;
+
+  return {
+    hoursAhead: Math.round(hoursAhead * 10) / 10,
+    past: hoursAhead <= 0,
+    // "Within the lead time" means too close to book, not comfortably ahead.
+    withinLeadTime: hoursAhead > 0 && hoursAhead < minLeadHours,
+    minLeadHours,
+    unreadable: false,
+  };
+}
+
+/**
  * Which events a probe may safely be booked into.
  *
  * A booking is a real row on a real class that staff see, so the choice of

@@ -17,6 +17,9 @@ import {
   describeDuplicateBooking,
   describeCancellation,
   pickBookableEvents,
+  findPlanByName,
+  summariseMemberships,
+  describeLeadTime,
 } from './report.mjs';
 
 // What a probe is allowed to write down. Everything here is counts, ids, status
@@ -667,5 +670,132 @@ describe('pickBookableEvents', () => {
 
   it('survives a non-array body', () => {
     expect(pickBookableEvents(null)).toEqual({ free: [], paid: [], skipped: 0 });
+  });
+});
+
+describe('findPlanByName', () => {
+  const plans = [
+    { id: 1, name: 'Adult Monthly' },
+    { id: 64189, name: 'School Pass' },
+  ];
+
+  it('resolves an exact name to one plan', () => {
+    const v = findPlanByName(plans, 'School Pass');
+    expect(v.plan.id).toBe(64189);
+    expect(v.matches).toBe(1);
+  });
+
+  it('matches case-insensitively and ignores surrounding space', () => {
+    expect(findPlanByName(plans, '  school pass ').plan.id).toBe(64189);
+  });
+
+  it('refuses to pick when two plans share a name', () => {
+    // Assigning the wrong plan is a permanent mark on a real person, so an
+    // ambiguous lookup must fail rather than take the first.
+    const v = findPlanByName([...plans, { id: 999, name: 'School Pass' }], 'School Pass');
+    expect(v.plan).toBeNull();
+    expect(v.ambiguous).toBe(true);
+    expect(v.matches).toBe(2);
+  });
+
+  it('flags a full page, because "not found" there is not an answer', () => {
+    // Observed 2026-08-18: GET /membership_plans returned exactly 50 (the
+    // default page_size) and School Pass was one of the seven beyond it.
+    const fifty = Array.from({ length: 50 }, (_, i) => ({ id: i, name: `Plan ${i}` }));
+    const v = findPlanByName(fifty, 'School Pass', { requestedPageSize: 50 });
+    expect(v.plan).toBeNull();
+    expect(v.truncated).toBe(true);
+  });
+
+  it('does not flag truncation on a short page', () => {
+    expect(findPlanByName(plans, 'School Pass', { requestedPageSize: 200 }).truncated).toBe(false);
+  });
+
+  it('survives a non-array body', () => {
+    expect(findPlanByName(null, 'School Pass').notAnArray).toBe(true);
+  });
+});
+
+describe('summariseMemberships', () => {
+  it('reports whether the contact already holds the plan', () => {
+    const v = summariseMemberships(
+      [{ membership_plan_id: 64189, start_date: '2026-08-18', expiration_date: '2026-11-09' }],
+      64189,
+      { on: '2026-08-18' },
+    );
+    expect(v.holdsPlan).toBe(true);
+    expect(v.holdsActivePlan).toBe(true);
+  });
+
+  it('derives active from the dates, since the record carries no status field', () => {
+    // Verified against a real record 2026-08-18: start_date and
+    // expiration_date, and nothing that says "active".
+    const rows = [{ membership_plan_id: 64189, start_date: '2026-08-18', expiration_date: '2026-11-09' }];
+    expect(summariseMemberships(rows, 64189, { on: '2026-11-10' }).holdsActivePlan).toBe(false);
+    expect(summariseMemberships(rows, 64189, { on: '2026-08-17' }).holdsActivePlan).toBe(false);
+    // Inclusive at both ends: a pass starting today is usable today.
+    expect(summariseMemberships(rows, 64189, { on: '2026-11-09' }).holdsActivePlan).toBe(true);
+  });
+
+  it('separates holding an expired pass from holding an active one', () => {
+    const v = summariseMemberships(
+      [{ membership_plan_id: 64189, start_date: '2026-01-01', expiration_date: '2026-03-01' }],
+      64189,
+      { on: '2026-08-18' },
+    );
+    expect(v.holdsPlan).toBe(true);
+    expect(v.holdsActivePlan).toBe(false);
+  });
+
+  it('does not confuse a different plan for the one being looked for', () => {
+    const v = summariseMemberships([{ membership_plan_id: 1, status: 'active' }], 64189);
+    expect(v.holdsPlan).toBe(false);
+    expect(v.count).toBe(1);
+  });
+
+  it('compares ids as strings, so 64189 and "64189" agree', () => {
+    expect(summariseMemberships([{ membership_plan_id: '64189' }], 64189).holdsPlan).toBe(true);
+  });
+
+  it('reports field names without values', () => {
+    const v = summariseMemberships([{ membership_plan_id: 1, member_name: 'A Real Person' }], 1);
+    expect(v.fields).toContain('member_name');
+    expect(JSON.stringify(v)).not.toContain('A Real Person');
+  });
+
+  it('survives a non-array body', () => {
+    expect(summariseMemberships(null, 1).notAnArray).toBe(true);
+  });
+});
+
+describe('describeLeadTime', () => {
+  const NOW = '2026-08-18T07:00:00Z';
+
+  it('flags an event closer than the lead time', () => {
+    const v = describeLeadTime('2026-08-19T04:00:00Z', { now: NOW });
+    expect(v.withinLeadTime).toBe(true);
+    expect(v.hoursAhead).toBe(21);
+  });
+
+  it('allows an event comfortably ahead', () => {
+    const v = describeLeadTime('2026-08-25T04:00:00Z', { now: NOW });
+    expect(v.withinLeadTime).toBe(false);
+    expect(v.past).toBe(false);
+  });
+
+  it('tells a past event from one that is merely too close', () => {
+    const v = describeLeadTime('2026-08-17T04:00:00Z', { now: NOW });
+    expect(v.past).toBe(true);
+    expect(v.withinLeadTime).toBe(false);
+  });
+
+  it('respects an offset rather than assuming UTC', () => {
+    // Clubworx returns Perth-local timestamps with a +08:00 offset.
+    const v = describeLeadTime('2026-08-19T12:00:00.000+08:00', { now: NOW });
+    expect(v.hoursAhead).toBe(21);
+  });
+
+  it('reports an unreadable timestamp rather than guessing', () => {
+    expect(describeLeadTime('not a date', { now: NOW }).unreadable).toBe(true);
   });
 });
