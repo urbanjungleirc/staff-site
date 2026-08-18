@@ -81,7 +81,9 @@ import {
   describeDuplicateBooking,
   describeCancellation,
   pickBookableEvents,
+  errorMessageOf,
 } from './lib/report.mjs';
+import { redact } from './lib/request.mjs';
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 const OUT_DIR = path.join(HERE, 'out');
@@ -194,8 +196,15 @@ async function countBookings(get, contactKey) {
  * silent duplicate and an idempotent server return the same status code, and so
  * do a DELETE that worked and one that only said it did.
  */
-async function probeBooking(get, booker, { contactKey, eventId, label }) {
+async function probeBooking(get, booker, { contactKey, eventId, label, accountKey }) {
   rule(`${label} — event ${eventId}`);
+
+  // Why the server refused is the answer to question 2, and it exists nowhere
+  // else. Redacted on the way out like every other string this probe prints.
+  const reasonOf = sample => {
+    const message = errorMessageOf(sample?.body);
+    return message ? redact(message, accountKey) : null;
+  };
 
   const before = await countBookings(get, contactKey);
   line('bookings held before', `HTTP ${before.status} · ${before.ours}`);
@@ -212,6 +221,7 @@ async function probeBooking(get, booker, { contactKey, eventId, label }) {
         : `HTTP ${first.status ?? 'n/a'} ${firstClass.outcome}` +
           (first.bookingId ? ` · booking ${first.bookingId}` : '') +
           (first.error ? ` · ${first.error}` : '') +
+          (reasonOf(first) ? ` · "${reasonOf(first)}"` : '') +
           (first.bodyText ? ` · ${first.bodyText.slice(0, 160)}` : ''),
   );
   if (!first.dryRun) await sleep(GAP_MS);
@@ -235,6 +245,7 @@ async function probeBooking(get, booker, { contactKey, eventId, label }) {
         ? `REFUSED locally: ${second.refused}`
         : `HTTP ${second.status ?? 'n/a'} ${secondClass.outcome}` +
           (second.bookingId ? ` · booking ${second.bookingId}` : '') +
+          (reasonOf(second) ? ` · "${reasonOf(second)}"` : '') +
           (second.bodyText ? ` · ${second.bodyText.slice(0, 160)}` : ''),
     );
     await sleep(GAP_MS);
@@ -289,9 +300,13 @@ async function probeBooking(get, booker, { contactKey, eventId, label }) {
       bookingId: first.bookingId ?? null,
       refused: first.refused ?? null,
       error: first.error ?? null,
+      // The server's own words. Without this a rejection is just "HTTP 400",
+      // and question 2 has nothing to work from.
+      reason: reasonOf(first),
       bodyText: first.bodyText ?? null,
       fields: first.body && !Array.isArray(first.body) ? Object.keys(first.body) : [],
     },
+    secondReason: second ? reasonOf(second) : null,
     second: secondClass,
     counts: {
       before: before.ours,
@@ -466,6 +481,7 @@ async function main() {
       contactKey: subject.contact_key,
       eventId: EVENT_ID,
       label: '2. Paid event (Q1, Q3, Q4)',
+      accountKey,
     });
   }
 
@@ -478,6 +494,7 @@ async function main() {
       contactKey: subject.contact_key,
       eventId: FREE_EVENT_ID,
       label: '3. free_class event (Q2)',
+      accountKey,
     });
   } else if (FREE_EVENT_ID) {
     rule('3. free_class event (Q2) — SKIPPED');
@@ -505,6 +522,7 @@ async function main() {
 
     rule('Verdicts');
     line('Q1  membership-less prospect books', String(record.paid?.outcome?.outcome ?? 'not attempted'));
+    if (record.paid?.first?.reason) line('    the server said', `"${record.paid.first.reason}"`);
     line('Q2  what it requires', requirement.requirement ?? 'inconclusive');
     line('Q3  double-booking', record.paid?.duplicate?.summary ?? 'not asked');
     line('Q4  DELETE reverses it', record.paid?.reversal?.summary ?? 'not asked');
