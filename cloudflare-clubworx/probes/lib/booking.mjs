@@ -82,15 +82,20 @@ export function createBooker({ accountKey, allowedContactKeys = [], live = false
   const allowed = allowedContactKeys instanceof Set ? allowedContactKeys : new Set(allowedContactKeys);
 
   /**
-   * Booking ids this module is willing to DELETE.
+   * Booking ids this module is willing to DELETE, each mapped to the contact
+   * that holds it.
    *
    * Populated by `book` on success, and by `allowCancel` for bookings an
    * earlier run left behind. Nothing else can add to it, so `cancel` cannot be
    * pointed at a real customer's booking even by a runner bug.
+   *
+   * It is a map rather than a set because `DELETE /bookings/:id` **requires
+   * `contact_key`** as well as the id — see `cancel`. Keeping the contact
+   * beside the id means the caller cannot supply a mismatched one.
    */
-  const cancellable = new Set();
+  const cancellable = new Map();
 
-  const send = async ({ method, path, payload }) => {
+  const send = async ({ method, path, payload, form }) => {
     const url = buildUrl({ path, accountKey });
     const safeUrl = redact(url, accountKey);
     const started = performance.now();
@@ -101,8 +106,13 @@ export function createBooker({ accountKey, allowedContactKeys = [], live = false
         headers: {
           Accept: 'application/json',
           ...(payload ? { 'Content-Type': 'application/json' } : {}),
+          ...(form ? { 'Content-Type': 'application/x-www-form-urlencoded' } : {}),
         },
         ...(payload ? { body: JSON.stringify(payload) } : {}),
+        // The reference documents DELETE's parameters as a form-encoded body,
+        // not query string. Sending them the other way is how this probe first
+        // read a missing parameter as a permissions failure.
+        ...(form ? { body: new URLSearchParams(form).toString() } : {}),
       });
       const ms = Math.round(performance.now() - started);
       const bodyText = await res.text();
@@ -191,14 +201,23 @@ export function createBooker({ accountKey, allowedContactKeys = [], live = false
     const res = await send({ method: 'POST', path: 'bookings', payload });
 
     const id = bookingIdOf(res.body);
-    // Only a booking this run created may later be cancelled.
-    if (id) cancellable.add(String(id));
+    // Only a booking this run created may later be cancelled, and only for the
+    // contact it was created for.
+    if (id) cancellable.set(String(id), payload.contact_key);
 
     return { ...res, bookingId: id };
   };
 
   /**
    * Cancel a booking — but only one this module knows to be the probe's own.
+   *
+   * `DELETE /api/v2/bookings/:id` requires **`contact_key` as well as
+   * `account_key`**, and the reference puts both in a form-encoded body. Omit
+   * the contact and it answers `401 "Authorization failed"` — which reads
+   * exactly like a key without delete permission, and was misdiagnosed as one
+   * on the first #50 run. The contact is therefore taken from `cancellable`
+   * rather than from the caller: it cannot be forgotten, and it cannot be a
+   * different contact's.
    *
    * @param {string|number} bookingId
    */
@@ -217,10 +236,18 @@ export function createBooker({ accountKey, allowedContactKeys = [], live = false
       };
     }
 
-    if (!live) return inert({ method: 'DELETE', url: safeUrl, extra: { wouldCancel: id } });
+    const contact_key = cancellable.get(id);
+
+    if (!live) {
+      return inert({ method: 'DELETE', url: safeUrl, extra: { wouldCancel: id, wouldSend: { contact_key } } });
+    }
 
     cancel.writes += 1;
-    const res = await send({ method: 'DELETE', path: `bookings/${id}` });
+    const res = await send({
+      method: 'DELETE',
+      path: `bookings/${id}`,
+      form: { account_key: accountKey, contact_key },
+    });
     return { ...res, bookingId: id };
   };
 
@@ -242,7 +269,7 @@ export function createBooker({ accountKey, allowedContactKeys = [], live = false
         `refusing to vouch for booking ${bookingId}: ${contactKey} is not a recognised probe contact`,
       );
     }
-    cancellable.add(String(bookingId));
+    cancellable.set(String(bookingId), contactKey);
     return bookingId;
   };
 

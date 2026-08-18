@@ -11,13 +11,14 @@
  * ⚠️ `--write` puts a real booking on a real class that staff can see, and
  * consumes one of its spaces.
  *
- * **It cannot take it back.** This probe set out assuming it could — ACCESS.md
- * recorded bookings as the one reversible write on this map, because
- * `DELETE /bookings/:id` is in the reference. Question 4 measured it on
- * 2026-08-18: **HTTP 401 "Authorization failed"**, from the same key that reads
- * at 200 and reaches business validation on POST. So a booking is as permanent
- * as a contact, and the run prints anything it could not undo — which is
- * everything it creates.
+ * **Do not count on taking it back.** `DELETE /bookings/:id` is in the
+ * reference, but #50 never demonstrated it working. What it did establish is
+ * that the endpoint needs **`contact_key` as well as `account_key`**,
+ * form-encoded in the body: without it the answer is `401 "Authorization
+ * failed"`, which is indistinguishable from a key that may not delete — and was
+ * misread as exactly that. `cancel` now sends both, taking the contact from the
+ * booking record so it cannot be forgotten, but nothing has re-run it against a
+ * live booking. Treat every booking as permanent until that changes.
  *
  * **The event is never chosen automatically.** `--event` is required for a
  * write, because picking one by algorithm means a booking lands on whichever
@@ -446,9 +447,9 @@ function printDryRun() {
     `\n${n} requests, paced at one per ${GAP_MS}ms (~${Math.round(60_000 / GAP_MS)}/min), per #51.`,
   );
   console.log(
-    '⚠️  A booking this run creates CANNOT be undone. It attempts a cancel, but\n' +
-      '    DELETE /bookings/:id answers 401 for this key (#50, measured) — so every\n' +
-      '    booking below is permanent until somebody clears it in the Clubworx UI.\n' +
+    '⚠️  Treat a booking this run creates as permanent. It attempts a cancel, but\n' +
+      '    DELETE /bookings/:id has never been demonstrated to work here (#50) — so\n' +
+      '    assume anything booked below is cleared by hand in the Clubworx UI.\n' +
       'Contacts are reused from #49 and never created — ACCESS.md §4, the\n' +
       'three-contact authorisation is spent.',
   );

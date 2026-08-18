@@ -158,15 +158,15 @@ be deleted through the API.** Prospects, members and non-attending contacts
 expose list / show / create / update only. So each write probe leaves a
 **permanent** contact in production, removable only by hand in the Clubworx UI.
 
-**Nothing this key writes can be removed through the API — bookings included.**
-This paragraph previously named bookings as the exception, because
-`DELETE /api/v2/bookings/:id` is in the reference. #50 measured it on
-2026-08-18 and the endpoint answers **HTTP 401 "Authorization failed"** — with
-the same key, in the same run, that `GET`s a contact's bookings at 200 and
-reaches business-level validation on `POST /bookings`. So the key authenticates
-and is permitted to read and create, and is refused only on delete. Whether
-that is a per-key scope or a property of the API is unknown; either way there
-is no undo. See `probes/50-membership-less-booking.md`.
+Bookings are documented as the exception — `DELETE /api/v2/bookings/:id` — but
+that has **still not been demonstrated**, and one thing about it is now known
+the hard way: **`DELETE` requires `contact_key` as well as `account_key`, in a
+form-encoded body.** Omit the contact and it answers `HTTP 401 "Authorization
+failed"`, which is indistinguishable from a key that lacks delete permission.
+#50 sent it without the contact on 2026-08-18 and read the 401 as exactly that,
+briefly recording here that bookings could not be deleted at all. They may well
+be deletable; nobody has yet completed the call correctly against a live
+booking. See `probes/50-membership-less-booking.md`.
 
 **Rate limits are undocumented but no longer unknown.** Nothing in the reference
 describes throttling, retry-after, or a burst ceiling. Probe #51 has since
@@ -210,12 +210,12 @@ and this repo is public.
 - It does **not** make them disposable. Contacts cannot be deleted through the
   API, so every probe contact is permanent and removable only by hand in the
   Clubworx UI. Reuse the one identity; do not improvise new ones per run.
-- Bookings are **not** reversible either, contrary to what this section said
-  before #50 ran. `DELETE /api/v2/bookings/:id` answers HTTP 401 "Authorization
-  failed" for this key, which reads and creates without complaint. A booking a
-  probe or a tool creates is removable only by hand in the Clubworx UI, exactly
-  like a contact — so "it can be undone" must not be relied on when deciding
-  what a write probe may attempt.
+- Bookings are documented as reversible (`DELETE /api/v2/bookings/:id`), but
+  **treat that as unproven** until someone demonstrates it. The call needs
+  `contact_key` in a form-encoded body as well as `account_key`; without it the
+  answer is `401 "Authorization failed"`, which looks exactly like a missing
+  permission. Plan a write probe as though its bookings are permanent, and be
+  glad if they are not.
 - Probes are **#49 and #50's** work. #47 provisions access and stops there; it
   ran only a read-only `GET /locations` to prove the key authenticates.
 
@@ -258,7 +258,7 @@ verified to make zero writes. Any new write probe must do the same.
 |---|---|
 | No sandbox exists | All probing is against production; unavoidable, not a choice |
 | Contacts cannot be deleted via API | Every write probe leaves a permanent record |
-| **Bookings cannot be deleted either** (#50) | `DELETE /bookings/:id` is 401 "Authorization failed" on a key that reads and creates. Measured 2026-08-18, not inferred. Nothing written through this key has an undo, so a mistaken bulk booking is cleared by hand or not at all |
+| `DELETE /bookings/:id` needs **`contact_key`**, form-encoded in the body (#50) | Without it: `401 "Authorization failed"` — identical to a permissions failure, and misread as one. Whether the complete call succeeds is still undemonstrated, so booking reversibility remains a documented claim rather than a measured one |
 | Clubworx issues **one key per gym**, confirmed | Attribution by key is impossible; the `noreply+<school>@` marker is the only provenance signal. One key's leak or rotation hits every integration |
 | Rate limits undocumented **and unadvertised** | Confirmed live, and confirmed again *while being throttled* (#51): no `Retry-After` or `X-RateLimit-*` headers come back at any point. A client cannot self-throttle from response metadata or see a ceiling approaching — only hit it |
 | The ceiling is **tight**: ~50 fast requests, then ~18s of 429 (#51) | 75 req/min ran clean; 120 did not. Every caller must pace, and the allowance is shared across the whole gym key, so this tool can throttle HVT and vice versa |

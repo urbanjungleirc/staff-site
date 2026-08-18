@@ -181,14 +181,32 @@ describe('createBooker.cancel', () => {
     expect(calls[1].url).toContain('bookings/bk-1');
   });
 
-  it('sends no body on DELETE', async () => {
+  it('sends contact_key in a form-encoded body, which DELETE requires', async () => {
+    // Omitting it answers 401 "Authorization failed" — indistinguishable from a
+    // key with no delete permission, and misdiagnosed as exactly that on the
+    // first #50 run against production.
     const calls = [];
     const { book, cancel } = booker(calls, { live: true });
 
     const created = await book({ contact_key: OURS, event_id: EVENT });
     await cancel(created.bookingId);
 
-    expect(calls[1].init.body).toBeUndefined();
+    const sent = new URLSearchParams(calls[1].init.body);
+    expect(sent.get('contact_key')).toBe(OURS);
+    expect(sent.get('account_key')).toBe(key);
+    expect(calls[1].init.headers['Content-Type']).toBe('application/x-www-form-urlencoded');
+  });
+
+  it('takes the contact from the booking, so it cannot be forgotten or mismatched', async () => {
+    // The caller passes only an id. There is no parameter through which a
+    // different contact's key could be supplied.
+    const calls = [];
+    const { allowCancel, cancel } = booker(calls, { live: true });
+
+    allowCancel('bk-7', OURS);
+    await cancel('bk-7');
+
+    expect(new URLSearchParams(calls[0].init.body).get('contact_key')).toBe(OURS);
   });
 
   it('does not touch the network on a dry run, even for a booking it created', async () => {
