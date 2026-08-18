@@ -9,10 +9,15 @@
  *   node probes/run-50.mjs --dev-vars=<path>
  *
  * ⚠️ `--write` puts a real booking on a real class that staff can see, and
- * consumes one of its spaces until the run cancels it again. Unlike #49's
- * contacts this **is** reversible (`DELETE /bookings/:id`, ACCESS.md section 4)
- * — that reversibility is question 4, so the run proves it rather than assuming
- * it, and prints anything it could not undo.
+ * consumes one of its spaces.
+ *
+ * **It cannot take it back.** This probe set out assuming it could — ACCESS.md
+ * recorded bookings as the one reversible write on this map, because
+ * `DELETE /bookings/:id` is in the reference. Question 4 measured it on
+ * 2026-08-18: **HTTP 401 "Authorization failed"**, from the same key that reads
+ * at 200 and reaches business validation on POST. So a booking is as permanent
+ * as a contact, and the run prints anything it could not undo — which is
+ * everything it creates.
  *
  * **The event is never chosen automatically.** `--event` is required for a
  * write, because picking one by algorithm means a booking lands on whichever
@@ -95,6 +100,7 @@ const DRY_RUN = args.includes('--dry-run');
 const WRITE = args.includes('--write');
 const EVENT_ID = flag('event') ?? null;
 const FREE_EVENT_ID = flag('free-event') ?? null;
+const CANCEL_ID = flag('cancel') ?? null;
 const DEV_VARS = flag('dev-vars') || path.join(HERE, '..', '.dev.vars');
 
 /** The two plus-tags #49 created, derived rather than restated. */
@@ -180,6 +186,81 @@ async function listEvents(get) {
   }
 
   return { summary, bookable, status: res.status };
+}
+
+/**
+ * Cancel a booking that already exists on a probe contact.
+ *
+ * The cleanup path, and the one place `allowCancel` is used. A booking made by
+ * hand in the Clubworx UI is not one this process created, so `cancel` will not
+ * touch it until it has been **found on a probe contact** — which is why this
+ * searches for it rather than taking the id on trust. An id alone would let any
+ * booking through, including a real member's.
+ *
+ * It also answers question 4 without creating anything, when the UI has already
+ * left a booking behind.
+ */
+async function cancelExisting(get, booker, { contacts, bookingId, accountKey }) {
+  rule(`Cancel booking ${bookingId} (Q4)`);
+
+  const reasonOf = sample => {
+    const message = errorMessageOf(sample?.body);
+    return message ? redact(message, accountKey) : null;
+  };
+
+  for (const contact of contacts) {
+    const held = await countBookings(get, contact.contact_key);
+    const found = held.ids.includes(String(bookingId));
+    line(
+      `${contact.last_name} holds`,
+      `${held.ours} booking(s)${found ? ' — including this one' : ''}`,
+    );
+    await sleep(GAP_MS);
+
+    if (!found) continue;
+
+    // Vouched for only now that it has been seen on a contact that passed the
+    // identity guard. This is the whole reason allowCancel takes a contact key.
+    booker.allowCancel(bookingId, contact.contact_key);
+
+    const res = await booker.cancel(bookingId);
+    line(
+      'DELETE',
+      res.refused
+        ? `REFUSED locally: ${res.refused}`
+        : res.dryRun
+          ? 'would DELETE — pass --write to do it'
+          : `HTTP ${res.status ?? 'n/a'}${res.error ? ` · ${res.error}` : ''}` +
+            (reasonOf(res) ? ` · "${reasonOf(res)}"` : '') +
+            (res.bodyText ? ` · ${res.bodyText.slice(0, 200)}` : ''),
+    );
+    if (!res.dryRun) await sleep(GAP_MS);
+
+    const after = await countBookings(get, contact.contact_key);
+    line('bookings held after', `HTTP ${after.status} · ${after.ours}`);
+
+    // Judged on the re-count, never on the status: a 2xx that removed nothing
+    // is a failure, and #46 plans to rely on this to undo a mistaken bulk
+    // booking.
+    const reversal = describeCancellation({
+      cancel: res,
+      countBefore: held.ours,
+      countAfter: after.ours,
+    });
+
+    rule('Verdict');
+    line('Q4  DELETE reverses a booking', String(reversal.reversed));
+    console.log(`  ${reversal.summary}`);
+
+    return { bookingId, contact_key: contact.contact_key, reversal, status: res.status ?? null, reason: reasonOf(res), bodyText: res.bodyText ?? null, counts: { before: held.ours, after: after.ours } };
+  }
+
+  console.log(
+    `\n  Booking ${bookingId} is not held by any probe contact, so it will not be\n` +
+      '  cancelled. Cancelling a real member\'s class is the worst outcome available\n' +
+      '  on this map, and an id alone is not evidence of whose booking it is.',
+  );
+  return { bookingId, contact_key: null, reversal: null, refused: 'not held by a probe contact' };
 }
 
 /** Bookings currently held by a probe contact — the before/after count. */
@@ -365,8 +446,11 @@ function printDryRun() {
     `\n${n} requests, paced at one per ${GAP_MS}ms (~${Math.round(60_000 / GAP_MS)}/min), per #51.`,
   );
   console.log(
-    'Every booking this run creates, it also cancels. Contacts are reused from\n' +
-      '#49 and never created — ACCESS.md §4, the three-contact authorisation is spent.',
+    '⚠️  A booking this run creates CANNOT be undone. It attempts a cancel, but\n' +
+      '    DELETE /bookings/:id answers 401 for this key (#50, measured) — so every\n' +
+      '    booking below is permanent until somebody clears it in the Clubworx UI.\n' +
+      'Contacts are reused from #49 and never created — ACCESS.md §4, the\n' +
+      'three-contact authorisation is spent.',
   );
 }
 
@@ -401,6 +485,30 @@ async function main() {
         '  there, and ask before creating anything.',
     );
     process.exitCode = 1;
+    return;
+  }
+
+  // The cleanup path. It needs no event list, so it runs before one is fetched.
+  if (CANCEL_ID) {
+    const booker = createBooker({
+      accountKey,
+      allowedContactKeys: contacts.map(c => c.contact_key),
+      live: WRITE,
+    });
+
+    record.cancelled = await cancelExisting(get, booker, {
+      contacts,
+      bookingId: CANCEL_ID,
+      accountKey,
+    });
+    if (!WRITE) console.log('\n  Read-only run — nothing was cancelled. Re-run with --write.');
+
+    mkdirSync(OUT_DIR, { recursive: true });
+    const outFile = path.join(OUT_DIR, `50-cancel-${record.ranAt.replace(/[:.]/g, '-')}.json`);
+    writeFileSync(outFile, JSON.stringify(record, null, 2));
+    console.log(
+      `\n${get.calls} reads, ${booker.cancel.writes} writes. Summary written to probes/out/${path.basename(outFile)}`,
+    );
     return;
   }
 

@@ -603,6 +603,20 @@ describe('describeCancellation', () => {
     expect(describeCancellation({ cancel: { refused: 'nope' } }).summary).toMatch(/refused locally/);
     expect(describeCancellation({}).summary).toMatch(/no cancellation was attempted/);
   });
+
+  it('does not report a dry run as a rejected DELETE', () => {
+    // Observed: a --cancel read-only run printed "DELETE was rejected — the
+    // booking remains and must be removed by hand", inventing a failure out of
+    // a request nobody sent.
+    const v = describeCancellation({
+      cancel: { dryRun: true, status: null },
+      countBefore: 1,
+      countAfter: 1,
+    });
+    expect(v.reversed).toBeNull();
+    expect(v.inconclusive).toBe(true);
+    expect(v.summary).not.toMatch(/rejected|by hand/);
+  });
 });
 
 describe('pickBookableEvents', () => {

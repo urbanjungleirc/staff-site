@@ -547,6 +547,13 @@ export function describeCancellation({ cancel = null, countBefore = null, countA
     };
   }
 
+  // A dry run is not a rejection. Without this it falls through to the final
+  // branch and reports "DELETE was rejected — the booking must be removed by
+  // hand", which invents a failure out of a request nobody sent.
+  if (cancel.dryRun) {
+    return { reversed: null, inconclusive: true, summary: 'dry run — no DELETE was sent' };
+  }
+
   const accepted = typeof cancel.status === 'number' && cancel.status >= 200 && cancel.status < 300;
 
   if (typeof countBefore !== 'number' || typeof countAfter !== 'number') {

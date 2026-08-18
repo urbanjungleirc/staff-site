@@ -1,14 +1,25 @@
 # Booking a membership-less prospect — the answer to #50
 
 Probed against production Clubworx on **2026-08-18**, into a purpose-made test
-event (`20481679`, "test school booking") created for this probe. Nothing
-permanent was created: two booking attempts, both refused by the server.
+event (`20481679`, "test school booking") created for this probe. **The probe
+created nothing**: two booking attempts, both refused by the server, and one
+`DELETE`, also refused.
+
+One booking does exist — `63499414`, made by hand in the Clubworx UI while
+diagnosing why the API refused. It is still there, because the API cannot remove
+it. See [Cleanup](#-cleanup--delete-these-by-hand).
 
 **The prospect route does not work, and #46's central assumption fails.** The
 feature was designed on the premise that a freshly created prospect can be
 booked into an event. It cannot — not because of anything in the documented
 API, but because Clubworx applies a **per-contact safety rule to prospects**
 that the API neither documents nor reports honestly.
+
+**And nothing written through this key can be taken back.** `DELETE
+/api/v2/bookings/:id` — which ACCESS.md recorded as the one reversible write on
+this map — answers **401 "Authorization failed"** for a key that reads and
+creates without complaint. So a mistaken booking is as permanent as a mistaken
+contact.
 
 This is the branch #50 asked to be flagged rather than absorbed. It is flagged
 in [What this costs #46](#what-this-costs-46).
@@ -51,18 +62,44 @@ counting *how many events this prospect has been booked into*, applied per
 contact rather than per event. The UI offers a human an override. **The API
 offers none**, and reports the refusal as a spaces problem.
 
-That last part is the trap: the API's stated reason is wrong. Anyone debugging
-this from the API alone would go looking at event capacity, which is fine.
+That last part is the trap. The API's stated reason is not merely vague, it
+points somewhere else: anyone debugging this from the API alone would go looking
+at event capacity, which is not where the problem is, and which the API itself
+reports as healthy.
 
 ### 3. Does booking the same contact twice duplicate? — **Unasked**
 
 Nothing landed, so there was no first booking to duplicate. Asking it after a
 rejection would have measured two rejections and called it idempotency.
 
-### 4. Does `DELETE /bookings/:id` reverse a booking? — **Unasked**
+### 4. Does `DELETE /bookings/:id` reverse a booking? — **No. It is refused.**
 
-Same reason: the probe created nothing to cancel. This is now answerable at zero
-cost against booking `63499414` — see [Cleanup](#cleanup).
+The probe created nothing to cancel, but the UI attempt left booking
+`63499414` on `Ztest Wayfinder`, which answered the question at no cost:
+
+```
+DELETE /api/v2/bookings/63499414   →   HTTP 401   "Authorization failed"
+```
+
+The booking was still there afterwards — verified by re-counting, not assumed
+from the status.
+
+**This is not a bad key.** In the same run, with the same key and the same
+`account_key` query parameter, `GET /bookings?contact_key=` answered **200**,
+and in the runs above `POST /bookings` reached **business-level validation**
+(a 400 about spaces, not an auth error). So the key authenticates, and is
+permitted to read and to create. It is refused **only on delete**.
+
+Whether that is a per-key permission scope or a property of the API, this probe
+cannot say. The consequence is the same either way.
+
+**ACCESS.md said the opposite, and has been corrected.** It recorded bookings as
+"the exception — `DELETE /api/v2/bookings/:id` exists, so the booking half of
+probe #50 is reversible". That came from the endpoint being in the reference,
+not from anyone calling it. It is now measured.
+
+So **nothing this key writes can be removed through the API.** Bookings sit
+beside contacts: permanent, and clearable only by hand in the Clubworx UI.
 
 ## `spaces_available` cannot be trusted
 
@@ -114,8 +151,16 @@ tool creates, and it needs answers on:
 - **Plan choice** — which plan, with what duration and what it entitles.
 - **Clubworx reporting** — a cohort of members created per school changes member
   counts, retention and revenue reporting in ways prospects did not.
-- **Cleanup** — memberships may be as permanent as contacts. Nothing here has
-  established that they can be removed through the API.
+- **Cleanup** — memberships are very likely as permanent as everything else.
+  Every write this key has been shown to make is irreversible through the API,
+  and there is no reason to expect memberships to differ. Assume they cannot be
+  removed until measured.
+
+The no-undo finding raises the cost of getting this wrong. A tool that books a
+school group of 30 into the wrong session cannot retract it: someone clears 30
+bookings by hand in the Clubworx UI. That argues for the tool checking existing
+bookings before writing, and for a confirmation step that shows exactly what is
+about to be created — which is only possible if question 3 is answered first.
 
 Until those are settled, #52–#55 are designing against an approach this probe
 has shown does not work.
@@ -133,17 +178,28 @@ has shown does not work.
   bookings count against it, were not measured.
 - **Whether the member-with-membership route works** has not been probed at all.
   It is a proposal, not a finding.
-- **Questions 3 and 4** — duplicate bookings and `DELETE` — remain open.
+- **Question 3 — duplicate bookings — remains open**, and matters more now than
+  when it was written. It was a tidiness question while `DELETE` was believed to
+  work; with no undo, a tool that double-books has no way to correct itself. It
+  needs answering before anything books in bulk.
+- **Why `DELETE` is refused** — a per-key permission scope, or an API-wide rule —
+  was not established. Only that it is refused.
 
 ## How it was run
 
 ```bash
 node probes/run-50.mjs --dry-run                    # the plan, zero requests
 node probes/run-50.mjs                              # read-only: contacts, then bookable events
-node probes/run-50.mjs --event=20481679 --write     # the two attempts above
+node probes/run-50.mjs --event=20481679 --write     # the two booking attempts above
+node probes/run-50.mjs --cancel=63499414 --write    # question 4
 ```
 
-10 requests across both runs, paced at one per 800ms (~75/min) per #51. The
+`--cancel` searches for the booking on a probe contact **before** it will touch
+it, which is why it takes a booking id and still goes looking. An id on its own
+is not evidence of whose booking it is, and this is the one operation on the map
+that could take a real member off a class they turn up to.
+
+14 requests across all runs, paced at one per 800ms (~75/min) per #51. The
 probe creates **no contacts** — ACCESS.md §4's three-contact authorisation is
 spent, and #50 reuses what #49 left behind; the runner stops rather than
 creating a fourth.
@@ -158,14 +214,15 @@ gated on an allowlist of contact keys that passed the identity guard, and
 for — cancelling a real member's class is the worst outcome available on this
 map, and it is guarded harder than creating one.
 
-## Cleanup
+## ⚠️ Cleanup — delete these by hand
 
-Booking **`63499414`** exists on `Ztest Wayfinder`
+Booking **`63499414`** is still on `Ztest Wayfinder`
 (`e35218ef-4e96-4928-a05f-1c14f56e574f`), on test event `20481679`. It was made
-by hand in the UI, not by this probe.
-
-It is **reversible** — unlike a contact — and cancelling it would answer
-question 4 at no cost. Left in place pending that decision.
+by hand in the UI, not by this probe, and the API **cannot remove it** — that is
+question 4's answer. It must be cancelled in the Clubworx UI.
 
 The three `Ztest` contacts from [#49](49-plus-addressed-duplicates.md) remain
-permanent and are still owed a manual deletion in the Clubworx UI.
+permanent and are still owed a manual deletion there too.
+
+Test event `20481679` ("test school booking", 2026-08-19 12:00) was created for
+this probe and can go once the booking is off it.

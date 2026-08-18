@@ -11,8 +11,8 @@ only way to learn how it behaves is to ask it, carefully, in production.
 | `run-51.mjs` | The probe that produced it — read-only |
 | `49-plus-addressed-duplicates.md` | [#49](https://github.com/urbanjungleirc/staff-site/issues/49) — plus-addressed `noreply@`, duplicate emails, and whether a tag isolates a school |
 | `run-49.mjs` | The probe that produced it — **writes** |
-| `50-membership-less-booking.md` | [#50](https://github.com/urbanjungleirc/staff-site/issues/50) — **no**, a prospect cannot be booked: Clubworx applies a per-contact allowance the API cannot pass, and `spaces_available` does not predict it |
-| `run-50.mjs` | The probe that produced it — **writes, and deletes** |
+| `50-membership-less-booking.md` | [#50](https://github.com/urbanjungleirc/staff-site/issues/50) — **no**, a prospect cannot be booked: Clubworx applies a per-contact allowance the API cannot pass, `spaces_available` does not predict it, and **`DELETE` is refused, so no write here has an undo** |
+| `run-50.mjs` | The probe that produced it — **writes** |
 
 Access, authorisation and the key's whereabouts: `../ACCESS.md`.
 
@@ -36,8 +36,9 @@ node probes/run-49.mjs --write       # ⚠️ creates up to 3 PERMANENT contacts
 
 node probes/run-50.mjs --dry-run     # the plan and every request, zero network
 node probes/run-50.mjs               # read-only: finds #49's contacts, lists bookable events
-node probes/run-50.mjs --event=<id> --write         # ⚠️ books a real class, then cancels it
+node probes/run-50.mjs --event=<id> --write         # ⚠️ books a real class — and CANNOT undo it
 node probes/run-50.mjs --event=<id> --free-event=<id> --write
+node probes/run-50.mjs --cancel=<booking_id> --write # tries to remove a probe contact's booking
 
 npm test                             # the pure logic, no network
 ```
@@ -82,8 +83,13 @@ Every one of them is a consequence of *production, public repo, no sandbox*.
 - **`DELETE` is guarded harder than `POST`, because it is the worse mistake.**
   `lib/booking.mjs` refuses any booking id it did not create itself or have
   explicitly vouched for against a probe contact — there is no way to hand it an
-  arbitrary id. A mistaken booking is untidy and reversible; cancelling a real
-  member's class takes somebody off a session they turn up to.
+  arbitrary id. Cancelling a real member's class takes somebody off a session
+  they turn up to.
+- **Nothing written here can be undone.** #50 measured `DELETE /bookings/:id` at
+  **401 "Authorization failed"** on a key that reads at 200 and creates without
+  complaint. Bookings were previously believed to be the one reversible write on
+  this map; they are not. Plan every write as permanent, and assume the same of
+  any endpoint nobody has actually called.
 - **Two controls in front of every write**, because Clubworx **cannot delete
   contacts through the API** and there is no sandbox. `createPoster` is inert
   unless `live` is explicitly true, so a forgotten flag costs nothing; and every
