@@ -301,3 +301,51 @@ appears in `/prospects` **only**, and moves when their status changes.
 
 So a lookup searches all three and merges. Which one holds a given student is a
 fact about their membership today, not about how they were created.
+
+## Clubworx school booking
+
+Terms for the route a student takes into a session. Decided 2026-08-18, after
+#50 showed the original prospect route does not work.
+
+### School Session
+
+The Clubworx **event type** for a school group's session. It accepts only
+contacts holding an active [School Pass](#school-pass), its capacity is set for
+the group, and it requires booking **at least one day ahead** — a deliberate
+guard against somebody booking themselves in on the day.
+
+*Avoid*: "school booking" as the event type's name. "Booking" already means the
+API object, the staff action, and the thing a School Pass grants; a fourth
+meaning is one too many.
+
+### School Pass
+
+The **membership plan** every imported student is given, valid **12 weeks** —
+long enough to cover a UJ [term](#uj-term-week) including its snapped edges. It
+is what makes a student bookable: a School Session admits pass-holders and
+nobody else.
+
+Deliberately a different noun from School Session. A *session* happens on a
+date; a *pass* is held by a person. The pair was otherwise easy to confuse in a
+dropdown or a sentence.
+
+The plan name is **never** renamed per student. Reporting aggregates by plan, so
+per-student names would fragment member counts and revenue; the school is
+already recorded by the [school marker](#school-marker) and the term is implied
+by the membership's `start_date`. The duration stays out of the name because
+`GET /membership_plans` exposes `membership_duration` already.
+
+### Prospect allowance
+
+Clubworx's per-**contact** limit on how many events a prospect may be booked
+into. It is the reason the prospect route failed: the limit is reached
+immediately for a returning student, the override exists **only in the Clubworx
+UI**, and the API reports hitting it as *"this class has no free spaces
+available"* — pointing at event capacity, which the same API reports as healthy.
+
+Not exposed by any endpoint. Measured in
+`cloudflare-clubworx/probes/50-membership-less-booking.md`.
+
+*Avoid*: reading a "no free spaces" refusal as a capacity problem without
+checking `spaces_available` first. The two are indistinguishable from the
+message alone.
