@@ -298,3 +298,487 @@ export function describeIsolation({
     returnedCount: returned.length,
   };
 }
+
+/**
+ * Reduce a bookings response to something publishable.
+ *
+ * `GET /bookings?contact_key=` is scoped to one contact, so unlike the contact
+ * searches this is not sifting a 60,000-person database — but the rule from
+ * `summariseContacts` holds anyway. The endpoint is not *guaranteed* to scope:
+ * staff-site#51 found `/events` ignoring `contact_key` outright while the
+ * reference called it required, so a row that arrives for somebody else is
+ * counted and dropped rather than trusted and printed.
+ *
+ * @param {unknown} body
+ * @param {string[]} [ourKeys] Contact keys belonging to probe contacts.
+ */
+export function summariseBookings(body, ourKeys = []) {
+  if (!Array.isArray(body)) {
+    return { count: 0, fields: [], ids: [], ours: 0, strangers: 0, notAnArray: true };
+  }
+
+  const known = new Set(ourKeys);
+  const fields = new Set();
+  const ids = [];
+  let ours = 0;
+  let strangers = 0;
+
+  for (const row of body) {
+    for (const key of Object.keys(row ?? {})) fields.add(key);
+
+    // A row with no contact_key at all came back from a query that was already
+    // scoped to one contact, so it counts as ours. Calling it a stranger would
+    // make the before/after counts that answer questions 3 and 4 unreadable.
+    const key = row?.contact_key;
+    if (key === undefined || known.has(key)) {
+      ours += 1;
+      const id = row?.booking_id ?? row?.id;
+      if (id !== undefined && id !== null) ids.push(String(id));
+    } else {
+      strangers += 1;
+    }
+  }
+
+  return {
+    count: body.length,
+    fields: [...fields],
+    ids: ids.sort(),
+    ours,
+    strangers,
+    notAnArray: false,
+  };
+}
+
+/**
+ * The error message out of a rejected write.
+ *
+ * A deliberate, bounded exception to *never record a row of production data*.
+ * The rule exists because probe responses are drawn from a 60,000-person
+ * database — but this reads the server's complaint about **the probe's own
+ * request**, which is the only place the reason for a rejection is written
+ * down. Discarding it leaves staff-site#50 with "HTTP 400" and no answer to
+ * what a booking actually requires, which is the question the ticket is for.
+ *
+ * Bounded three ways: only the `error`-shaped fields are read, never the whole
+ * body; the result is truncated; and the caller redacts before it is printed or
+ * written.
+ *
+ * @param {unknown} body
+ * @param {{limit?: number}} [opts]
+ * @returns {string|null}
+ */
+export function errorMessageOf(body, { limit = 300 } = {}) {
+  if (body === null || typeof body !== 'object') return null;
+
+  const raw = body.error ?? body.errors ?? body.message ?? null;
+  if (raw === null || raw === undefined) return null;
+
+  // Rails-shaped APIs answer with either a string, a list, or field → messages.
+  const text = Array.isArray(raw)
+    ? raw.map(String).join('; ')
+    : typeof raw === 'object'
+      ? Object.entries(raw)
+          .map(([field, messages]) => `${field}: ${[].concat(messages).map(String).join(', ')}`)
+          .join('; ')
+      : String(raw);
+
+  const trimmed = text.trim();
+  if (!trimmed) return null;
+  return trimmed.length > limit ? `${trimmed.slice(0, limit)}…` : trimmed;
+}
+
+/**
+ * Question 2: what does a booking actually require?
+ *
+ * staff-site#50 asks this only if question 1 fails, and names the candidate
+ * discriminator itself: `GET /events` returns a `free_class` boolean. Comparing
+ * one event against another is what separates "a membership-less contact cannot
+ * book at all" from "it can book, but only into certain events" — and those two
+ * answers change #46's tool in very different ways.
+ *
+ * `free_class` is a *candidate* discriminator, not a confirmed one. UJ's school
+ * sessions are configured with a limited number of prospect places, which is the
+ * mechanism staff actually rely on, and `GET /events` does not return it at all
+ * (verified 2026-08-18). So `paid` and `free` here are really "the event asked
+ * about" and "an event configured differently" — the names follow the ticket's
+ * wording rather than a proven mechanism, and a caller must record *which
+ * events* were compared, not just the verdict.
+ *
+ * One attempt cannot answer it, so an unattempted half is `null` rather than a
+ * guess. The ticket asks for a failure here to be flagged loudly, which the
+ * caller can only do if it can tell "no" from "not asked".
+ *
+ * @param {{paid?: object|null, free?: object|null}} outcomes Results of classifyWrite.
+ */
+export function describeBookingRequirement({ paid = null, free = null }) {
+  const ok = sample => sample?.outcome === 'created';
+  const rejected = sample => sample?.outcome === 'rejected';
+
+  if (ok(paid)) {
+    return {
+      requirement: 'none',
+      entitlementNeeded: false,
+      freeClassOnly: false,
+      inconclusive: false,
+      summary: 'a membership-less prospect can be booked into an ordinary paid event',
+    };
+  }
+
+  if (rejected(paid) && ok(free)) {
+    return {
+      requirement: 'free_class',
+      entitlementNeeded: false,
+      freeClassOnly: true,
+      inconclusive: false,
+      summary:
+        'a membership-less prospect can only be booked into an event flagged free_class — ' +
+        'the picker must filter on it',
+    };
+  }
+
+  if (rejected(paid) && rejected(free)) {
+    return {
+      requirement: 'entitlement',
+      entitlementNeeded: true,
+      freeClassOnly: false,
+      inconclusive: false,
+      summary:
+        'a membership-less prospect cannot be booked at all — a membership or plan is required, ' +
+        'which changes the shape of the tool',
+    };
+  }
+
+  // Everything else — a timeout, a 500, or a comparison never run — is not an
+  // answer. Reporting it as one would send someone to re-decide a design over a
+  // dropped packet, which is the trap `schemeCollapses` exists to avoid.
+  return {
+    requirement: null,
+    entitlementNeeded: null,
+    freeClassOnly: null,
+    inconclusive: true,
+    summary:
+      paid === null
+        ? 'no booking was attempted'
+        : 'the attempt did not complete conclusively — re-run before concluding anything',
+  };
+}
+
+/**
+ * Question 3: is booking the same contact into the same event twice idempotent?
+ *
+ * The safety model of #46's tool assumes re-running it against an event cannot
+ * double-book a student. Two outcomes are safe and one is not, and they are
+ * told apart by what the server *did*, not by what it said:
+ *
+ *   - a rejection is safe and explicit;
+ *   - a success that produced no second booking is safe and idempotent;
+ *   - a success that produced a second booking is the dangerous one, and it is
+ *     invisible unless the bookings are counted before and after.
+ *
+ * @param {{second?: object|null, countBefore?: number|null, countAfter?: number|null}} opts
+ */
+export function describeDuplicateBooking({ second = null, countBefore = null, countAfter = null }) {
+  if (second?.outcome === 'rejected') {
+    return {
+      duplicated: false,
+      idempotent: true,
+      rejected: true,
+      inconclusive: false,
+      summary: 'the second booking was rejected — re-running the tool cannot double-book',
+    };
+  }
+
+  if (second?.outcome !== 'created') {
+    return {
+      duplicated: null,
+      idempotent: null,
+      rejected: false,
+      inconclusive: true,
+      summary: 'the second attempt did not complete — it says nothing about idempotency',
+    };
+  }
+
+  if (typeof countBefore !== 'number' || typeof countAfter !== 'number') {
+    // Accepted, but nobody counted. This is exactly the case that must not be
+    // reported as safe: from the response alone, a silent second booking looks
+    // identical to an idempotent one.
+    return {
+      duplicated: null,
+      idempotent: null,
+      rejected: false,
+      inconclusive: true,
+      summary: 'the second booking was accepted but the bookings were not counted — unproven',
+    };
+  }
+
+  const duplicated = countAfter > countBefore;
+  return {
+    duplicated,
+    idempotent: !duplicated,
+    rejected: false,
+    inconclusive: false,
+    summary: duplicated
+      ? `the second booking was accepted AND created another (${countBefore} → ${countAfter}) — ` +
+        're-running the tool double-books'
+      : `the second booking was accepted but created nothing new (${countBefore} → ${countAfter}) — ` +
+        'the server is idempotent',
+  };
+}
+
+/**
+ * Question 4: did `DELETE` actually reverse the booking?
+ *
+ * "HTTP 200" is not the finding. The booking either left the contact's list or
+ * it did not, and only a re-read can say which — so a cancellation is judged on
+ * the count afterwards, and a 2xx with the booking still present is reported as
+ * a failure rather than a success. #46 plans to rely on this to undo a mistaken
+ * bulk booking, so a false "reversible" here is worse than no answer.
+ *
+ * @param {{cancel?: object|null, countBefore?: number|null, countAfter?: number|null}} opts
+ */
+export function describeCancellation({ cancel = null, countBefore = null, countAfter = null }) {
+  if (!cancel || cancel.refused) {
+    return {
+      reversed: null,
+      inconclusive: true,
+      summary: cancel?.refused
+        ? 'the cancellation was refused locally'
+        : 'no cancellation was attempted',
+    };
+  }
+
+  // A dry run is not a rejection. Without this it falls through to the final
+  // branch and reports "DELETE was rejected — the booking must be removed by
+  // hand", which invents a failure out of a request nobody sent.
+  if (cancel.dryRun) {
+    return { reversed: null, inconclusive: true, summary: 'dry run — no DELETE was sent' };
+  }
+
+  const accepted = typeof cancel.status === 'number' && cancel.status >= 200 && cancel.status < 300;
+
+  if (typeof countBefore !== 'number' || typeof countAfter !== 'number') {
+    return {
+      reversed: null,
+      inconclusive: true,
+      summary: `DELETE answered ${cancel.status ?? 'nothing'}, but the bookings were not re-counted — unproven`,
+    };
+  }
+
+  const gone = countAfter < countBefore;
+
+  if (accepted && gone) {
+    return {
+      reversed: true,
+      inconclusive: false,
+      summary: `DELETE reversed the booking cleanly (${countBefore} → ${countAfter})`,
+    };
+  }
+  if (accepted && !gone) {
+    return {
+      reversed: false,
+      inconclusive: false,
+      summary:
+        `DELETE answered ${cancel.status} but the booking is still there (${countBefore} → ${countAfter}) — ` +
+        'the tool cannot rely on it to undo a mistake',
+    };
+  }
+  return {
+    reversed: false,
+    inconclusive: false,
+    summary:
+      `DELETE was rejected (HTTP ${cancel.status ?? 'n/a'}) — the booking remains and must be ` +
+      'removed by hand',
+  };
+}
+
+/**
+ * Resolve a membership plan by name, and refuse to guess.
+ *
+ * The tool has to turn a plan *name* into a `membership_plan_id`, because a
+ * hard-coded id is a number nobody can check against the Clubworx UI. Two
+ * things make that lookup treacherous, and both are real here:
+ *
+ * **The list truncates silently.** `GET /membership_plans` returned exactly 50
+ * — the default `page_size` — on 2026-08-18, and UJ has 57 plans. `School Pass`
+ * was among the seven missing. A caller using the default page would conclude
+ * the plan does not exist, which is the same trap #51 documented on `/events`
+ * and the reason `requestedPageSize` is reported back here.
+ *
+ * **A near-duplicate name would be ambiguous.** Assigning the wrong plan is a
+ * permanent mark on a real person, so more than one match is an error rather
+ * than a first-wins.
+ *
+ * @param {unknown} body A `GET /membership_plans` response.
+ * @param {string} name Exact plan name, compared case-insensitively.
+ * @param {{requestedPageSize?: number}} [opts]
+ */
+export function findPlanByName(body, name, { requestedPageSize = null } = {}) {
+  if (!Array.isArray(body)) {
+    return { plan: null, matches: 0, truncated: false, count: 0, notAnArray: true };
+  }
+
+  const wanted = String(name ?? '').trim().toLowerCase();
+  const matches = body.filter(p => String(p?.name ?? '').trim().toLowerCase() === wanted);
+
+  // A page that came back exactly full is indistinguishable from a complete
+  // list — there is no total and no next-page link — so "not found" on a full
+  // page is not an answer.
+  const truncated = requestedPageSize !== null && body.length >= requestedPageSize;
+
+  return {
+    plan: matches.length === 1 ? matches[0] : null,
+    matches: matches.length,
+    ambiguous: matches.length > 1,
+    truncated,
+    count: body.length,
+    notAnArray: false,
+  };
+}
+
+/**
+ * Reduce a memberships response to something publishable.
+ *
+ * `GET /memberships?contact_key=` is how a probe answers "does this contact
+ * already hold the pass?" before assigning another one. Memberships have no
+ * delete endpoint, so search-first is not a courtesy here — it is the only
+ * thing standing between a re-run and a pile of duplicate permanent records.
+ *
+ * **There is no `status` field.** A membership record carries `start_date` and
+ * `expiration_date` and nothing that says "active" — verified against a real
+ * record on 2026-08-18. Whether a School Pass is active, which is what a School
+ * Session actually checks, has to be derived from those two dates. A caller
+ * looking for `status` would find `undefined` and could read a live pass as
+ * inactive.
+ *
+ * @param {unknown} body
+ * @param {string|number} [planId] The plan being looked for.
+ * @param {{on?: string}} [opts] The date to judge activity against.
+ */
+export function summariseMemberships(body, planId = null, { on = null } = {}) {
+  if (!Array.isArray(body)) {
+    return { count: 0, fields: [], holdsPlan: false, holdsActivePlan: false, planStates: [], notAnArray: true };
+  }
+
+  const today = (on ?? new Date().toISOString()).slice(0, 10);
+  const fields = new Set();
+  const planStates = [];
+  let holdsPlan = false;
+  let holdsActivePlan = false;
+
+  for (const row of body) {
+    for (const key of Object.keys(row ?? {})) fields.add(key);
+
+    if (planId !== null && String(row?.membership_plan_id) === String(planId)) {
+      holdsPlan = true;
+
+      const start = row?.start_date ?? null;
+      const expires = row?.expiration_date ?? null;
+      // Dates are plain `YYYY-MM-DD`, so string comparison is the date
+      // comparison — no timezone to get wrong. Inclusive at both ends: a pass
+      // starting today is usable today.
+      const active =
+        (!start || start <= today) && (!expires || expires >= today);
+
+      if (active) holdsActivePlan = true;
+
+      planStates.push({
+        start_date: start,
+        expiration_date: expires,
+        active,
+        classes_booked: row?.classes_booked ?? null,
+        classes_remaining: row?.classes_remaining ?? null,
+        class_access: row?.class_access ?? null,
+      });
+    }
+  }
+
+  return {
+    count: body.length,
+    fields: [...fields],
+    holdsPlan,
+    holdsActivePlan,
+    planStates,
+    notAnArray: false,
+  };
+}
+
+/**
+ * How long until an event starts, and whether a lead-time rule would allow it.
+ *
+ * UJ's School Sessions require booking at least a day ahead, so that somebody
+ * cannot book themselves in on the day. The tool has to pre-empt that rather
+ * than surface a raw rejection — but the rule lives in Clubworx's configuration
+ * and is exposed by no endpoint, so this computes the *observable* part and
+ * leaves the verdict to a measurement.
+ *
+ * @param {string} eventStartAt ISO timestamp, with offset.
+ * @param {{now?: string, minLeadHours?: number}} [opts]
+ */
+export function describeLeadTime(eventStartAt, { now = new Date().toISOString(), minLeadHours = 24 } = {}) {
+  const starts = Date.parse(eventStartAt);
+  const from = Date.parse(now);
+
+  if (Number.isNaN(starts) || Number.isNaN(from)) {
+    return { hoursAhead: null, withinLeadTime: null, past: null, unreadable: true };
+  }
+
+  const hoursAhead = (starts - from) / 3_600_000;
+
+  return {
+    hoursAhead: Math.round(hoursAhead * 10) / 10,
+    past: hoursAhead <= 0,
+    // "Within the lead time" means too close to book, not comfortably ahead.
+    withinLeadTime: hoursAhead > 0 && hoursAhead < minLeadHours,
+    minLeadHours,
+    unreadable: false,
+  };
+}
+
+/**
+ * Which events a probe may safely be booked into.
+ *
+ * A booking is a real row on a real class that staff see, so the choice of
+ * event is not arbitrary. It must be in the **future**, so nobody is standing
+ * in a gym waiting for a `Ztest`; and it must have **room**, because consuming
+ * the last space would cause #46's own worst case — a school group arriving at
+ * an event with fewer spaces than students.
+ *
+ * Both kinds come back separately because question 2 needs the comparison: an
+ * event flagged `free_class` and an ordinary one.
+ *
+ * @param {unknown} body A `GET /events` response.
+ * @param {{now?: string}} [opts]
+ */
+export function pickBookableEvents(body, { now = new Date().toISOString() } = {}) {
+  if (!Array.isArray(body)) return { free: [], paid: [], skipped: 0 };
+
+  const free = [];
+  const paid = [];
+  let skipped = 0;
+
+  for (const row of body) {
+    const starts = row?.event_start_at ?? null;
+    const roomy = row?.event_full !== true && (row?.spaces_available ?? 0) > 0;
+
+    if (!starts || starts <= now || !roomy) {
+      skipped += 1;
+      continue;
+    }
+
+    // The name travels because a human has to recognise the class they are
+    // about to put a test booking on. An event name is a timetable entry —
+    // nothing here describes a person.
+    const event = {
+      event_id: row.event_id,
+      event_name: row.event_name ?? null,
+      event_start_at: starts,
+      spaces_available: row.spaces_available ?? null,
+      free_class: row.free_class === true,
+    };
+
+    (event.free_class ? free : paid).push(event);
+  }
+
+  const byStart = (a, b) => String(a.event_start_at).localeCompare(String(b.event_start_at));
+  return { free: free.sort(byStart), paid: paid.sort(byStart), skipped };
+}

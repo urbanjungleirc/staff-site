@@ -157,8 +157,21 @@ This compounds a constraint already recorded on #46: **Clubworx contacts cannot
 be deleted through the API.** Prospects, members and non-attending contacts
 expose list / show / create / update only. So each write probe leaves a
 **permanent** contact in production, removable only by hand in the Clubworx UI.
-Bookings are the exception — `DELETE /api/v2/bookings/:id` exists, so the
-booking half of probe #50 is reversible; the contact it needs is not.
+
+**Bookings are the exception, and this is now measured rather than inferred.**
+`DELETE /api/v2/bookings/:id` reversed a live booking on 2026-08-18 — HTTP 200,
+confirmed by re-reading the contact's bookings rather than trusting the status
+(#60). The call requires **`contact_key` as well as `account_key`, in a
+form-encoded body**; omit the contact and it answers `HTTP 401 "Authorization
+failed"`, which is indistinguishable from a key that lacks delete permission.
+#50 sent it that way first and briefly recorded here that bookings could not be
+deleted at all.
+
+**Memberships are not the exception.** `POST /api/v2/memberships` creates one
+and no delete appears in the reference, so a School Pass is as permanent as a
+contact. It lapses on its `expiration_date` rather than being removed.
+
+See `probes/60-member-school-pass-booking.md`.
 
 **Rate limits are undocumented but no longer unknown.** Nothing in the reference
 describes throttling, retry-after, or a burst ceiling. Probe #51 has since
@@ -202,8 +215,16 @@ and this repo is public.
 - It does **not** make them disposable. Contacts cannot be deleted through the
   API, so every probe contact is permanent and removable only by hand in the
   Clubworx UI. Reuse the one identity; do not improvise new ones per run.
-- Bookings *are* reversible (`DELETE /api/v2/bookings/:id`), so #50 should clean
-  up the booking it creates even though it cannot clean up the contact.
+- Bookings **are** reversible, demonstrated in #60: `DELETE /api/v2/bookings/:id`
+  removed a live booking and the re-read confirmed it. The call needs
+  `contact_key` in a form-encoded body as well as `account_key`; without it the
+  answer is `401 "Authorization failed"`, which looks exactly like a missing
+  permission. So a write probe may create a booking and clean up after itself —
+  but it must still verify by re-reading, not by the status code.
+- **A membership is permanent.** `POST /api/v2/memberships` has no counterpart
+  delete. Assigning a School Pass to the wrong contact cannot be undone, so it
+  carries the same weight as creating a contact: search first, and reuse an
+  *active* pass rather than assigning a second.
 - Probes are **#49 and #50's** work. #47 provisions access and stops there; it
   ran only a read-only `GET /locations` to prove the key authenticates.
 
@@ -245,7 +266,11 @@ verified to make zero writes. Any new write probe must do the same.
 | Caveat | Consequence |
 |---|---|
 | No sandbox exists | All probing is against production; unavoidable, not a choice |
-| Contacts cannot be deleted via API | Every write probe leaves a permanent record; bookings are reversible, contacts are not |
+| Contacts cannot be deleted via API | Every write probe leaves a permanent record |
+| `DELETE /bookings/:id` needs **`contact_key`**, form-encoded in the body (#50, #60) | Without it: `401 "Authorization failed"` — identical to a permissions failure, and misread as one. Sent correctly it reverses cleanly. Read a 401 here as a malformed request before concluding anything about permissions |
+| **Memberships have no delete** (#60) | `POST /memberships` creates a permanent record. A School Pass lapses at `expiration_date`; it cannot be removed. Search first and reuse an active one |
+| A membership record has **no `status` field** (#60) | Only `start_date` and `expiration_date`. Code checking `status` reads `undefined` and would treat a live pass as inactive — derive activity from the dates |
+| `GET /membership_plans` **truncates at 50** (#60) | UJ has 57 plans and `School Pass` was beyond the default page, so a name lookup reports "no such plan". Same trap as `/events` (#51). Always pass `page_size`, and treat a full page as truncated |
 | Clubworx issues **one key per gym**, confirmed | Attribution by key is impossible; the `noreply+<school>@` marker is the only provenance signal. One key's leak or rotation hits every integration |
 | Rate limits undocumented **and unadvertised** | Confirmed live, and confirmed again *while being throttled* (#51): no `Retry-After` or `X-RateLimit-*` headers come back at any point. A client cannot self-throttle from response metadata or see a ceiling approaching — only hit it |
 | The ceiling is **tight**: ~50 fast requests, then ~18s of 429 (#51) | 75 req/min ran clean; 120 did not. Every caller must pace, and the allowance is shared across the whole gym key, so this tool can throttle HVT and vice versa |

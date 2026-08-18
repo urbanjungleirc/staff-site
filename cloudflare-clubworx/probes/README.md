@@ -11,6 +11,10 @@ only way to learn how it behaves is to ask it, carefully, in production.
 | `run-51.mjs` | The probe that produced it — read-only |
 | `49-plus-addressed-duplicates.md` | [#49](https://github.com/urbanjungleirc/staff-site/issues/49) — plus-addressed `noreply@`, duplicate emails, and whether a tag isolates a school |
 | `run-49.mjs` | The probe that produced it — **writes** |
+| `50-membership-less-booking.md` | [#50](https://github.com/urbanjungleirc/staff-site/issues/50) — **no**, a prospect cannot be booked: Clubworx applies a per-contact allowance the API cannot pass, and `spaces_available` does not predict it |
+| `run-50.mjs` | The probe that produced it — **writes** |
+| `60-member-school-pass-booking.md` | [#60](https://github.com/urbanjungleirc/staff-site/issues/60) — the member + **School Pass** route **works**: it books, the server refuses duplicates itself, and `DELETE` reverses cleanly |
+| `run-60.mjs` | The probe that produced it — **writes, and deletes** |
 
 Access, authorisation and the key's whereabouts: `../ACCESS.md`.
 
@@ -32,12 +36,42 @@ node probes/run-49.mjs --dry-run     # the plan and every request, zero network
 node probes/run-49.mjs               # read-only: search, then the isolation reads
 node probes/run-49.mjs --write       # ⚠️ creates up to 3 PERMANENT contacts
 
+node probes/run-50.mjs --dry-run     # the plan and every request, zero network
+node probes/run-50.mjs               # read-only: finds #49's contacts, lists bookable events
+node probes/run-50.mjs --event=<id> --write         # ⚠️ books a real class
+node probes/run-50.mjs --event=<id> --free-event=<id> --write
+node probes/run-50.mjs --cancel=<booking_id> --write # tries to remove a probe contact's booking
+
+node probes/run-60.mjs --dry-run     # the plan and every request, zero network
+node probes/run-60.mjs               # read-only: contacts, plan, memberships, event
+node probes/run-60.mjs --event=<id> --write  # ⚠️ assigns a PERMANENT School Pass, then books
+
 npm test                             # the pure logic, no network
 ```
 
-`--dev-vars=<path>` points either probe at a key outside the package — a git
+`--dev-vars=<path>` points any probe at a key outside the package — a git
 worktree, for instance, where `.dev.vars` is gitignored and so does not follow
 the checkout.
+
+**Neither booking probe picks the event itself.** `--write` without
+`--event=<id>` stops. A booking lands on a real class that staff see and consumes
+one of its spaces, so choosing by sort order means choosing somebody's actual
+session; a read-only run lists the candidates and a human picks one. Everything
+they book, they cancel — and they print anything they could not.
+
+**Book into a purpose-made test event.** Whether a contact can book is a property
+of *the event's configuration*, not of the API — which of these applies depends
+entirely on how the session is set up, and a generic open-climb session answers a
+different question to the one #46 needs.
+
+**`GET /events` cannot tell you which is which.** Its fields are `event_id`,
+`event_name`, `event_start_at`, `event_end_at`, `location_id`, `location_name`,
+`free_class`, `instructor_name`, `event_full`, `spaces_available` and
+`event_description` (verified 2026-08-18) — there is **no event-type field**, and
+nothing exposing what a session requires of a bookee. So #46's picker cannot
+pre-validate a booking; it finds out by trying, and must read the message that
+comes back. The three known refusals are tabulated in
+`60-member-school-pass-booking.md`.
 
 Runs write a JSON summary to `probes/out/`, which is gitignored.
 
@@ -45,11 +79,29 @@ Runs write a JSON summary to `probes/out/`, which is gitignored.
 
 Every one of them is a consequence of *production, public repo, no sandbox*.
 
-- **Read-only unless the ticket says otherwise.** There are two ways out to
+- **Read-only unless the ticket says otherwise.** There are four ways out to
   Clubworx and they are separate files on purpose. `lib/http.mjs` issues GET and
   nothing else, so a probe that imports only it *cannot* write — that is a
-  property of the script, not a claim about it. Creating anything means reaching
-  for `lib/write.mjs` deliberately.
+  property of the script, not a claim about it. Creating a contact means reaching
+  for `lib/write.mjs` deliberately, booking or cancelling means `lib/booking.mjs`,
+  and assigning a membership means `lib/membership.mjs`.
+- **`DELETE` is guarded harder than `POST`, because it is the worse mistake.**
+  `lib/booking.mjs` refuses any booking id it did not create itself or have
+  explicitly vouched for against a probe contact — there is no way to hand it an
+  arbitrary id. Cancelling a real member's class takes somebody off a session
+  they turn up to.
+- **Only bookings can be undone.** Contacts cannot be deleted, and memberships
+  have no delete either — a School Pass lapses at its `expiration_date` and is
+  otherwise permanent. `DELETE /bookings/:id` does reverse a booking (#60,
+  verified by re-reading rather than by the status), but it needs `contact_key`
+  in a form-encoded body; without it the answer is `401 "Authorization failed"`,
+  which #50 read as a permissions wall and wrote up as one. **Read an endpoint's
+  parameters before concluding anything from a 401**, and treat any endpoint
+  nobody has actually completed as unproven.
+- **A full page is not an answer.** `GET /membership_plans` returned exactly 50
+  of UJ's 57 plans and hid the one being looked for; `/events` does the same
+  (#51). Always pass a `page_size`, and treat a page that comes back full as
+  truncated rather than complete.
 - **Two controls in front of every write**, because Clubworx **cannot delete
   contacts through the API** and there is no sandbox. `createPoster` is inert
   unless `live` is explicitly true, so a forgotten flag costs nothing; and every
@@ -85,10 +137,16 @@ lib/report.mjs    response → publishable summary    (unit tested)
 lib/key.mjs       where the live key comes from     (unit tested)
 lib/http.mjs      the read path to Clubworx: GET    (unit tested)
 lib/write.mjs     the write path: POST, guarded     (unit tested)
+lib/booking.mjs   the booking path: POST + DELETE,  (unit tested)
+                  guarded harder — see below
+lib/membership.mjs  assigning a membership: POST,    (unit tested)
+                  permanent, so guarded like a write
 lib/identity.mjs  who a write may be, and what to   (unit tested)
                   create given what already exists
 run-51.mjs        the #51 probe itself — read-only
 run-49.mjs        the #49 probe itself — writes
+run-50.mjs        the #50 probe itself — writes and deletes
+run-60.mjs        the #60 probe itself — writes and deletes
 ```
 
 The libraries are tested and the runner is not. That split is deliberate: the
