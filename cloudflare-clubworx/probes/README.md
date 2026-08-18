@@ -11,7 +11,8 @@ only way to learn how it behaves is to ask it, carefully, in production.
 | `run-51.mjs` | The probe that produced it — read-only |
 | `49-plus-addressed-duplicates.md` | [#49](https://github.com/urbanjungleirc/staff-site/issues/49) — plus-addressed `noreply@`, duplicate emails, and whether a tag isolates a school |
 | `run-49.mjs` | The probe that produced it — **writes** |
-| `run-50.mjs` | [#50](https://github.com/urbanjungleirc/staff-site/issues/50) — can a membership-less prospect be booked into an event? **Writes, and deletes** |
+| `50-membership-less-booking.md` | [#50](https://github.com/urbanjungleirc/staff-site/issues/50) — **no**, a prospect cannot be booked: Clubworx applies a per-contact allowance the API cannot pass, and `spaces_available` does not predict it |
+| `run-50.mjs` | The probe that produced it — **writes, and deletes** |
 
 Access, authorisation and the key's whereabouts: `../ACCESS.md`.
 
