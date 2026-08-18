@@ -375,3 +375,230 @@ Not exposed by any endpoint. Measured in
 *Avoid*: reading a "no free spaces" refusal as a capacity problem without
 checking `spaces_available` first. The two are indistinguishable from the
 message alone.
+
+## Clubworx school list parsing
+
+Terms for turning a school's pasted list into rows. Decided 2026-08-18 on #52,
+against the three real lists catalogued in #48.
+
+### Vertical list
+
+A paste carrying **one field per line**, several lines per student, rather than
+one record per line. One of the three real lists is shaped this way, and a
+row-per-line parser reads it as **126 students out of 21** without erroring — so
+this is a first-class branch decided before any field splitting, not a fallback.
+
+*Avoid*: "column list" or "single-column". Both read as *one field of data*,
+which is a different thing entirely.
+
+### DOB anchor
+
+The rule that the date is identified by the **shape of its values**, never by
+its position or its header text — and that this identification is what validates
+both the layout and the column mapping. In a genuine vertical list exactly one
+*position within the repeating block* is date-shaped in every block; in a
+horizontal list exactly one *column* is. Neither holding is a refusal, not a
+guess.
+
+The date is the only one of the three fields whose identity is readable from its
+own contents, which is what makes it load-bearing.
+
+*Avoid*: the divisibility rule as first written on #48 — "no tab or comma, and a
+line count that is an exact multiple". All three fixtures are CRLF and the
+vertical one opens with a blank line, so its 37 lines are not a multiple of 6
+while its 36 non-blank lines are; and almost any line count divides by 2 or 3
+anyway.
+
+### Date orientation
+
+Whether a list reads `d/m/yyyy` or `m/d/yyyy` — a property of the **whole list**,
+inferred once from every date in it and applied to all rows. One field above 12
+proves it; contradictory evidence within one list refuses the paste; a wholly
+ambiguous list asks, showing a real date read both ways.
+
+Never defaulted silently. A wrong orientation does not error — it turns March
+into May, reports the student not-found, and creates a permanent contact with a
+wrong DOB that then poisons the surname + DOB identity key for every later term.
+
+Students are all born this century, so a two-digit year is `20xx` and a parsed
+DOB **before 2000 is not a student** — a sharper teacher-row detector than
+guessing at names.
+
+*Avoid*: "date format". *Format* implies a per-value property, which is exactly
+the mistake this term exists to prevent.
+
+### Count gate
+
+The expected student count, typed by staff **before** the parse result is shown
+and checked against it. A mismatch blocks the run.
+
+The order matters: a count displayed first is anchoring theatre, since nobody
+disagrees with a number already on screen. It is the only single check that
+catches layout misdetection, junk absorbed as students, a truncated paste and
+phantom trailing columns at once.
+
+*Avoid*: "validation". It is a gate — a mismatch stops the run.
+
+### Junk line / Unparseable row
+
+Different things, separated by **position**. A *junk line* holds no date-shaped
+value, has a field count unlike the modal one, and sits **before the first
+successfully parsed record** — a school title, a prose sentence, a header. It is
+ignored, with the count always on screen.
+
+Anything that fails to parse **after** the first good record is an *unparseable
+row*, and it **blocks Apply** until corrected or explicitly dismissed. That is
+where a real student hides.
+
+*Avoid*: "bad row" for both. The position is the entire distinction, and
+collapsing it is how a student silently disappears.
+
+### Write form / compare form
+
+The two normalisations of a name, deliberately different.
+
+*Write form* is what is stored in Clubworx: trimmed, internal whitespace runs
+collapsed, NBSP → space, curly apostrophe → `'`, non-breaking hyphen → `-`,
+zero-width characters and BOM stripped, Unicode NFC. Case is never touched and
+accents are never stripped.
+
+*Compare form* is used only for matching and in-paste dedup: additionally
+case-folded, with apostrophes, hyphens and spaces removed.
+
+The split is load-bearing — it is what lets `O'Brien` match `OBrien` without
+ever *writing* the second spelling into a record that cannot be deleted.
+
+*Avoid*: "normalised name" unqualified. Which one is meant decides whether a
+permanent record is altered.
+
+### Preferred name
+
+A first name that is a **nickname rather than the legal name**, as shipped by a
+school system column headed `PreferredName`. One of the three real lists has
+one.
+
+A first-name mismatch against Clubworx is therefore an *expected* outcome of a
+correct match, not evidence of a wrong one — which weakens the first-name
+tie-breaker in the identity rule precisely where it is needed, for twins.
+
+*Avoid*: treating it as the first name. The tie-breaker depends on telling them
+apart.
+
+### Ignored column
+
+A column present in the paste and deliberately not read — form group, year
+level, student email. **Always named on screen** ("3 columns ignored:
+FormGroup, YearLevel, Email"), because that line costs nothing and is the tell
+that the mapping went wrong.
+
+*Avoid*: "extra column". Naming what is ignored is the point.
+
+### Parse-time row state
+
+What the parser produces before any API call: `clean`, `needs-confirmation`,
+`error`, `ignored`.
+
+Distinct from the **match** states — `new`, `matched`, `name variant`,
+`ambiguous`, `already booked` — which all require a Clubworx read and belong to
+the review table.
+
+*Avoid*: mixing the two lists. Only the first exists before a single request is
+sent.
+
+## Clubworx school booking runs
+
+Terms for executing a list against Clubworx. Decided 2026-08-18 on #53, against
+the behaviour measured in #50, #51 and #60.
+
+### Run
+
+One apply pass over one pasted list and one event selection. Browser-driven, one
+Worker call per student, students processed in list order.
+
+A run is not free: 25 students across 6 events is roughly **300 requests and
+four minutes** at the mandated 75 req/min, and the rate allowance is gym-wide —
+the roster and n8n spend it unseen. A re-run where nothing needs doing still
+costs most of that.
+
+### Write chain
+
+The three writes that place one student: **contact → School Pass → booking**.
+Only the last is a [reversible write](#reversible-write).
+
+The chain is **all-or-nothing per student**: any failure abandons that student
+and rolls back the bookings this run made for them, so a student is in every
+session or in none — never half-booked.
+
+*Avoid*: reasoning about the three writes as if they were one transaction. Two
+of them cannot be undone.
+
+### Stranded student
+
+A student left **between** the writes — most often a permanent contact and an
+active School Pass with no bookings. Under the all-or-nothing rule this is the
+*guaranteed* outcome of an abandoned student, not an edge case, so the result
+table names it explicitly and staff finish it by hand.
+
+*Avoid*: counting a stranded student as a plain failure. Two irreversible
+records now exist for them.
+
+### Row outcome
+
+The controlled vocabulary of per-row results: `created`, `matched`,
+`pass assigned`, `pass already held`, `booked`, `already booked`, `refused`,
+`unknown`.
+
+**`already booked` is a success**, not an error. Clubworx refuses a duplicate
+itself — *"Woops! You've already booked into this class!"* — which is the
+idempotency guarantee showing up, and is what makes a re-run safe.
+
+The distinction between `booked` and `already booked` is a **safety interlock**,
+not a display detail. Cancellation and automatic rollback act on `booked` only;
+acting on the whole row set would delete bookings this run never made, possibly
+a session a real member booked themselves.
+
+*Avoid*: styling `already booked` as a failure, and collapsing it into `booked`.
+
+### Restart-safe re-run
+
+The recovery mechanism: re-paste the same list, pick the same sessions, run
+again. Every write is safe to repeat — the contact via the dedup search across
+all three [status endpoints](#contact-status-endpoints), the membership via a
+read before assigning to a matched contact, the booking because Clubworx refuses
+the duplicate.
+
+No run identity, no stored progress, and no student names at rest in Cloudflare.
+
+*Avoid*: "resume". It implies stored state this design deliberately does not
+keep.
+
+### Lead time
+
+The **one-day minimum** between booking and a School Session starting,
+server-enforced and knowable client-side from the event start. A selected event
+inside it hard-stops the run before any write.
+
+Staff must never meet Clubworx's own message here — *"Sorry! This class is now
+closed for bookings."* — which names no cause and reads like a capacity problem.
+
+### Unknown refusal
+
+A `400` whose message matches none of the three known strings — prospect
+allowance, lead time, already-booked. All refusals arrive as `400` with
+`{"error": "..."}`, so **the message string is the only discriminator**.
+
+An unknown one is shown **verbatim** and attributed to Clubworx, never retried,
+never re-worded, and counted toward the run halt.
+
+*Avoid*: paraphrasing it. A paraphrase is what makes new Clubworx behaviour
+invisible — #50 is the cautionary tale, where a truthful-sounding message
+pointed at entirely the wrong mechanism and cost an architectural route.
+
+### Run halt
+
+Stopping a whole run after **three consecutive failures**, or on a `429` that
+survives backoff. Distinct from a single row failing.
+
+One row failing is data; a run of failures is a systemic condition — and the
+measured throttle failure mode is not scattered rows but the entire back half of
+the list (49 successes, then 41 consecutive `429`s).
