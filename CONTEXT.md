@@ -335,6 +335,32 @@ already recorded by the [school marker](#school-marker) and the term is implied
 by the membership's `start_date`. The duration stays out of the name because
 `GET /membership_plans` exposes `membership_duration` already.
 
+Proven end to end in #60: a member holding an active pass books, and the pass
+costs nothing and starts no billing schedule.
+
+### Active pass
+
+Whether a School Pass admits its holder *today*. A membership record carries
+`start_date` and `expiration_date` and **no `status` field**, so this is derived
+from the dates — inclusive at both ends, since a pass starting today is usable
+today. Code that looks for `status` reads `undefined` and would treat a live
+pass as inactive.
+
+*Avoid*: "has a School Pass" as a synonym. Holding the plan and holding an
+**active** one are different: an expired pass is still a returned row, and the
+session admits only the active kind.
+
+### Reversible write
+
+The one thing this system does that can be taken back: a **booking**.
+`DELETE /api/v2/bookings/:id` removes one, verified in #60 by re-reading rather
+than by its status code — and it needs `contact_key` alongside `account_key`,
+form-encoded in the body.
+
+Nothing else qualifies. A contact cannot be deleted, and a School Pass has no
+delete endpoint at all — it lapses at its `expiration_date`. So "undo" can
+unbook and can never uncreate, and any UI implying otherwise is lying.
+
 ### Prospect allowance
 
 Clubworx's per-**contact** limit on how many events a prospect may be booked
