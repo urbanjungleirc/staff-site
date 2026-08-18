@@ -1,0 +1,513 @@
+#!/usr/bin/env node
+/**
+ * staff-site#50 — can a membership-less prospect be booked into an event?
+ *
+ *   node probes/run-50.mjs --dry-run           # the plan and every request, zero network
+ *   node probes/run-50.mjs                     # read-only: find the contacts, list bookable events
+ *   node probes/run-50.mjs --event=<id> --write # books, double-books, then cancels
+ *   node probes/run-50.mjs --event=<id> --free-event=<id> --write
+ *   node probes/run-50.mjs --dev-vars=<path>
+ *
+ * ⚠️ `--write` puts a real booking on a real class that staff can see, and
+ * consumes one of its spaces until the run cancels it again. Unlike #49's
+ * contacts this **is** reversible (`DELETE /bookings/:id`, ACCESS.md section 4)
+ * — that reversibility is question 4, so the run proves it rather than assuming
+ * it, and prints anything it could not undo.
+ *
+ * **The event is never chosen automatically.** `--event` is required for a
+ * write, because picking one by algorithm means a booking lands on whichever
+ * class happened to sort first — a real session, with real staff and real
+ * customers. A read-only run lists the candidates for a human to choose from.
+ *
+ * Four questions, all from #46's map. The whole feature assumes the answer to
+ * the first is yes, and nothing in the API reference settles it:
+ *
+ *   1. Does booking a membership-less prospect succeed at all?
+ *   2. If not, what does it need — a membership, a plan, or an event flagged
+ *      `free_class`?
+ *   3. Does booking the same contact into the same event twice error, or
+ *      silently create a second booking? #46's safety model assumes re-running
+ *      the tool is idempotent.
+ *   4. Does `DELETE /bookings/:id` cleanly reverse a booking made this way?
+ *
+ * This probe **creates no contacts**. ACCESS.md section 4: the three-contact
+ * authorisation is spent, and #50 must reuse what #49 left behind. If those
+ * contacts are missing the run stops rather than creating a fourth.
+ */
+
+import { writeFileSync, mkdirSync } from 'node:fs';
+import path from 'node:path';
+import { fileURLToPath } from 'node:url';
+
+import { createGetter } from './lib/http.mjs';
+import { createBooker } from './lib/booking.mjs';
+import { loadAccountKey } from './lib/key.mjs';
+import { PROBE_CONTACTS, pickProbeRows, plusTag } from './lib/identity.mjs';
+import {
+  summariseContacts,
+  summariseBookings,
+  summariseEvents,
+  classifyWrite,
+  describeBookingRequirement,
+  describeDuplicateBooking,
+  describeCancellation,
+  pickBookableEvents,
+} from './lib/report.mjs';
+
+const HERE = path.dirname(fileURLToPath(import.meta.url));
+const OUT_DIR = path.join(HERE, 'out');
+
+const args = process.argv.slice(2);
+const flag = name => args.find(a => a.startsWith(`--${name}=`))?.split('=').slice(1).join('=');
+
+const DRY_RUN = args.includes('--dry-run');
+const WRITE = args.includes('--write');
+const EVENT_ID = flag('event') ?? null;
+const FREE_EVENT_ID = flag('free-event') ?? null;
+const DEV_VARS = flag('dev-vars') || path.join(HERE, '..', '.dev.vars');
+
+/** The two plus-tags #49 created, derived rather than restated. */
+const TAG_EMAILS = [...new Set(PROBE_CONTACTS.map(c => c.email))];
+
+/**
+ * How far ahead to look for a bookable event.
+ *
+ * #51: the date window is the one genuinely required parameter on `/events`
+ * (no window is HTTP 422), and a full page is silent truncation — so this asks
+ * for a narrow window and a page big enough to see past the default 50.
+ */
+const WINDOW_DAYS = 14;
+const PAGE_SIZE = 200;
+
+/** 75 requests/minute, one in flight — the ceiling measured in #51. */
+const GAP_MS = 800;
+const sleep = ms => new Promise(r => setTimeout(r, ms));
+
+const line = (label, value) => console.log(`  ${label.padEnd(38)} ${value}`);
+const rule = title => console.log(`\n── ${title} ${'─'.repeat(Math.max(0, 58 - title.length))}`);
+
+const isoDay = offsetDays => {
+  const d = new Date();
+  d.setUTCDate(d.getUTCDate() + offsetDays);
+  return d.toISOString().slice(0, 10);
+};
+
+/**
+ * Find the contacts #49 left behind. This probe may not create any.
+ *
+ * Everything returned has passed `isProbeRow` via `pickProbeRows`, which is
+ * what makes it safe to hand these keys to the booker as its allowlist — a
+ * stranger who happens to share the probe address is counted and dropped.
+ */
+async function findProbeContacts(get) {
+  rule('0. Find the contacts #49 created — this probe creates none');
+
+  const found = [];
+  let strangers = 0;
+
+  for (const email of TAG_EMAILS) {
+    const res = await get('prospects', { email });
+    const rows = pickProbeRows(res.body);
+    const summary = summariseContacts(
+      res.body,
+      rows.map(r => r.contact_key),
+    );
+    found.push(...rows);
+    strangers += summary.strangers;
+
+    line(
+      `prospects email=+${plusTag(email)}`,
+      `HTTP ${res.status} · ${summary.count} returned · ${rows.length} are ours`,
+    );
+    await sleep(GAP_MS);
+  }
+
+  if (strangers) line('rows returned that are not ours', `${strangers} (counted, not recorded)`);
+
+  const byKey = new Map(found.map(row => [row.contact_key, row]));
+  return [...byKey.values()];
+}
+
+/** What is bookable in the next fortnight, for a human to choose from. */
+async function listEvents(get) {
+  rule('1. Events — which of these could a test booking go on?');
+
+  const res = await get('events', {
+    event_starts_after: isoDay(0),
+    event_ends_before: isoDay(WINDOW_DAYS),
+    page_size: PAGE_SIZE,
+  });
+  const summary = summariseEvents(res.body);
+  const bookable = pickBookableEvents(res.body);
+
+  line('events in the window', `HTTP ${res.status} · ${summary.count} returned`);
+  line('bookable (future, with spaces)', `${bookable.paid.length} paid · ${bookable.free.length} free_class`);
+  if (summary.count >= PAGE_SIZE) {
+    // #51: a full page is indistinguishable from a complete list by anything in
+    // the response — no total, no next-page link, no header.
+    line('⚠️  page came back full', 'the list is truncated — narrow the window');
+  }
+
+  return { summary, bookable, status: res.status };
+}
+
+/** Bookings currently held by a probe contact — the before/after count. */
+async function countBookings(get, contactKey) {
+  const res = await get('bookings', { contact_key: contactKey });
+  const summary = summariseBookings(res.body, [contactKey]);
+  return { status: res.status, ...summary };
+}
+
+/**
+ * Questions 1–4, against one event.
+ *
+ * The counts either side of every write are what actually answer 3 and 4: a
+ * silent duplicate and an idempotent server return the same status code, and so
+ * do a DELETE that worked and one that only said it did.
+ */
+async function probeBooking(get, booker, { contactKey, eventId, label }) {
+  rule(`${label} — event ${eventId}`);
+
+  const before = await countBookings(get, contactKey);
+  line('bookings held before', `HTTP ${before.status} · ${before.ours}`);
+  await sleep(GAP_MS);
+
+  const first = await booker.book({ contact_key: contactKey, event_id: eventId, label });
+  const firstClass = classifyWrite(first);
+  line(
+    'book (Q1)',
+    first.refused
+      ? `REFUSED locally: ${first.refused}`
+      : first.dryRun
+        ? `would POST ${JSON.stringify(first.wouldSend)}`
+        : `HTTP ${first.status ?? 'n/a'} ${firstClass.outcome}` +
+          (first.bookingId ? ` · booking ${first.bookingId}` : '') +
+          (first.error ? ` · ${first.error}` : '') +
+          (first.bodyText ? ` · ${first.bodyText.slice(0, 160)}` : ''),
+  );
+  if (!first.dryRun) await sleep(GAP_MS);
+
+  const afterFirst = await countBookings(get, contactKey);
+  line('bookings held after', `HTTP ${afterFirst.status} · ${afterFirst.ours}`);
+  await sleep(GAP_MS);
+
+  // Question 3 only means something if the first booking landed. Asking it
+  // after a rejection would measure two rejections and call it idempotency.
+  let second = null;
+  let secondClass = null;
+  let afterSecond = null;
+
+  if (firstClass.outcome === 'created') {
+    second = await booker.book({ contact_key: contactKey, event_id: eventId, label: `${label} again` });
+    secondClass = classifyWrite(second);
+    line(
+      'book the same again (Q3)',
+      second.refused
+        ? `REFUSED locally: ${second.refused}`
+        : `HTTP ${second.status ?? 'n/a'} ${secondClass.outcome}` +
+          (second.bookingId ? ` · booking ${second.bookingId}` : '') +
+          (second.bodyText ? ` · ${second.bodyText.slice(0, 160)}` : ''),
+    );
+    await sleep(GAP_MS);
+
+    afterSecond = await countBookings(get, contactKey);
+    line('bookings held after the second', `HTTP ${afterSecond.status} · ${afterSecond.ours}`);
+    await sleep(GAP_MS);
+  } else if (!first.dryRun) {
+    line('book the same again (Q3)', 'SKIPPED — the first booking did not land');
+  }
+
+  const duplicate = describeDuplicateBooking({
+    second: secondClass,
+    countBefore: afterFirst.ours,
+    countAfter: afterSecond?.ours ?? null,
+  });
+
+  // Question 4: undo everything this run created, and prove it left.
+  const cancellations = [];
+  const ids = [first.bookingId, second?.bookingId].filter(Boolean);
+  const uniqueIds = [...new Set(ids.map(String))];
+
+  for (const id of uniqueIds) {
+    const res = await booker.cancel(id);
+    cancellations.push({ id, status: res.status ?? null, refused: res.refused ?? null, error: res.error ?? null });
+    line(
+      `cancel ${id} (Q4)`,
+      res.refused
+        ? `REFUSED locally: ${res.refused}`
+        : res.dryRun
+          ? 'would DELETE'
+          : `HTTP ${res.status ?? 'n/a'}${res.error ? ` · ${res.error}` : ''}`,
+    );
+    if (!res.dryRun) await sleep(GAP_MS);
+  }
+
+  const afterCancel = uniqueIds.length ? await countBookings(get, contactKey) : null;
+  if (afterCancel) line('bookings held after cancelling', `HTTP ${afterCancel.status} · ${afterCancel.ours}`);
+
+  const lastCancel = cancellations[cancellations.length - 1] ?? null;
+  const reversal = describeCancellation({
+    cancel: lastCancel,
+    countBefore: afterSecond?.ours ?? afterFirst.ours,
+    countAfter: afterCancel?.ours ?? null,
+  });
+
+  return {
+    eventId,
+    outcome: firstClass,
+    first: {
+      status: first.status ?? null,
+      bookingId: first.bookingId ?? null,
+      refused: first.refused ?? null,
+      error: first.error ?? null,
+      bodyText: first.bodyText ?? null,
+      fields: first.body && !Array.isArray(first.body) ? Object.keys(first.body) : [],
+    },
+    second: secondClass,
+    counts: {
+      before: before.ours,
+      afterFirst: afterFirst.ours,
+      afterSecond: afterSecond?.ours ?? null,
+      afterCancel: afterCancel?.ours ?? null,
+    },
+    duplicate,
+    cancellations,
+    reversal,
+    // Anything still standing when the run ends is somebody's job to remove.
+    leftBehind: (afterCancel?.ours ?? 0) > before.ours,
+  };
+}
+
+function printDryRun() {
+  console.log('--dry-run: no requests issued, nothing booked.\n');
+
+  let n = 0;
+  const req = (verb, p, params) =>
+    console.log(`  ${String(++n).padStart(2)}. ${verb.padEnd(6)} /${p}${params ? `?${params}` : ''}`);
+
+  console.log('0. Find #49\'s contacts — this probe creates none:');
+  for (const email of TAG_EMAILS) req('GET', 'prospects', `email=${email}`);
+
+  console.log('\n1. Events in the next fortnight:');
+  req('GET', 'events', `event_starts_after=${isoDay(0)}&event_ends_before=${isoDay(WINDOW_DAYS)}&page_size=${PAGE_SIZE}`);
+
+  const plan = [['2. Paid event (Q1, Q3, Q4)', EVENT_ID], ['3. free_class event (Q2)', FREE_EVENT_ID]].filter(
+    ([, id]) => id,
+  );
+
+  if (!plan.length) {
+    console.log(
+      '\n2. Booking — NOTHING PLANNED.\n' +
+        '   No --event=<id> was given, so there is no booking to describe. Run\n' +
+        '   read-only first: it lists the events that could take a test booking,\n' +
+        '   and a human picks one. The event is never chosen automatically.',
+    );
+  }
+
+  for (const [title, id] of plan) {
+    console.log(`\n${title} — event ${id}:`);
+    req('GET', 'bookings', 'contact_key=<probe contact>');
+    req('POST', 'bookings');
+    console.log('        { contact_key: <probe contact>, event_id: ' + id + ' }');
+    req('GET', 'bookings', 'contact_key=<probe contact>');
+    req('POST', 'bookings');
+    console.log('        the same again — does it duplicate? (Q3)');
+    req('GET', 'bookings', 'contact_key=<probe contact>');
+    req('DELETE', `bookings/<id created above>`);
+    req('GET', 'bookings', 'contact_key=<probe contact>');
+  }
+
+  console.log(
+    `\n${n} requests, paced at one per ${GAP_MS}ms (~${Math.round(60_000 / GAP_MS)}/min), per #51.`,
+  );
+  console.log(
+    'Every booking this run creates, it also cancels. Contacts are reused from\n' +
+      '#49 and never created — ACCESS.md §4, the three-contact authorisation is spent.',
+  );
+}
+
+async function main() {
+  if (DRY_RUN) {
+    printDryRun();
+    return;
+  }
+
+  const accountKey = loadAccountKey(DEV_VARS);
+  const get = createGetter({ accountKey });
+
+  console.log(
+    WRITE
+      ? 'staff-site#50 probe — WRITES ENABLED, against production Clubworx'
+      : 'staff-site#50 probe — read-only. It lists what could be booked; pass --event=<id> --write to book.',
+  );
+
+  const record = { probe: 'staff-site#50', ranAt: new Date().toISOString(), write: WRITE };
+
+  const contacts = await findProbeContacts(get);
+  record.contacts = contacts.map(c => ({ contact_key: c.contact_key, last_name: c.last_name }));
+
+  if (!contacts.length) {
+    // ACCESS.md §4: the three-contact authorisation is spent. Creating a fourth
+    // is a new decision, not something a probe may take on its own.
+    rule('Stopped');
+    console.log(
+      '  No probe contacts found. #50 must reuse the three #49 created, and the\n' +
+        '  authorisation to create contacts is spent (ACCESS.md §4) — so this probe\n' +
+        '  will not create a fourth. Run `node probes/run-49.mjs` to check what is\n' +
+        '  there, and ask before creating anything.',
+    );
+    process.exitCode = 1;
+    return;
+  }
+
+  // Contact A is the baseline: a prospect with no membership and no class pass.
+  const subject = contacts[0];
+  line('booking as', `${subject.last_name} · ${subject.contact_key}`);
+  await sleep(GAP_MS);
+
+  const events = await listEvents(get);
+  record.events = {
+    status: events.status,
+    count: events.summary.count,
+    fields: events.summary.fields,
+    bookable: { paid: events.bookable.paid.length, free: events.bookable.free.length },
+  };
+
+  const show = (title, list) => {
+    console.log(`\n  ${title}`);
+    if (!list.length) {
+      console.log('    none in this window');
+      return;
+    }
+    for (const e of list.slice(0, 8)) {
+      console.log(
+        `    event_id ${String(e.event_id).padEnd(10)} ${String(e.event_start_at).slice(0, 16)}  ` +
+          `${String(e.spaces_available).padStart(3)} spaces  ${e.event_name ?? ''}`,
+      );
+    }
+    if (list.length > 8) console.log(`    … and ${list.length - 8} more`);
+  };
+
+  if (!WRITE) {
+    show('Paid events that could take a test booking:', events.bookable.paid);
+    show('free_class events (needed for Q2):', events.bookable.free);
+    console.log(
+      '\n  Read-only run — nothing was booked. Pick an event above and re-run:\n' +
+        '    node probes/run-50.mjs --event=<id> --write\n' +
+        '  Add --free-event=<id> to answer Q2 if the paid booking is rejected.',
+    );
+    record.candidates = events.bookable;
+  }
+
+  const booker = createBooker({
+    accountKey,
+    allowedContactKeys: contacts.map(c => c.contact_key),
+    live: WRITE,
+  });
+
+  if (WRITE && !EVENT_ID) {
+    rule('Stopped');
+    console.log(
+      '  --write needs --event=<id>. The event is never chosen automatically:\n' +
+        '  a booking lands on a real class that staff see, and picking one by\n' +
+        '  sort order means picking somebody\'s actual session. Run without\n' +
+        '  --write to list the candidates.',
+    );
+    process.exitCode = 1;
+    return;
+  }
+
+  if (EVENT_ID) {
+    record.paid = await probeBooking(get, booker, {
+      contactKey: subject.contact_key,
+      eventId: EVENT_ID,
+      label: '2. Paid event (Q1, Q3, Q4)',
+    });
+  }
+
+  // Question 2 only needs asking if question 1 failed. Booking a second event
+  // after a success is a booking nobody needed.
+  const paidRejected = record.paid?.outcome?.outcome === 'rejected';
+
+  if (FREE_EVENT_ID && paidRejected) {
+    record.free = await probeBooking(get, booker, {
+      contactKey: subject.contact_key,
+      eventId: FREE_EVENT_ID,
+      label: '3. free_class event (Q2)',
+    });
+  } else if (FREE_EVENT_ID) {
+    rule('3. free_class event (Q2) — SKIPPED');
+    console.log('  The paid booking was not rejected, so there is nothing for free_class to explain.');
+  } else if (paidRejected) {
+    rule('3. free_class event (Q2) — NOT ASKED');
+    console.log(
+      '  The paid booking was rejected and no --free-event=<id> was given, so\n' +
+        '  what a booking requires is UNANSWERED. Re-run with --free-event to tell\n' +
+        '  "free classes only" from "an entitlement is required" — they change the\n' +
+        '  tool in very different ways.',
+    );
+  }
+
+  if (EVENT_ID) {
+    const requirement = describeBookingRequirement({
+      paid: record.paid?.outcome ?? null,
+      free: record.free?.outcome ?? null,
+    });
+    record.verdicts = {
+      requirement,
+      duplicate: record.paid?.duplicate ?? null,
+      reversal: record.paid?.reversal ?? null,
+    };
+
+    rule('Verdicts');
+    line('Q1  membership-less prospect books', String(record.paid?.outcome?.outcome ?? 'not attempted'));
+    line('Q2  what it requires', requirement.requirement ?? 'inconclusive');
+    line('Q3  double-booking', record.paid?.duplicate?.summary ?? 'not asked');
+    line('Q4  DELETE reverses it', record.paid?.reversal?.summary ?? 'not asked');
+
+    if (requirement.entitlementNeeded) {
+      // #50: "Flag that loudly rather than absorbing it."
+      console.log(
+        `\n  ⚠️  ${requirement.summary}.\n` +
+          '      #46\'s tool would have to assign a membership plan as well as create a\n' +
+          '      contact — a new decision about cost, plan choice, and what that does to\n' +
+          '      Clubworx reporting. This is not a detail to absorb into the design.',
+      );
+    }
+
+    if (record.paid?.duplicate?.duplicated) {
+      console.log(
+        '\n  ⚠️  Booking the same contact into the same event twice creates TWO bookings.\n' +
+          '      Re-running the tool against an event double-books every student, so it\n' +
+          '      must check existing bookings before writing — the safety model assumed\n' +
+          '      the server would refuse.',
+      );
+    }
+
+    const stranded = [record.paid, record.free].filter(r => r?.leftBehind);
+    if (stranded.length) {
+      rule('⚠️  Cleanup — bookings this run could not undo');
+      for (const r of stranded) {
+        console.log(
+          `  event ${r.eventId}: ${r.counts.afterCancel} booking(s) still held by ` +
+            `${subject.last_name} (${subject.contact_key}).\n` +
+            '  Remove them in the Clubworx UI.',
+        );
+      }
+    }
+  }
+
+  mkdirSync(OUT_DIR, { recursive: true });
+  const file = path.join(OUT_DIR, `50-${record.ranAt.replace(/[:.]/g, '-')}.json`);
+  writeFileSync(file, JSON.stringify(record, null, 2));
+
+  const writes = booker.book.writes + booker.cancel.writes;
+  console.log(
+    `\n${get.calls} reads, ${writes} writes. Summary written to probes/out/${path.basename(file)}`,
+  );
+}
+
+main().catch(err => {
+  console.error(`probe failed: ${err.message}`);
+  process.exitCode = 1;
+});

@@ -298,3 +298,291 @@ export function describeIsolation({
     returnedCount: returned.length,
   };
 }
+
+/**
+ * Reduce a bookings response to something publishable.
+ *
+ * `GET /bookings?contact_key=` is scoped to one contact, so unlike the contact
+ * searches this is not sifting a 60,000-person database — but the rule from
+ * `summariseContacts` holds anyway. The endpoint is not *guaranteed* to scope:
+ * staff-site#51 found `/events` ignoring `contact_key` outright while the
+ * reference called it required, so a row that arrives for somebody else is
+ * counted and dropped rather than trusted and printed.
+ *
+ * @param {unknown} body
+ * @param {string[]} [ourKeys] Contact keys belonging to probe contacts.
+ */
+export function summariseBookings(body, ourKeys = []) {
+  if (!Array.isArray(body)) {
+    return { count: 0, fields: [], ids: [], ours: 0, strangers: 0, notAnArray: true };
+  }
+
+  const known = new Set(ourKeys);
+  const fields = new Set();
+  const ids = [];
+  let ours = 0;
+  let strangers = 0;
+
+  for (const row of body) {
+    for (const key of Object.keys(row ?? {})) fields.add(key);
+
+    // A row with no contact_key at all came back from a query that was already
+    // scoped to one contact, so it counts as ours. Calling it a stranger would
+    // make the before/after counts that answer questions 3 and 4 unreadable.
+    const key = row?.contact_key;
+    if (key === undefined || known.has(key)) {
+      ours += 1;
+      const id = row?.booking_id ?? row?.id;
+      if (id !== undefined && id !== null) ids.push(String(id));
+    } else {
+      strangers += 1;
+    }
+  }
+
+  return {
+    count: body.length,
+    fields: [...fields],
+    ids: ids.sort(),
+    ours,
+    strangers,
+    notAnArray: false,
+  };
+}
+
+/**
+ * Question 2: what does a booking actually require?
+ *
+ * staff-site#50 asks this only if question 1 fails, and names the candidate
+ * discriminator itself: `GET /events` returns a `free_class` boolean. Comparing
+ * a paid event against a free one is what separates "a membership-less contact
+ * cannot book at all" from "it can book, but only a free class" — and those two
+ * answers change #46's tool in very different ways.
+ *
+ * One attempt cannot answer it, so an unattempted half is `null` rather than a
+ * guess. The ticket asks for a failure here to be flagged loudly, which the
+ * caller can only do if it can tell "no" from "not asked".
+ *
+ * @param {{paid?: object|null, free?: object|null}} outcomes Results of classifyWrite.
+ */
+export function describeBookingRequirement({ paid = null, free = null }) {
+  const ok = sample => sample?.outcome === 'created';
+  const rejected = sample => sample?.outcome === 'rejected';
+
+  if (ok(paid)) {
+    return {
+      requirement: 'none',
+      entitlementNeeded: false,
+      freeClassOnly: false,
+      inconclusive: false,
+      summary: 'a membership-less prospect can be booked into an ordinary paid event',
+    };
+  }
+
+  if (rejected(paid) && ok(free)) {
+    return {
+      requirement: 'free_class',
+      entitlementNeeded: false,
+      freeClassOnly: true,
+      inconclusive: false,
+      summary:
+        'a membership-less prospect can only be booked into an event flagged free_class — ' +
+        'the picker must filter on it',
+    };
+  }
+
+  if (rejected(paid) && rejected(free)) {
+    return {
+      requirement: 'entitlement',
+      entitlementNeeded: true,
+      freeClassOnly: false,
+      inconclusive: false,
+      summary:
+        'a membership-less prospect cannot be booked at all — a membership or plan is required, ' +
+        'which changes the shape of the tool',
+    };
+  }
+
+  // Everything else — a timeout, a 500, or a comparison never run — is not an
+  // answer. Reporting it as one would send someone to re-decide a design over a
+  // dropped packet, which is the trap `schemeCollapses` exists to avoid.
+  return {
+    requirement: null,
+    entitlementNeeded: null,
+    freeClassOnly: null,
+    inconclusive: true,
+    summary:
+      paid === null
+        ? 'no booking was attempted'
+        : 'the attempt did not complete conclusively — re-run before concluding anything',
+  };
+}
+
+/**
+ * Question 3: is booking the same contact into the same event twice idempotent?
+ *
+ * The safety model of #46's tool assumes re-running it against an event cannot
+ * double-book a student. Two outcomes are safe and one is not, and they are
+ * told apart by what the server *did*, not by what it said:
+ *
+ *   - a rejection is safe and explicit;
+ *   - a success that produced no second booking is safe and idempotent;
+ *   - a success that produced a second booking is the dangerous one, and it is
+ *     invisible unless the bookings are counted before and after.
+ *
+ * @param {{second?: object|null, countBefore?: number|null, countAfter?: number|null}} opts
+ */
+export function describeDuplicateBooking({ second = null, countBefore = null, countAfter = null }) {
+  if (second?.outcome === 'rejected') {
+    return {
+      duplicated: false,
+      idempotent: true,
+      rejected: true,
+      inconclusive: false,
+      summary: 'the second booking was rejected — re-running the tool cannot double-book',
+    };
+  }
+
+  if (second?.outcome !== 'created') {
+    return {
+      duplicated: null,
+      idempotent: null,
+      rejected: false,
+      inconclusive: true,
+      summary: 'the second attempt did not complete — it says nothing about idempotency',
+    };
+  }
+
+  if (typeof countBefore !== 'number' || typeof countAfter !== 'number') {
+    // Accepted, but nobody counted. This is exactly the case that must not be
+    // reported as safe: from the response alone, a silent second booking looks
+    // identical to an idempotent one.
+    return {
+      duplicated: null,
+      idempotent: null,
+      rejected: false,
+      inconclusive: true,
+      summary: 'the second booking was accepted but the bookings were not counted — unproven',
+    };
+  }
+
+  const duplicated = countAfter > countBefore;
+  return {
+    duplicated,
+    idempotent: !duplicated,
+    rejected: false,
+    inconclusive: false,
+    summary: duplicated
+      ? `the second booking was accepted AND created another (${countBefore} → ${countAfter}) — ` +
+        're-running the tool double-books'
+      : `the second booking was accepted but created nothing new (${countBefore} → ${countAfter}) — ` +
+        'the server is idempotent',
+  };
+}
+
+/**
+ * Question 4: did `DELETE` actually reverse the booking?
+ *
+ * "HTTP 200" is not the finding. The booking either left the contact's list or
+ * it did not, and only a re-read can say which — so a cancellation is judged on
+ * the count afterwards, and a 2xx with the booking still present is reported as
+ * a failure rather than a success. #46 plans to rely on this to undo a mistaken
+ * bulk booking, so a false "reversible" here is worse than no answer.
+ *
+ * @param {{cancel?: object|null, countBefore?: number|null, countAfter?: number|null}} opts
+ */
+export function describeCancellation({ cancel = null, countBefore = null, countAfter = null }) {
+  if (!cancel || cancel.refused) {
+    return {
+      reversed: null,
+      inconclusive: true,
+      summary: cancel?.refused
+        ? 'the cancellation was refused locally'
+        : 'no cancellation was attempted',
+    };
+  }
+
+  const accepted = typeof cancel.status === 'number' && cancel.status >= 200 && cancel.status < 300;
+
+  if (typeof countBefore !== 'number' || typeof countAfter !== 'number') {
+    return {
+      reversed: null,
+      inconclusive: true,
+      summary: `DELETE answered ${cancel.status ?? 'nothing'}, but the bookings were not re-counted — unproven`,
+    };
+  }
+
+  const gone = countAfter < countBefore;
+
+  if (accepted && gone) {
+    return {
+      reversed: true,
+      inconclusive: false,
+      summary: `DELETE reversed the booking cleanly (${countBefore} → ${countAfter})`,
+    };
+  }
+  if (accepted && !gone) {
+    return {
+      reversed: false,
+      inconclusive: false,
+      summary:
+        `DELETE answered ${cancel.status} but the booking is still there (${countBefore} → ${countAfter}) — ` +
+        'the tool cannot rely on it to undo a mistake',
+    };
+  }
+  return {
+    reversed: false,
+    inconclusive: false,
+    summary:
+      `DELETE was rejected (HTTP ${cancel.status ?? 'n/a'}) — the booking remains and must be ` +
+      'removed by hand',
+  };
+}
+
+/**
+ * Which events a probe may safely be booked into.
+ *
+ * A booking is a real row on a real class that staff see, so the choice of
+ * event is not arbitrary. It must be in the **future**, so nobody is standing
+ * in a gym waiting for a `Ztest`; and it must have **room**, because consuming
+ * the last space would cause #46's own worst case — a school group arriving at
+ * an event with fewer spaces than students.
+ *
+ * Both kinds come back separately because question 2 needs the comparison: an
+ * event flagged `free_class` and an ordinary one.
+ *
+ * @param {unknown} body A `GET /events` response.
+ * @param {{now?: string}} [opts]
+ */
+export function pickBookableEvents(body, { now = new Date().toISOString() } = {}) {
+  if (!Array.isArray(body)) return { free: [], paid: [], skipped: 0 };
+
+  const free = [];
+  const paid = [];
+  let skipped = 0;
+
+  for (const row of body) {
+    const starts = row?.event_start_at ?? null;
+    const roomy = row?.event_full !== true && (row?.spaces_available ?? 0) > 0;
+
+    if (!starts || starts <= now || !roomy) {
+      skipped += 1;
+      continue;
+    }
+
+    // The name travels because a human has to recognise the class they are
+    // about to put a test booking on. An event name is a timetable entry —
+    // nothing here describes a person.
+    const event = {
+      event_id: row.event_id,
+      event_name: row.event_name ?? null,
+      event_start_at: starts,
+      spaces_available: row.spaces_available ?? null,
+      free_class: row.free_class === true,
+    };
+
+    (event.free_class ? free : paid).push(event);
+  }
+
+  const byStart = (a, b) => String(a.event_start_at).localeCompare(String(b.event_start_at));
+  return { free: free.sort(byStart), paid: paid.sort(byStart), skipped };
+}

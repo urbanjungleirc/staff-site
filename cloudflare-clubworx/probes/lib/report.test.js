@@ -11,6 +11,11 @@ import {
   describeIsolation,
   classifyWrite,
   schemeCollapses,
+  summariseBookings,
+  describeBookingRequirement,
+  describeDuplicateBooking,
+  describeCancellation,
+  pickBookableEvents,
 } from './report.mjs';
 
 // What a probe is allowed to write down. Everything here is counts, ids, status
@@ -417,5 +422,202 @@ describe('describeIsolation', () => {
     });
     expect(v.applicable).toBe(true);
     expect(v.isolated).toBe(true);
+  });
+});
+
+describe('summariseBookings', () => {
+  const OURS = 'ck-probe-a';
+
+  it('counts a row with no contact_key as ours, since the query was already scoped', () => {
+    const v = summariseBookings([{ booking_id: 'bk-1' }, { booking_id: 'bk-2' }], [OURS]);
+    expect(v.ours).toBe(2);
+    expect(v.strangers).toBe(0);
+    expect(v.ids).toEqual(['bk-1', 'bk-2']);
+  });
+
+  it('counts a row belonging to somebody else without recording it', () => {
+    // /events ignored contact_key entirely (#51) while the reference called it
+    // required, so a scoped endpoint is not something to take on trust.
+    const v = summariseBookings(
+      [{ booking_id: 'bk-1', contact_key: OURS }, { booking_id: 'bk-9', contact_key: 'ck-real' }],
+      [OURS],
+    );
+    expect(v.ours).toBe(1);
+    expect(v.strangers).toBe(1);
+    expect(v.ids).toEqual(['bk-1']);
+    expect(JSON.stringify(v)).not.toContain('bk-9');
+  });
+
+  it('reports field names without values', () => {
+    const v = summariseBookings([{ booking_id: 'bk-1', event_name: 'Youth Squad' }], [OURS]);
+    expect(v.fields).toContain('event_name');
+    expect(JSON.stringify(v)).not.toContain('Youth Squad');
+  });
+
+  it('survives a non-array body', () => {
+    expect(summariseBookings(null).notAnArray).toBe(true);
+    expect(summariseBookings('<html>').count).toBe(0);
+  });
+});
+
+describe('describeBookingRequirement', () => {
+  const created = { outcome: 'created' };
+  const rejected = { outcome: 'rejected' };
+  const failed = { outcome: 'failed' };
+
+  it('reports no requirement when a paid event accepts a membership-less prospect', () => {
+    const v = describeBookingRequirement({ paid: created });
+    expect(v.requirement).toBe('none');
+    expect(v.entitlementNeeded).toBe(false);
+  });
+
+  it('identifies free_class as the discriminator when paid fails and free succeeds', () => {
+    const v = describeBookingRequirement({ paid: rejected, free: created });
+    expect(v.requirement).toBe('free_class');
+    expect(v.freeClassOnly).toBe(true);
+  });
+
+  it('reports an entitlement requirement when both are rejected — the answer that changes the tool', () => {
+    const v = describeBookingRequirement({ paid: rejected, free: rejected });
+    expect(v.requirement).toBe('entitlement');
+    expect(v.entitlementNeeded).toBe(true);
+  });
+
+  it('will not conclude from a rejected paid event alone', () => {
+    // The free comparison is what separates "cannot book at all" from "free
+    // classes only", and they change #46 in very different ways.
+    const v = describeBookingRequirement({ paid: rejected, free: null });
+    expect(v.inconclusive).toBe(true);
+    expect(v.requirement).toBeNull();
+  });
+
+  it('treats a timeout as no answer rather than as a rejection', () => {
+    const v = describeBookingRequirement({ paid: failed, free: created });
+    expect(v.inconclusive).toBe(true);
+  });
+
+  it('says so when nothing was attempted', () => {
+    expect(describeBookingRequirement({}).summary).toMatch(/no booking was attempted/);
+  });
+});
+
+describe('describeDuplicateBooking', () => {
+  const created = { outcome: 'created' };
+
+  it('reports a rejected second booking as safe', () => {
+    const v = describeDuplicateBooking({ second: { outcome: 'rejected' } });
+    expect(v.rejected).toBe(true);
+    expect(v.idempotent).toBe(true);
+    expect(v.duplicated).toBe(false);
+  });
+
+  it('catches a silent second booking by counting, not by reading the status', () => {
+    // The dangerous case: HTTP 200 both times, and a student booked twice.
+    const v = describeDuplicateBooking({ second: created, countBefore: 1, countAfter: 2 });
+    expect(v.duplicated).toBe(true);
+    expect(v.idempotent).toBe(false);
+    expect(v.summary).toMatch(/double-books/);
+  });
+
+  it('reports an accepted-but-unchanged second booking as idempotent', () => {
+    const v = describeDuplicateBooking({ second: created, countBefore: 1, countAfter: 1 });
+    expect(v.duplicated).toBe(false);
+    expect(v.idempotent).toBe(true);
+  });
+
+  it('refuses to call an uncounted success safe', () => {
+    // From the response alone a silent duplicate is indistinguishable from an
+    // idempotent server, so this must not resolve to `idempotent: true`.
+    const v = describeDuplicateBooking({ second: created });
+    expect(v.inconclusive).toBe(true);
+    expect(v.idempotent).toBeNull();
+  });
+
+  it('says nothing about idempotency when the second attempt did not complete', () => {
+    const v = describeDuplicateBooking({ second: { outcome: 'failed' }, countBefore: 1, countAfter: 1 });
+    expect(v.inconclusive).toBe(true);
+  });
+});
+
+describe('describeCancellation', () => {
+  it('confirms a reversal only when the booking actually left the list', () => {
+    const v = describeCancellation({ cancel: { status: 200 }, countBefore: 1, countAfter: 0 });
+    expect(v.reversed).toBe(true);
+  });
+
+  it('reports a 2xx that changed nothing as a failure, not a success', () => {
+    // #46 plans to rely on DELETE to undo a mistaken bulk booking, so a false
+    // "reversible" is worse than no answer at all.
+    const v = describeCancellation({ cancel: { status: 200 }, countBefore: 1, countAfter: 1 });
+    expect(v.reversed).toBe(false);
+    expect(v.summary).toMatch(/still there/);
+  });
+
+  it('reports a rejected DELETE as a booking that must be removed by hand', () => {
+    const v = describeCancellation({ cancel: { status: 403 }, countBefore: 1, countAfter: 1 });
+    expect(v.reversed).toBe(false);
+    expect(v.summary).toMatch(/removed by hand/);
+  });
+
+  it('will not judge a cancellation nobody re-counted', () => {
+    const v = describeCancellation({ cancel: { status: 200 } });
+    expect(v.inconclusive).toBe(true);
+    expect(v.reversed).toBeNull();
+  });
+
+  it('distinguishes a local refusal from an attempt', () => {
+    expect(describeCancellation({ cancel: { refused: 'nope' } }).summary).toMatch(/refused locally/);
+    expect(describeCancellation({}).summary).toMatch(/no cancellation was attempted/);
+  });
+});
+
+describe('pickBookableEvents', () => {
+  const NOW = '2026-08-18T00:00:00Z';
+  const event = (over = {}) => ({
+    event_id: 1,
+    event_name: 'Open Climb',
+    event_start_at: '2026-08-20T09:00:00Z',
+    spaces_available: 10,
+    event_full: false,
+    free_class: false,
+    ...over,
+  });
+
+  it('separates free events from paid ones, so question 2 has its comparison', () => {
+    const v = pickBookableEvents([event(), event({ event_id: 2, free_class: true })], { now: NOW });
+    expect(v.paid.map(e => e.event_id)).toEqual([1]);
+    expect(v.free.map(e => e.event_id)).toEqual([2]);
+  });
+
+  it('skips events in the past — nobody should be waiting in a gym for a Ztest', () => {
+    const v = pickBookableEvents([event({ event_start_at: '2026-08-01T09:00:00Z' })], { now: NOW });
+    expect(v.paid).toHaveLength(0);
+    expect(v.skipped).toBe(1);
+  });
+
+  it('skips full events and events with no spaces left', () => {
+    // Consuming the last space would cause #46's own worst case: a school group
+    // arriving at an event with fewer spaces than students.
+    const v = pickBookableEvents(
+      [event({ event_full: true }), event({ event_id: 2, spaces_available: 0 })],
+      { now: NOW },
+    );
+    expect(v.paid).toHaveLength(0);
+    expect(v.skipped).toBe(2);
+  });
+
+  it('orders by start time, so the soonest usable event is first', () => {
+    const v = pickBookableEvents(
+      [
+        event({ event_id: 1, event_start_at: '2026-09-01T09:00:00Z' }),
+        event({ event_id: 2, event_start_at: '2026-08-19T09:00:00Z' }),
+      ],
+      { now: NOW },
+    );
+    expect(v.paid.map(e => e.event_id)).toEqual([2, 1]);
+  });
+
+  it('survives a non-array body', () => {
+    expect(pickBookableEvents(null)).toEqual({ free: [], paid: [], skipped: 0 });
   });
 });
