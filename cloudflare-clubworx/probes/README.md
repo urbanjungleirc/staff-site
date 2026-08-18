@@ -8,7 +8,9 @@ only way to learn how it behaves is to ask it, carefully, in production.
 | File | What it answers |
 |---|---|
 | `51-events-and-burst.md` | [#51](https://github.com/urbanjungleirc/staff-site/issues/51) — event listing without a `contact_key`, and rate limits |
-| `run-51.mjs` | The probe that produced it |
+| `run-51.mjs` | The probe that produced it — read-only |
+| `49-plus-addressed-duplicates.md` | [#49](https://github.com/urbanjungleirc/staff-site/issues/49) — plus-addressed `noreply@`, duplicate emails, and whether a tag isolates a school |
+| `run-49.mjs` | The probe that produced it — **writes** |
 
 Access, authorisation and the key's whereabouts: `../ACCESS.md`.
 
@@ -26,8 +28,16 @@ node probes/run-51.mjs --calibrate   # find the ceiling, then verify a pace (~5 
 node probes/run-51.mjs --walls=3     # measure the ceiling repeatedly
 node probes/run-51.mjs --pace-per-min=96   # is this rate sustainable?
 
+node probes/run-49.mjs --dry-run     # the plan and every request, zero network
+node probes/run-49.mjs               # read-only: search, then the isolation reads
+node probes/run-49.mjs --write       # ⚠️ creates up to 3 PERMANENT contacts
+
 npm test                             # the pure logic, no network
 ```
+
+`--dev-vars=<path>` points either probe at a key outside the package — a git
+worktree, for instance, where `.dev.vars` is gitignored and so does not follow
+the checkout.
 
 Runs write a JSON summary to `probes/out/`, which is gitignored.
 
@@ -35,11 +45,22 @@ Runs write a JSON summary to `probes/out/`, which is gitignored.
 
 Every one of them is a consequence of *production, public repo, no sandbox*.
 
-- **Read-only unless the ticket says otherwise.** `lib/http.mjs` is the only way
-  out to Clubworx and it can only issue GET. #51 needed nothing else. The write
-  probes (#49, #50) are separately authorised in ACCESS.md section 4 and must
-  reuse the one agreed test identity, because Clubworx **cannot delete contacts
-  through the API** — every contact a probe creates is permanent.
+- **Read-only unless the ticket says otherwise.** There are two ways out to
+  Clubworx and they are separate files on purpose. `lib/http.mjs` issues GET and
+  nothing else, so a probe that imports only it *cannot* write — that is a
+  property of the script, not a claim about it. Creating anything means reaching
+  for `lib/write.mjs` deliberately.
+- **Two controls in front of every write**, because Clubworx **cannot delete
+  contacts through the API** and there is no sandbox. `createPoster` is inert
+  unless `live` is explicitly true, so a forgotten flag costs nothing; and every
+  contact must pass `lib/identity.mjs`'s guard *before* the network is touched,
+  so a write under anything resembling a real name is refused rather than
+  reported afterwards. Write probes are authorised in ACCESS.md section 4, and
+  the identity set there is the whole blast radius.
+- **A write probe must search first and reuse what it finds.** Re-running one
+  should cost nothing permanent. `planContacts` is what makes that true, and it
+  matches on surname *and* email — a stranger who happens to share the probe
+  address is not the probe's record.
 - **Never record a row of production data.** Responses are reduced to counts,
   ids, field names and timings by `lib/report.mjs` before anything is printed or
   written. Clubworx holds ~60,000 real people and this repo is public and
@@ -61,8 +82,13 @@ Every one of them is a consequence of *production, public repo, no sandbox*.
 ```
 lib/request.mjs   URL building and redaction        (unit tested)
 lib/report.mjs    response → publishable summary    (unit tested)
-lib/http.mjs      the only path to Clubworx: GET    (unit tested)
-run-51.mjs        the #51 probe itself
+lib/key.mjs       where the live key comes from     (unit tested)
+lib/http.mjs      the read path to Clubworx: GET    (unit tested)
+lib/write.mjs     the write path: POST, guarded     (unit tested)
+lib/identity.mjs  who a write may be, and what to   (unit tested)
+                  create given what already exists
+run-51.mjs        the #51 probe itself — read-only
+run-49.mjs        the #49 probe itself — writes
 ```
 
 The libraries are tested and the runner is not. That split is deliberate: the

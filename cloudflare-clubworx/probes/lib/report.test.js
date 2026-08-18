@@ -7,6 +7,10 @@ import {
   sameIds,
   deriveRateLimit,
   recommendPacing,
+  summariseContacts,
+  describeIsolation,
+  classifyWrite,
+  schemeCollapses,
 } from './report.mjs';
 
 // What a probe is allowed to write down. Everything here is counts, ids, status
@@ -218,5 +222,200 @@ describe('recommendPacing', () => {
   it('states what a 90-read lookup would cost at that pace', () => {
     const p = recommendPacing({ allowed: 60, windowMs: 60_000, reads: 90 });
     expect(p.estimatedMsFor).toBe(90 * 1250);
+  });
+});
+
+describe('summariseContacts', () => {
+  // staff-site#49 searches on a partial email, so the responses it summarises
+  // contain whoever else happens to match — real people, in a public repo's
+  // probe output. Only counts, field names, and keys this probe already knows
+  // may survive this function.
+  const ours = ['ck-a', 'ck-b'];
+  const body = [
+    { contact_key: 'ck-a', first_name: 'Ztest', last_name: 'Wayfinder', email: 'noreply+wayfindertest@urbanjungleirc.com' },
+    { contact_key: 'ck-real', first_name: 'Katie', last_name: 'Fernsby', email: 'parent@example.com' },
+  ];
+
+  it('records no row of production data, whatever came back', () => {
+    const json = JSON.stringify(summariseContacts(body, ours));
+    expect(json).not.toContain('Katie');
+    expect(json).not.toContain('Fernsby');
+    expect(json).not.toContain('parent@example.com');
+    expect(json).not.toContain('ck-real');
+  });
+
+  it('counts everything returned, including rows it may not describe', () => {
+    // The count is the answer to "does a partial email match?", so it must
+    // include strangers even though their details cannot be written down.
+    expect(summariseContacts(body, ours).count).toBe(2);
+  });
+
+  it('names which of our own contacts came back', () => {
+    expect(summariseContacts(body, ours).ours).toEqual(['ck-a']);
+  });
+
+  it('counts the rest as strangers without identifying them', () => {
+    expect(summariseContacts(body, ours).strangers).toBe(1);
+  });
+
+  it('lists the field names, which are schema and not data', () => {
+    expect(summariseContacts(body, ours).fields).toContain('contact_key');
+  });
+
+  it('flags a body that is not a list rather than pretending it was empty', () => {
+    // A 422 or a throttle answers with an object or HTML. "0 contacts" and
+    // "the request failed" are different answers to question 3.
+    expect(summariseContacts({ error: 'nope' }, ours).notAnArray).toBe(true);
+    expect(summariseContacts(null, ours).count).toBe(0);
+  });
+});
+
+describe('classifyWrite', () => {
+  // Two questions about a write that are not the same question: did a contact
+  // come into existence, and did the server tell us why not. Clubworx cannot
+  // delete contacts through the API, so "might exist" has to be treated as
+  // "exists" — the cleanup list is the only record anyone gets.
+
+  it('treats a 2xx as created', () => {
+    const v = classifyWrite({ status: 200 });
+    expect(v.outcome).toBe('created');
+    expect(v.mayExist).toBe(true);
+    expect(v.conclusive).toBe(true);
+  });
+
+  it('accepts any 2xx, not just 201', () => {
+    // Clubworx answers 200 on create. A client checking for 201 would read
+    // every successful write as a failure.
+    expect(classifyWrite({ status: 201 }).outcome).toBe('created');
+    expect(classifyWrite({ status: 200 }).outcome).toBe('created');
+  });
+
+  it('treats a 4xx as a conclusive rejection that created nothing', () => {
+    const v = classifyWrite({ status: 422 });
+    expect(v.outcome).toBe('rejected');
+    expect(v.mayExist).toBe(false);
+    expect(v.conclusive).toBe(true);
+  });
+
+  it('treats a transport failure as "may exist", never as a rejection', () => {
+    // The request may have been honoured and the response lost. This is the
+    // one case where a permanent contact exists and nobody has its key.
+    const v = classifyWrite({ status: null, error: 'ECONNRESET' });
+    expect(v.outcome).toBe('failed');
+    expect(v.mayExist).toBe(true);
+    expect(v.conclusive).toBe(false);
+  });
+
+  it('treats a 5xx as "may exist" too', () => {
+    const v = classifyWrite({ status: 500 });
+    expect(v.mayExist).toBe(true);
+    expect(v.conclusive).toBe(false);
+  });
+
+  it('treats a local identity refusal as nothing having been sent', () => {
+    const v = classifyWrite({ status: null, refused: 'not Ztest' });
+    expect(v.outcome).toBe('refused');
+    expect(v.mayExist).toBe(false);
+    expect(v.conclusive).toBe(false);
+  });
+});
+
+describe('schemeCollapses', () => {
+  // #49: "If plus-addressing is rejected, or email turns out to be
+  // unique-constrained, the marking decision COLLAPSES ... Say so explicitly
+  // rather than inventing a workaround." Only a conclusive rejection means
+  // that. A timeout means try again, and saying "collapsed" to a timeout
+  // invents the very conclusion the ticket asked to be stated only when true.
+  const rejected = { outcome: 'rejected', conclusive: true };
+  const failed = { outcome: 'failed', conclusive: false };
+  const created = { outcome: 'created', conclusive: true };
+
+  it('does not collapse when both writes were accepted', () => {
+    expect(schemeCollapses({ plus: created, duplicate: created }).collapsed).toBe(false);
+  });
+
+  it('collapses when the plus-addressed write was rejected', () => {
+    const v = schemeCollapses({ plus: rejected, duplicate: null });
+    expect(v.collapsed).toBe(true);
+    expect(v.reason).toMatch(/plus/i);
+  });
+
+  it('collapses when a duplicate email was rejected', () => {
+    const v = schemeCollapses({ plus: created, duplicate: rejected });
+    expect(v.collapsed).toBe(true);
+    expect(v.reason).toMatch(/unique/i);
+  });
+
+  it('does NOT collapse on a timeout or a server error', () => {
+    expect(schemeCollapses({ plus: created, duplicate: failed }).collapsed).toBe(false);
+    expect(schemeCollapses({ plus: failed, duplicate: null }).collapsed).toBe(false);
+  });
+
+  it('reports inconclusive rather than pretending a failure was an answer', () => {
+    const v = schemeCollapses({ plus: created, duplicate: failed });
+    expect(v.inconclusive).toBe(true);
+  });
+
+  it('is neither collapsed nor inconclusive when nothing was attempted', () => {
+    // A re-run creates nothing because the contacts already exist. That is not
+    // an inconclusive result, it is a run with no writes in it.
+    const v = schemeCollapses({ plus: null, duplicate: null });
+    expect(v.collapsed).toBe(false);
+    expect(v.inconclusive).toBe(false);
+  });
+});
+
+describe('describeIsolation', () => {
+  // Question 3: does email=noreply+<tag> isolate one school, or does it return
+  // every noreply+ contact? The whole school-marking scheme rests on this.
+  it('confirms isolation when a tag returns its own contacts and no others', () => {
+    const v = describeIsolation({ returned: ['ck-a', 'ck-b'], expected: ['ck-a', 'ck-b'], excluded: ['ck-c'] });
+    expect(v.isolated).toBe(true);
+    expect(v.missing).toEqual([]);
+    expect(v.crossTag).toEqual([]);
+  });
+
+  it('reports a tag that leaks contacts belonging to another tag', () => {
+    const v = describeIsolation({ returned: ['ck-a', 'ck-b', 'ck-c'], expected: ['ck-a', 'ck-b'], excluded: ['ck-c'] });
+    expect(v.isolated).toBe(false);
+    expect(v.crossTag).toEqual(['ck-c']);
+  });
+
+  it('reports a tag that fails to return its own contacts', () => {
+    // Just as fatal as leaking, and a different failure: the marker would not
+    // find the school it marked.
+    const v = describeIsolation({ returned: ['ck-a'], expected: ['ck-a', 'ck-b'], excluded: ['ck-c'] });
+    expect(v.isolated).toBe(false);
+    expect(v.missing).toEqual(['ck-b']);
+  });
+
+  it('is not isolated when nothing came back at all', () => {
+    const v = describeIsolation({ returned: [], expected: ['ck-a'], excluded: [] });
+    expect(v.isolated).toBe(false);
+  });
+
+  it('says "not applicable" when the endpoint holds none of our contacts', () => {
+    // A contact created as a prospect does not appear under /members at all.
+    // Reporting that as an isolation failure blames the search for the contact
+    // type being elsewhere — and #49's answer would read as a broken marker.
+    const v = describeIsolation({
+      returned: [],
+      expected: ['ck-a'],
+      excluded: [],
+      endpointHoldsOurs: false,
+    });
+    expect(v.applicable).toBe(false);
+    expect(v.isolated).toBeNull();
+  });
+
+  it('still judges isolation on an endpoint that does hold our contacts', () => {
+    const v = describeIsolation({
+      returned: ['ck-a'],
+      expected: ['ck-a'],
+      excluded: ['ck-c'],
+      endpointHoldsOurs: true,
+    });
+    expect(v.applicable).toBe(true);
+    expect(v.isolated).toBe(true);
   });
 });

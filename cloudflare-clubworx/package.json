@@ -4,7 +4,8 @@
   "type": "module",
   "scripts": {
     "test": "vitest run",
-    "probe:51": "node probes/run-51.mjs"
+    "probe:51": "node probes/run-51.mjs",
+    "probe:49": "node probes/run-49.mjs"
   },
   "devDependencies": {
     "vitest": "^2.1.0"

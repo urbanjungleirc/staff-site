@@ -21,11 +21,12 @@
  * staff-site is a public repo and Clubworx holds ~60,000 real people.
  */
 
-import { readFileSync, writeFileSync, mkdirSync } from 'node:fs';
+import { writeFileSync, mkdirSync } from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 import { createGetter } from './lib/http.mjs';
+import { loadAccountKey } from './lib/key.mjs';
 import {
   summariseBurst,
   summariseEvents,
@@ -62,25 +63,11 @@ const perthDate = offsetDays => {
   return new Intl.DateTimeFormat('en-CA', { timeZone: 'Australia/Perth' }).format(d);
 };
 
-function loadAccountKey() {
-  const devVars = path.join(HERE, '..', '.dev.vars');
-  let text;
-  try {
-    text = readFileSync(devVars, 'utf8');
-  } catch {
-    throw new Error(`No .dev.vars at ${devVars}. Copy .dev.vars.example and fill it in — see ACCESS.md.`);
-  }
-  const key = text
-    .split('\n')
-    .find(line => line.trim().startsWith('CLUBWORX_ACCOUNT_KEY='))
-    ?.split('=')
-    .slice(1)
-    .join('=')
-    .trim();
-
-  if (!key) throw new Error('CLUBWORX_ACCOUNT_KEY is missing or empty in .dev.vars');
-  return key;
-}
+/** Points at a key outside the package — a git worktree, where .dev.vars is
+ * gitignored and so does not follow the checkout. */
+const DEV_VARS =
+  args.find(a => a.startsWith('--dev-vars='))?.split('=').slice(1).join('=') ||
+  path.join(HERE, '..', '.dev.vars');
 
 /** Run thunks with a bounded number in flight, preserving result order. */
 async function pool(thunks, concurrency) {
@@ -346,7 +333,7 @@ async function verifyPace(get, pacing) {
 }
 
 async function main() {
-  const accountKey = loadAccountKey();
+  const accountKey = loadAccountKey(DEV_VARS);
   const get = createGetter({ accountKey });
 
   if (DRY_RUN) {
