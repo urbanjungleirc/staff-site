@@ -23,6 +23,10 @@ cloudflare-clubworx/probes/ - read-only probes against the live Clubworx API, an
                           what they found. Start with probes/README.md — it carries
                           the rules (no production data recorded, pace under
                           75 req/min) that any new probe has to follow.
+school-booking/parse.js - turns a pasted school student list into rows plus the
+                          list-level inferences (layout, column mapping, date
+                          orientation). Pure and unit tested; §7 of the design
+                          spec. Nothing imports it yet — see #64/#71.
 vouchers/               - voucher management portal (auth = Cloudflare Access)
 vouchers/stats.html     - voucher analytics: revenue, liability, redemption, product mix
 vouchers/unsubscribes.html - who is not receiving automatic voucher emails, and why
