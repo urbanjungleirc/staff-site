@@ -27,6 +27,12 @@ school-booking/parse.js - turns a pasted school student list into rows plus the
                           list-level inferences (layout, column mapping, date
                           orientation). Pure and unit tested; §7 of the design
                           spec. Nothing imports it yet — see #64/#71.
+school-booking/identity.js - the matching rule: surname + DOB narrows, first name
+                          breaks ties, variance is surfaced never merged. §5 of
+                          the design spec. Imports write/compare form from
+                          parse.js rather than restating them — two copies of
+                          that table drift, and the drift writes a second
+                          permanent contact in silence. Fetches nothing.
 vouchers/               - voucher management portal (auth = Cloudflare Access)
 vouchers/stats.html     - voucher analytics: revenue, liability, redemption, product mix
 vouchers/unsubscribes.html - who is not receiving automatic voucher emails, and why
