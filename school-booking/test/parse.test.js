@@ -695,15 +695,40 @@ describe('P10 — write form and compare form, kept apart', () => {
     expect(writeForm('Nguyễn')).toBe('Nguyễn');
   });
 
-  test('folding is limited to Latin marks, because elsewhere they are letters', () => {
-    // `\p{M}` would have been the obvious rule and is the wrong one: in an
-    // abugida the vowel signs are marks, so stripping them deletes letters and
-    // can collapse two different children onto one compare form. A false match
-    // is worse than a missed one — it attaches a pass and bookings to the wrong
-    // child, where a miss only creates a duplicate contact.
+  test('folding reaches only marks on a Latin base letter', () => {
+    // `\p{M}` would have been the obvious rule and is the wrong one: in an abugida
+    // the vowel signs are marks, so stripping them deletes letters —
+    // `प्रिया` becomes `परय` — and can collapse two different children onto one
+    // compare form. A false match is worse than a missed one: it attaches a pass
+    // and bookings to the wrong child, where a miss only creates a duplicate.
     expect(compareForm('สมชาย')).toBe('สมชาย');
     expect(compareForm('प्रिया')).toBe('प्रिया');
     expect(compareForm('김민준')).toBe('김민준');
+  });
+
+  test('Cyrillic is left alone, because there the marks make different letters', () => {
+    // The combining-diacritics block is script-neutral, so an ungated rule folds
+    // `й` onto `и` and `ё` onto `е`. Those are separate letters of the Russian
+    // alphabet, not accented spellings of one — Андрей and Андреи are two names.
+    // This is why the regex requires a Latin base letter rather than trusting the
+    // block to mean "accent".
+    expect(compareForm('Андрей')).not.toBe(compareForm('Андреи'));
+    expect(compareForm('Алёна')).not.toBe(compareForm('Алена'));
+  });
+
+  test('Vietnamese tone marks DO fold — an accepted trade, not an oversight', () => {
+    // Vietnamese is Latin script, so the rule reaches it and `Lê`, `Lệ` and `Lễ`
+    // share one compare form even though they are different names. Pinned here so
+    // the cost is visible rather than discovered.
+    //
+    // Accepted because this is the case #80 was filed about — a school types
+    // `Nguyen`, the contact record says `Nguyễn`, and the student silently gets a
+    // second permanent contact. The false match it risks additionally needs the
+    // surname, the birthday *and* the first name to coincide; the miss it
+    // prevents needs none of that and happens on ordinary lists.
+    expect(compareForm('Nguyễn')).toBe('nguyen');
+    expect(compareForm('Lê')).toBe(compareForm('Lệ'));
+    expect(compareForm('Đặng')).toBe(compareForm('Đăng'));
   });
 
   test('#80 reaches in-paste dedup too: one child spelled two ways collapses', () => {

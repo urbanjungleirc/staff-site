@@ -466,13 +466,25 @@ accents are never stripped.
 case-folded, with apostrophes, hyphens and spaces removed, and **Latin accents
 folded** — `Fernández` matches `Fernandez` (#80).
 
-Accent folding is deliberately limited to Latin combining marks, not all of
-`\p{M}`. In an abugida the vowel signs are marks too, so the wider rule deletes
-letters rather than accents and can collapse two different children onto one
-compare form. A false match is the worse failure: it attaches a pass and bookings
-to the wrong child, where a miss only creates a duplicate contact. A letter
-carrying its stroke inside itself does not decompose and so is not folded —
-`Wałęsa` matches `Wałesa`, not `Walesa`.
+Precisely: a combining mark (U+0300–U+036F) is dropped **only when it sits on a
+Latin base letter**. Two narrowings, both because a false match is the worse
+failure — it attaches a pass and bookings to the wrong child, where a miss only
+creates a duplicate contact:
+
+- **Not all of `\p{M}`.** In an abugida the vowel signs are marks too, so the
+  wider rule deletes letters rather than accents — `प्रिया` becomes `परय`.
+- **Not marks on a non-Latin base.** The combining-diacritics block is
+  script-neutral; ungated it folds Cyrillic `й` onto `и` and `ё` onto `е`, which
+  are separate letters of that alphabet. `Андрей` and `Андреи` are two names.
+
+Two limits worth knowing, both deliberate:
+
+- **Vietnamese folds**, because it is Latin script: `Lê`, `Lệ` and `Lễ` share one
+  compare form. Accepted, since this is the case #80 was filed about, and a false
+  match needs the surname, birthday and first name to coincide as well.
+- **A letter carrying its stroke inside itself never folds**, because it does not
+  decompose: `Wałęsa` matches `Wałesa`, not `Walesa`. Reaching those needs a
+  transliteration table, not mark-stripping — #83.
 
 The split is load-bearing — it is what lets `O'Brien` match `OBrien`, and
 `Fernandez` match `Fernández`, without ever *writing* the second spelling into a
