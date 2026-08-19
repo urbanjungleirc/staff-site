@@ -49,9 +49,11 @@ jobs:
 
       - uses: actions/setup-node@v7
         with:
-          # The Node that runs version.mjs. A different knob from the action's
-          # own runtime, and untouched by the bump that fixed #82.
-          node-version: '20'
+          # The Node that runs version.mjs — a different knob from the action's
+          # own runtime, which #82 moved to 24. 20 left LTS in April 2026.
+          # version.mjs needs 20.11 or newer for `import.meta.dirname`, so this
+          # can move up but not back down.
+          node-version: '22'
 
       - name: Generate the voucher hub build version
         # The generator cannot throw, but the step around it can: if node were
