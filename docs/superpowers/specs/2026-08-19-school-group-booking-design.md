@@ -343,6 +343,16 @@ output they cannot be shown, confirmed, or tested.
 `new` / `matched` / `name variant` / `ambiguous` / `already booked` require a
 Clubworx read. §9's table gives each its own column for exactly this reason.
 
+**Amended on #65: `unmatchable` is a sixth match state.** A row missing either
+half of the identity key — surname or DOB — concludes nothing however many
+candidates come back, and the five above have no way to say so. The parser holds
+both shapes at `needs-confirmation` and step 4's gates should stop them, so this
+is the second line of defence; it exists because the first line failing silently
+costs a write that cannot be undone. Calling such a row `new` creates a permanent
+contact with no DOB, which then poisons the surname + DOB key for every later
+term; matching a surname-less row picks whichever contact shares the birthday.
+§9's `CLUBWORX` column must render it.
+
 **P10 — Two normalisations, kept apart.**
 
 | | Rules |

@@ -502,6 +502,14 @@ Distinct from the **match** states — `new`, `matched`, `name variant`,
 `ambiguous`, `already booked` — which all require a Clubworx read and belong to
 the review table.
 
+`unmatchable` joined the match states on #65: a row missing either half of the
+identity key — **surname or DOB** — concludes nothing, however many candidates
+come back. It is not an error state and not `new`. Calling such a row `new` is
+what creates a permanent contact with no DOB, which then poisons the surname +
+DOB key for every later term; matching a surname-less row picks whichever contact
+happens to share the birthday. The parser holds both shapes at
+`needs-confirmation`, so this is the second line of defence, not the first.
+
 *Avoid*: mixing the two lists. Only the first exists before a single request is
 sent.
 

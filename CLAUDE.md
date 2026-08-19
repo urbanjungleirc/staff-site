@@ -29,10 +29,9 @@ school-booking/parse.js - turns a pasted school student list into rows plus the
                           spec. Nothing imports it yet — see #64/#71.
 school-booking/identity.js - the matching rule: surname + DOB narrows, first name
                           breaks ties, variance is surfaced never merged. §5 of
-                          the design spec. Imports write/compare form from
-                          parse.js rather than restating them — two copies of
-                          that table drift, and the drift writes a second
-                          permanent contact in silence. Fetches nothing.
+                          the design spec. Imports the two name forms from
+                          parse.js rather than restating them — the header there
+                          says what a second copy costs. Fetches nothing.
 vouchers/               - voucher management portal (auth = Cloudflare Access)
 vouchers/stats.html     - voucher analytics: revenue, liability, redemption, product mix
 vouchers/unsubscribes.html - who is not receiving automatic voucher emails, and why

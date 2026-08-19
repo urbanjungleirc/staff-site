@@ -75,19 +75,23 @@ describe('first-name variance is surfaced, never auto-merged', () => {
     expect(match.candidates.map((c) => c.contact_key)).toEqual(['k-3']);
   });
 
-  test('a preferred-name column changes why it is a variant, never whether', () => {
+  test('a preferred-name column says the mismatch was expected, never that it is fine', () => {
     const row = student('Katie', 'Fernsby', '2010-04-23');
     const candidates = [contact('Katherine', 'Fernsby', '2010-04-23')];
 
     const plain = matchStudent(row, candidates);
     const preferred = matchStudent(row, candidates, { firstNameIsPreferred: true });
 
+    // Same state and same reason: what happened is identical, and it is still not
+    // accepted for anyone.
     expect(preferred.state).toBe('name-variant');
-    expect(plain.reason).toBe('first-name-differs');
+    expect(preferred.reason).toBe('first-name-differs');
+    expect(preferred.contact).toBe(null);
     // The school's own header called the column a preferred name, so a mismatch
-    // here is the expected outcome of a correct match — the operator should be
-    // told that rather than shown a bare "different name".
-    expect(preferred.reason).toBe('preferred-name-column');
+    // here is the expected outcome of a correct match. That is a second fact, not
+    // a different reason — the operator needs both to word the decision.
+    expect(plain.firstNameIsPreferred).toBe(false);
+    expect(preferred.firstNameIsPreferred).toBe(true);
   });
 });
 
@@ -118,7 +122,9 @@ describe('twins: the case the first-name tie-breaker exists for', () => {
     expect(match.candidates).toHaveLength(2);
   });
 
-  test('a nickname column against twins says the tie-breaker was the weak one', () => {
+  test('a nickname column against twins keeps both facts: no name match, and expected', () => {
+    // This is where the tie-breaker is weakest — two children, and the only field
+    // that separates them is the one the school replaced with a nickname.
     const match = matchStudent(
       student('Katie', 'Fernsby', '2010-04-23'),
       [
@@ -128,7 +134,8 @@ describe('twins: the case the first-name tie-breaker exists for', () => {
       { firstNameIsPreferred: true }
     );
     expect(match.state).toBe('ambiguous');
-    expect(match.reason).toBe('preferred-name-column');
+    expect(match.reason).toBe('no-first-name-match');
+    expect(match.firstNameIsPreferred).toBe(true);
   });
 });
 
@@ -161,6 +168,17 @@ describe('the DOB gaps, both of which would otherwise end in a duplicate contact
     expect(match.contact).toBe(null);
   });
 
+  test('a row with no surname is `unmatchable` too — DOB alone is not an identity', () => {
+    // `parse.js` emits an empty surname for an unsplittable single-token name and
+    // holds the row at needs-confirmation. If one ever reaches here, matching on
+    // the birthday alone would pick whichever contact shares it.
+    const match = matchStudent(student('Otto', '', '2010-04-23'), [
+      contact('Otto', '', '2010-04-23'),
+    ]);
+    expect(match.state).toBe('unmatchable');
+    expect(match.reason).toBe('no-surname');
+  });
+
   test('a same-name candidate with no DOB recorded is `ambiguous`, never `new`', () => {
     // Contacts created by hand often carry no DOB, and a list response is not
     // guaranteed to fill it (probes/lib/identity.mjs). Discarding the row would
@@ -172,6 +190,19 @@ describe('the DOB gaps, both of which would otherwise end in a duplicate contact
     expect(match.state).toBe('ambiguous');
     expect(match.reason).toBe('candidate-dob-unknown');
     expect(match.candidates.map((c) => c.contact_key)).toEqual(['k-nodob']);
+  });
+
+  test('a confirmed candidate beside a DOB-less twin of itself still matches', () => {
+    // The asymmetry is deliberate: the blank-DOB rule exists to stop this tool
+    // creating a second contact, and here it creates nothing. Reusing the
+    // better-identified record is the safe outcome, so this stays a match rather
+    // than becoming a question the operator cannot usefully answer.
+    const match = matchStudent(student('Katie', 'Fernsby', '2010-04-23'), [
+      contact('Katie', 'Fernsby', '2010-04-23', 'k-with-dob'),
+      contact('Katie', 'Fernsby', null, 'k-without-dob'),
+    ]);
+    expect(match.state).toBe('matched');
+    expect(match.contact.contact_key).toBe('k-with-dob');
   });
 
   test('a DOB-less candidate with a different first name is not a candidate at all', () => {
@@ -211,12 +242,44 @@ describe('P10 — the imported normalisation, and what it buys the match', () =>
   test('write form keeps case and accents, and repairs what a Word export brings', () => {
     expect(writeForm('MacTAVISH')).toBe('MacTAVISH');
     expect(writeForm('Zoë')).toBe('Zoë');
-    // NBSP, zero-width joiner, BOM, curly apostrophe, non-breaking hyphen.
-    expect(writeForm('Zoë O’Brien')).toBe("Zoë O'Brien");
+    // The invisible ones are written as escapes on purpose. A literal U+00A0 in
+    // this file is indistinguishable from a plain space on screen, and an editor
+    // that helpfully normalises it leaves a test that asserts nothing while its
+    // comment still claims NBSP coverage.
+    expect(writeForm('Zoë Van Dermeer')).toBe('Zoë Van Dermeer');
     expect(writeForm('Fern​sby﻿')).toBe('Fernsby');
+    expect(writeForm('﻿Katie')).toBe('Katie');
+    // These two are legible as themselves: U+2019 curly apostrophe, U+2011
+    // non-breaking hyphen — both expected input from the Word-exported list.
+    expect(writeForm('Zoë O’Brien')).toBe("Zoë O'Brien");
     expect(writeForm('Quarrey‑Blake')).toBe('Quarrey-Blake');
-    // Folded only in compare form, never on the way to a permanent record.
+    // Case is folded only in compare form, never on the way to a permanent record.
     expect(compareForm('MacTAVISH')).toBe('mactavish');
+  });
+
+  test('compare form does NOT fold accents, and the surname is where that bites', () => {
+    // Pinned deliberately, because it is a gap rather than a decision. P10's table
+    // folds case and removes apostrophes, hyphens and spaces; it says nothing about
+    // accents. Changing that means changing P10 and parse.js, not this module — so
+    // it is #80, and this test changes with whatever #80 decides.
+    expect(compareForm('Zoë')).not.toBe(compareForm('Zoe'));
+    expect(compareForm('Fernández')).not.toBe(compareForm('Fernandez'));
+
+    // In the *first* name the gap is survivable: surname and DOB still narrow, so
+    // it lands in front of a human as a variant.
+    const firstNameAccent = matchStudent(student('Zoe', 'Van Dermeer', '2010-04-23'), [
+      contact('Zoë', 'Van Dermeer', '2010-04-23'),
+    ]);
+    expect(firstNameAccent.state).toBe('name-variant');
+
+    // In the *surname* it is the silent one, and this is the hazard worth filing:
+    // the candidate never narrows, so an existing student reports as `new` and
+    // earns a second permanent contact with nobody asked. Same failure the
+    // O'Brien rule exists to prevent, one character along.
+    const surnameAccent = matchStudent(student('Ana', 'Fernandez', '2010-04-23'), [
+      contact('Ana', 'Fernández', '2010-04-23'),
+    ]);
+    expect(surnameAccent.state).toBe('new');
   });
 
   test('a contact stored with a curly apostrophe still matches a straight-typed paste', () => {
@@ -289,10 +352,20 @@ describe('the handoff from the parser', () => {
     );
     expect(parsed.columns.firstNameIsPreferred).toBe(true);
 
-    const match = matchStudent(parsed.records[0], [contact('Katherine', 'Fernsby', '2010-04-23')], {
-      firstNameIsPreferred: parsed.columns.firstNameIsPreferred,
-    });
+    // The parser's whole `columns` object goes through, so there is no boolean to
+    // forget copying.
+    const match = matchStudent(
+      parsed.records[0],
+      [contact('Katherine', 'Fernsby', '2010-04-23')],
+      parsed.columns
+    );
     expect(match.state).toBe('name-variant');
-    expect(match.reason).toBe('preferred-name-column');
+    expect(match.firstNameIsPreferred).toBe(true);
+  });
+
+  test('a parser refusal path hands over a null columns object without throwing', () => {
+    const match = matchStudent(student('Katie', 'Fernsby', '2010-04-23'), [], null);
+    expect(match.state).toBe('new');
+    expect(match.firstNameIsPreferred).toBe(false);
   });
 });
