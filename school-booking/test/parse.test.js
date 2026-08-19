@@ -675,6 +675,91 @@ describe('P10 — write form and compare form, kept apart', () => {
     expect(compareForm('Van Dermeer')).toBe('vandermeer');
   });
 
+  // #80. The accent is the same class of variance as the apostrophe: one list
+  // types it, one contact record does not, and in a *surname* the mismatch is
+  // silent — the candidate never narrows, an existing student reports `new`, and
+  // a second permanent contact is written with nobody asked.
+  test('compare form folds accents, so Fernandez matches Fernández', () => {
+    expect(compareForm('Fernández')).toBe('fernandez');
+    expect(compareForm('Fernandez')).toBe('fernandez');
+    expect(compareForm('Zoë')).toBe('zoe');
+    expect(compareForm('Nguyễn')).toBe('nguyen');
+    // Decomposed and precomposed spellings of one name agree, which is what
+    // makes this safe to apply to input pasted from anywhere.
+    expect(compareForm('Fernández'.normalize('NFD'))).toBe('fernandez');
+  });
+
+  test('write form still never strips an accent — the split is the point', () => {
+    expect(writeForm('Fernández')).toBe('Fernández');
+    expect(writeForm('Zoë')).toBe('Zoë');
+    expect(writeForm('Nguyễn')).toBe('Nguyễn');
+  });
+
+  test('folding reaches only marks on a Latin base letter', () => {
+    // `\p{M}` would have been the obvious rule and is the wrong one: in an abugida
+    // the vowel signs are marks, so stripping them deletes letters —
+    // `प्रिया` becomes `परय` — and can collapse two different children onto one
+    // compare form. A false match is worse than a missed one: it attaches a pass
+    // and bookings to the wrong child, where a miss only creates a duplicate.
+    expect(compareForm('สมชาย')).toBe('สมชาย');
+    expect(compareForm('प्रिया')).toBe('प्रिया');
+    expect(compareForm('김민준')).toBe('김민준');
+  });
+
+  test('Cyrillic is left alone, because there the marks make different letters', () => {
+    // The combining-diacritics block is script-neutral, so an ungated rule folds
+    // `й` onto `и` and `ё` onto `е`. Those are separate letters of the Russian
+    // alphabet, not accented spellings of one — Андрей and Андреи are two names.
+    // This is why the regex requires a Latin base letter rather than trusting the
+    // block to mean "accent".
+    expect(compareForm('Андрей')).not.toBe(compareForm('Андреи'));
+    expect(compareForm('Алёна')).not.toBe(compareForm('Алена'));
+  });
+
+  test('Vietnamese tone marks DO fold — an accepted trade, not an oversight', () => {
+    // Vietnamese is Latin script, so the rule reaches it and `Lê`, `Lệ` and `Lễ`
+    // share one compare form even though they are different names. Pinned here so
+    // the cost is visible rather than discovered.
+    //
+    // Accepted because this is the case #80 was filed about — a school types
+    // `Nguyen`, the contact record says `Nguyễn`, and the student silently gets a
+    // second permanent contact. The false match it risks additionally needs the
+    // surname, the birthday *and* the first name to coincide; the miss it
+    // prevents needs none of that and happens on ordinary lists.
+    expect(compareForm('Nguyễn')).toBe('nguyen');
+    expect(compareForm('Lê')).toBe(compareForm('Lệ'));
+    expect(compareForm('Đặng')).toBe(compareForm('Đăng'));
+  });
+
+  test('#80 reaches in-paste dedup too: one child spelled two ways collapses', () => {
+    // compare form drives P14 as well as matching, so this is a second consequence
+    // of the same change — and the right one. A school merging two class exports
+    // is exactly how a list gains a duplicate, and the two exports need not agree
+    // about the accent. Before #80 these were two students, and the second would
+    // have earned its own permanent contact.
+    const result = parseStudentList(
+      tsv([
+        ['First name', 'Surname', 'DOB'],
+        ['Ana', 'Fernández', '23/4/2010'],
+        ['Ana', 'Fernandez', '23/4/2010'],
+      ])
+    );
+    expect(result.records).toHaveLength(1);
+    expect(result.records[0].flags).toContain('listed-twice');
+    // The surviving row keeps the spelling the school actually typed first.
+    expect(result.records[0].write.lastName).toBe('Fernández');
+    expectReconciled(result);
+  });
+
+  test('a letter that carries its stroke inside itself is not folded', () => {
+    // ł, ø and ß do not decompose, so no mark-stripping rule reaches them. This
+    // is a known limit of #80 rather than an oversight: `Wałęsa` matches
+    // `Wałesa` but not `Walesa`.
+    expect(compareForm('Wałęsa')).toBe('wałesa');
+    expect(compareForm('Sørensen')).toBe('sørensen');
+    expect(compareForm('Straße')).toBe('straße');
+  });
+
   test('every record carries both forms', () => {
     const result = parseStudentList(
       tsv([

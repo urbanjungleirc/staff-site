@@ -463,10 +463,32 @@ zero-width characters and BOM stripped, Unicode NFC. Case is never touched and
 accents are never stripped.
 
 *Compare form* is used only for matching and in-paste dedup: additionally
-case-folded, with apostrophes, hyphens and spaces removed.
+case-folded, with apostrophes, hyphens and spaces removed, and **Latin accents
+folded** — `Fernández` matches `Fernandez` (#80).
 
-The split is load-bearing — it is what lets `O'Brien` match `OBrien` without
-ever *writing* the second spelling into a record that cannot be deleted.
+Precisely: a combining mark (U+0300–U+036F) is dropped **only when it sits on a
+Latin base letter**. Two narrowings, both because a false match is the worse
+failure — it attaches a pass and bookings to the wrong child, where a miss only
+creates a duplicate contact:
+
+- **Not all of `\p{M}`.** In an abugida the vowel signs are marks too, so the
+  wider rule deletes letters rather than accents — `प्रिया` becomes `परय`.
+- **Not marks on a non-Latin base.** The combining-diacritics block is
+  script-neutral; ungated it folds Cyrillic `й` onto `и` and `ё` onto `е`, which
+  are separate letters of that alphabet. `Андрей` and `Андреи` are two names.
+
+Two limits worth knowing, both deliberate:
+
+- **Vietnamese folds**, because it is Latin script: `Lê`, `Lệ` and `Lễ` share one
+  compare form. Accepted, since this is the case #80 was filed about, and a false
+  match needs the surname, birthday and first name to coincide as well.
+- **A letter carrying its stroke inside itself never folds**, because it does not
+  decompose: `Wałęsa` matches `Wałesa`, not `Walesa`. Reaching those needs a
+  transliteration table, not mark-stripping — #83.
+
+The split is load-bearing — it is what lets `O'Brien` match `OBrien`, and
+`Fernandez` match `Fernández`, without ever *writing* the second spelling into a
+record that cannot be deleted.
 
 *Avoid*: "normalised name" unqualified. Which one is meant decides whether a
 permanent record is altered.

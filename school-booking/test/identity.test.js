@@ -257,29 +257,26 @@ describe('P10 — the imported normalisation, and what it buys the match', () =>
     expect(compareForm('MacTAVISH')).toBe('mactavish');
   });
 
-  test('compare form does NOT fold accents, and the surname is where that bites', () => {
-    // Pinned deliberately, because it is a gap rather than a decision. P10's table
-    // folds case and removes apostrophes, hyphens and spaces; it says nothing about
-    // accents. Changing that means changing P10 and parse.js, not this module — so
-    // it is #80, and this test changes with whatever #80 decides.
-    expect(compareForm('Zoë')).not.toBe(compareForm('Zoe'));
-    expect(compareForm('Fernández')).not.toBe(compareForm('Fernandez'));
-
-    // In the *first* name the gap is survivable: surname and DOB still narrow, so
-    // it lands in front of a human as a variant.
-    const firstNameAccent = matchStudent(student('Zoe', 'Van Dermeer', '2010-04-23'), [
-      contact('Zoë', 'Van Dermeer', '2010-04-23'),
-    ]);
-    expect(firstNameAccent.state).toBe('name-variant');
-
-    // In the *surname* it is the silent one, and this is the hazard worth filing:
-    // the candidate never narrows, so an existing student reports as `new` and
-    // earns a second permanent contact with nobody asked. Same failure the
-    // O'Brien rule exists to prevent, one character along.
+  test('an accent no longer decides whether a student is found (#80)', () => {
+    // This test previously pinned the opposite, as the record of a known gap.
+    // #80 closed it in compare form only: an accented surname used to stop the
+    // candidate narrowing at all, so an existing student reported `new` and
+    // earned a second permanent contact with nobody asked.
     const surnameAccent = matchStudent(student('Ana', 'Fernandez', '2010-04-23'), [
-      contact('Ana', 'Fernández', '2010-04-23'),
+      contact('Ana', 'Fernández', '2010-04-23', 'k-accent'),
     ]);
-    expect(surnameAccent.state).toBe('new');
+    expect(surnameAccent.state).toBe('matched');
+    expect(surnameAccent.contact.contact_key).toBe('k-accent');
+
+    // Both directions, because either side can be the one carrying the accent.
+    const pasteHasAccent = matchStudent(student('Zoë', 'Van Dermeer', '2010-04-23'), [
+      contact('Zoe', 'Van Dermeer', '2010-04-23'),
+    ]);
+    expect(pasteHasAccent.state).toBe('matched');
+
+    // And the write form is still the school's spelling, untouched — which is the
+    // whole reason the two forms are kept apart.
+    expect(writeForm('Fernández')).toBe('Fernández');
   });
 
   test('a contact stored with a curly apostrophe still matches a straight-typed paste', () => {

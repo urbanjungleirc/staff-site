@@ -60,9 +60,50 @@ export function writeForm(value) {
     .replace(/\s+/g, ' ');
 }
 
+// A Latin letter and the combining marks NFD split off it. Written as escapes
+// because raw combining marks reattach to the bracket in editors, diffs and
+// greps — the class either side of this one enumerates its codepoints in a
+// comment for the same reason.
+//
+// Two narrowings, both deliberate, because a **false** match is the worse
+// failure here: it attaches a permanent pass and bookings to the wrong child,
+// where a miss only creates a duplicate contact.
+//
+//   1. Not `\p{M}`. In an abugida the vowel signs are marks too, so the wider
+//      rule deletes letters rather than accents — `प्रिया` becomes `परय`.
+//   2. Only marks sitting on a **Latin base letter**. The combining-diacritics
+//      block is script-neutral: unqualified it folds Cyrillic `й` onto `и` and
+//      `ё` onto `е`, which are separate letters of that alphabet, not accented
+//      spellings of one.
+//
+// What it does **not** narrow, and this is a trade rather than an oversight:
+// Vietnamese is Latin script, so `ệ` and `ễ` fold onto `e` and `Lê`, `Lệ` and
+// `Lễ` share one compare form. That is accepted because it is the case #80 was
+// filed about — a school types `Nguyen`, the contact record says `Nguyễn` — and
+// a false match additionally needs the surname, the birthday and the first name
+// to coincide, where the miss it prevents is routine. Tested both ways below.
+const ACCENTED_LATIN = /(\p{Script=Latin})[\u0300-\u036f]+/gu;
+
 // Matching and in-paste dedup only. Never written anywhere.
+//
+// Accents fold here and nowhere else (#80). It is the same class of variance as
+// the apostrophe: one list types it, one contact record does not, and in a
+// surname the mismatch is silent — the candidate never narrows, an existing
+// student reports `new`, and a second permanent contact is written for them.
+//
+// Known limit: a letter carrying its stroke inside itself does not decompose, so
+// no mark-stripping rule reaches it. `Wałęsa` matches `Wałesa`, not `Walesa`.
 export function compareForm(value) {
-  return writeForm(value).toLowerCase().replace(/['\-\s]/g, '');
+  return writeForm(value)
+    .toLowerCase()
+    .normalize('NFD')
+    .replace(ACCENTED_LATIN, '$1')
+    // Back to NFC, because NFD also splits Hangul syllables into jamo and every
+    // mark this rule deliberately leaves alone stays split without it. Two
+    // strings that look identical would then compare unequal — the exact failure
+    // this function exists to prevent, arrived at from the other direction.
+    .normalize('NFC')
+    .replace(/['\-\s]/g, '');
 }
 
 // ---------------------------------------------------------------------------

@@ -358,7 +358,30 @@ term; matching a surname-less row picks whichever contact shares the birthday.
 | | Rules |
 |---|---|
 | **Write form** — what is stored | trim; collapse internal whitespace runs; NBSP → space; curly apostrophe and prime → `'`; non-breaking and figure hyphens → `-`; strip zero-width characters and BOM; Unicode NFC. **Never** touch case, **never** strip accents |
-| **Compare form** — matching and in-paste dedup only | write form, additionally case-folded, with apostrophes, hyphens and spaces stripped |
+| **Compare form** — matching and in-paste dedup only | write form, additionally case-folded, with apostrophes, hyphens and spaces stripped, and **accents on Latin letters folded** (amended on #80) |
+
+**Amended on #80: compare form folds accents.** An accent is the same class of
+variance as an apostrophe — one list types it, one contact record does not — and
+in a *surname* the mismatch was silent: the candidate never narrowed, an existing
+student reported `new`, and a second permanent contact was written with nobody
+asked. Write form is unchanged and still **never** strips an accent; that half of
+the split is the point of it.
+
+The rule is narrower than #80 proposed, in two steps, because a **false** match
+is the worse failure — it attaches a pass and bookings to the wrong child, where
+a miss only creates a duplicate contact. Not all of `\p{M}`: in an abugida the
+vowel signs are marks, so that rule deletes letters (`प्रिया` → `परय`). And only
+marks on a **Latin base letter**: the combining-diacritics block is
+script-neutral, so ungated it folds Cyrillic `й` onto `и`, which are two letters
+rather than two spellings.
+
+**Vietnamese still folds**, since it is Latin script — `Lê`, `Lệ` and `Lễ` share
+one compare form. That is the accepted cost of fixing the reported case, taken
+**without** the contact-database count #80 suggested weighing first: a false match
+additionally requires surname, birthday and first name to coincide, where the miss
+it prevents needs none of that. If that trade is ever revisited, the count is the
+evidence to gather. Letters like `ł` and `ø` do not decompose and so never fold;
+that residue is #83.
 
 One of the real fixtures is a PDF exported from Word, so curly apostrophes and
 non-breaking hyphens are an expected input. A curly apostrophe written verbatim
@@ -485,11 +508,15 @@ generous outer band (roughly 4–21).
 
 **P14 — True duplicates collapse visibly; twins stay as two rows.**
 
-- Same surname + DOB + same **compare-form** first name → collapse to one row,
-  badged *"listed twice"*. Silent collapsing is not acceptable; this happens
-  when a school merges two class exports.
+- Same surname + DOB + same first name → collapse to one row, badged *"listed
+  twice"*. Silent collapsing is not acceptable; this happens when a school merges
+  two class exports.
 - Same surname + DOB, **different** first name → **keep both**, badged *"possible
   siblings"*. That is twins — exactly the case the tie-breaker exists for.
+
+Both names are compared in **compare form**, surname included — so since #80 the
+two class exports need not agree about an accent either. The surviving row keeps
+the spelling the list used first, and write form is what reaches Clubworx.
 
 Collapsing on surname + DOB alone is rejected: it merges twins into one student,
 and nobody discovers the missing child until the session.
