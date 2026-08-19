@@ -1,0 +1,37 @@
+name = "uj-clubworx-api"
+main = "src/index.js"
+compatibility_date = "2026-08-19"
+account_id = "7b9239b4304637147e3e26d2ceb27666"
+
+# No *.workers.dev address. That URL is not fronted by Cloudflare Access, so
+# leaving it on would publish an unauthenticated door beside the guarded one —
+# and the Worker's own JWT check would then be the only thing standing between
+# the open internet and the gym's whole contact database. It holds (see
+# src/access.js), but it should not have to hold alone.
+workers_dev = false
+
+[observability]
+enabled = true
+
+# Deliberately NOT secrets. Neither identifies anything private: the team domain
+# is in every Access redirect and the AUD tag is in every JWT the browser already
+# holds. Committing them is what makes the Worker fail *closed* on a fresh
+# deploy — src/access.js rejects every request when either is unset, so leaving
+# them to be set by hand would mean a deploy that silently refuses everything
+# until somebody remembers.
+#
+# The one value that IS a secret is CLUBWORX_ACCOUNT_KEY. It is never here:
+#
+#   npx wrangler secret put CLUBWORX_ACCOUNT_KEY
+#
+# staff-site is a PUBLIC repo and this file is committed. See ACCESS.md.
+[vars]
+ACCESS_TEAM_DOMAIN = "happyk.cloudflareaccess.com"
+ACCESS_AUD = "65dd83df311d06ffbc7db624cc4e88e3c4d216e716630cfaf60d6d09b7f0e939"
+
+# More specific than the existing ujstaff.happyk.au/api/* -> uj-tools-editor
+# route, so this one wins for /api/clubworx/* and both the roster Worker and
+# uj-payments-proxy (/api/payments/*) are untouched.
+[[routes]]
+pattern = "ujstaff.happyk.au/api/clubworx/*"
+zone_name = "happyk.au"

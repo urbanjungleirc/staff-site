@@ -16,7 +16,7 @@
  *      resembling a real person is refused before the network is touched.
  */
 
-import { buildUrl, redact } from './request.mjs';
+import { buildUrl, redact } from '../../src/request.js';
 import { rateLimitHeaders } from './report.mjs';
 import { assertProbeIdentity } from './identity.mjs';
 

@@ -1,13 +1,17 @@
 {
-  "name": "uj-clubworx-probes",
+  "name": "uj-clubworx-api",
   "private": true,
   "type": "module",
   "scripts": {
     "test": "vitest run",
+    "check": "node --check src/index.js",
+    "deploy": "wrangler deploy",
+    "dev": "wrangler dev",
     "probe:51": "node probes/run-51.mjs",
     "probe:49": "node probes/run-49.mjs"
   },
   "devDependencies": {
-    "vitest": "^2.1.0"
+    "vitest": "^2.1.0",
+    "wrangler": "^4.0.0"
   }
 }

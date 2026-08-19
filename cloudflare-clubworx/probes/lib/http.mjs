@@ -7,7 +7,7 @@
  * promise in a comment.
  */
 
-import { buildUrl, redact } from './request.mjs';
+import { buildUrl, redact } from '../../src/request.js';
 import { rateLimitHeaders } from './report.mjs';
 
 /**

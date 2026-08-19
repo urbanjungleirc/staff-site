@@ -11,7 +11,11 @@
 # The gym's Clubworx API key. Clubworx admin UI -> Settings -> API.
 # Sent as the account_key query parameter on every api/v2 request.
 #
-# This is the only variable staff-site#47 settles. The Worker's own auth is a
-# separate decision — the #46 map calls for it to be Access-gated — so nothing
-# is pre-declared for it here. Add what that ticket decides, when it decides it.
+# This is the only variable staff-site#47 settles, and staff-site#66 has since
+# confirmed it is still the only one that belongs in this file. The Worker's
+# auth is Cloudflare Access, and its two settings — ACCESS_TEAM_DOMAIN and
+# ACCESS_AUD — are [vars] in the committed wrangler.toml rather than secrets:
+# neither is private (the AUD tag travels in every JWT the browser already
+# holds), and committing them is what makes a fresh deploy fail closed instead
+# of silently refusing everything until somebody sets them by hand.
 CLUBWORX_ACCOUNT_KEY=

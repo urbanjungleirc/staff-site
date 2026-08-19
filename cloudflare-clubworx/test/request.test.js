@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { buildUrl, redact } from './request.mjs';
+import { buildUrl, redact } from '../src/request.js';
 
 // The two things a probe against a public repo's live production API must get
 // right before it makes a single call: the URL it asks for, and the text it is
