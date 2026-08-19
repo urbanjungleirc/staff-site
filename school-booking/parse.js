@@ -60,9 +60,34 @@ export function writeForm(value) {
     .replace(/\s+/g, ' ');
 }
 
+// Latin combining marks, reachable only after NFD splits a letter from its
+// accent. Deliberately this range and not `\p{M}`: in an abugida the vowel signs
+// are marks too, so the wider rule deletes letters rather than accents —
+// `प्रिया` becomes `परय` — and two different children can collapse onto one
+// compare form. A false match is the worse failure, because it attaches a pass
+// and bookings to the wrong child, where a miss only creates a duplicate contact.
+const LATIN_MARKS = /[̀-ͯ]/g;
+
 // Matching and in-paste dedup only. Never written anywhere.
+//
+// Accents fold here and nowhere else (#80). It is the same class of variance as
+// the apostrophe: one list types it, one contact record does not, and in a
+// surname the mismatch is silent — the candidate never narrows, an existing
+// student reports `new`, and a second permanent contact is written for them.
+//
+// Known limit: a letter carrying its stroke inside itself does not decompose, so
+// no mark-stripping rule reaches it. `Wałęsa` matches `Wałesa`, not `Walesa`.
 export function compareForm(value) {
-  return writeForm(value).toLowerCase().replace(/['\-\s]/g, '');
+  return writeForm(value)
+    .toLowerCase()
+    .normalize('NFD')
+    .replace(LATIN_MARKS, '')
+    // Back to NFC, because NFD also splits Hangul syllables into jamo and every
+    // mark this rule deliberately leaves alone stays split without it. Two
+    // strings that look identical would then compare unequal — the exact failure
+    // this function exists to prevent, arrived at from the other direction.
+    .normalize('NFC')
+    .replace(/['\-\s]/g, '');
 }
 
 // ---------------------------------------------------------------------------

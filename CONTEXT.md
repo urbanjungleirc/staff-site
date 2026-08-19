@@ -463,10 +463,20 @@ zero-width characters and BOM stripped, Unicode NFC. Case is never touched and
 accents are never stripped.
 
 *Compare form* is used only for matching and in-paste dedup: additionally
-case-folded, with apostrophes, hyphens and spaces removed.
+case-folded, with apostrophes, hyphens and spaces removed, and **Latin accents
+folded** — `Fernández` matches `Fernandez` (#80).
 
-The split is load-bearing — it is what lets `O'Brien` match `OBrien` without
-ever *writing* the second spelling into a record that cannot be deleted.
+Accent folding is deliberately limited to Latin combining marks, not all of
+`\p{M}`. In an abugida the vowel signs are marks too, so the wider rule deletes
+letters rather than accents and can collapse two different children onto one
+compare form. A false match is the worse failure: it attaches a pass and bookings
+to the wrong child, where a miss only creates a duplicate contact. A letter
+carrying its stroke inside itself does not decompose and so is not folded —
+`Wałęsa` matches `Wałesa`, not `Walesa`.
+
+The split is load-bearing — it is what lets `O'Brien` match `OBrien`, and
+`Fernandez` match `Fernández`, without ever *writing* the second spelling into a
+record that cannot be deleted.
 
 *Avoid*: "normalised name" unqualified. Which one is meant decides whether a
 permanent record is altered.

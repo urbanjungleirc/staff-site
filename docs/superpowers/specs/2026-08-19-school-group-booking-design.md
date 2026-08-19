@@ -358,7 +358,18 @@ term; matching a surname-less row picks whichever contact shares the birthday.
 | | Rules |
 |---|---|
 | **Write form** — what is stored | trim; collapse internal whitespace runs; NBSP → space; curly apostrophe and prime → `'`; non-breaking and figure hyphens → `-`; strip zero-width characters and BOM; Unicode NFC. **Never** touch case, **never** strip accents |
-| **Compare form** — matching and in-paste dedup only | write form, additionally case-folded, with apostrophes, hyphens and spaces stripped |
+| **Compare form** — matching and in-paste dedup only | write form, additionally case-folded, with apostrophes, hyphens and spaces stripped, and **Latin accents folded** (amended on #80) |
+
+**Amended on #80: compare form folds accents.** An accent is the same class of
+variance as an apostrophe — one list types it, one contact record does not — and
+in a *surname* the mismatch was silent: the candidate never narrowed, an existing
+student reported `new`, and a second permanent contact was written with nobody
+asked. Folding is limited to **Latin combining marks**, not all of `\p{M}`: in an
+abugida the vowel signs are marks too, so the wider rule deletes letters rather
+than accents and can collapse two different children onto one compare form. A
+false match is the worse failure — it attaches a pass and bookings to the wrong
+child, where a miss only creates a duplicate contact. Write form is unchanged and
+still **never** strips an accent; that half of the split is the point of it.
 
 One of the real fixtures is a PDF exported from Word, so curly apostrophes and
 non-breaking hyphens are an expected input. A curly apostrophe written verbatim
