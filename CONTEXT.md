@@ -602,3 +602,55 @@ survives backoff. Distinct from a single row failing.
 One row failing is data; a run of failures is a systemic condition — and the
 measured throttle failure mode is not scattered rows but the entire back half of
 the list (49 successes, then 41 consecutive `429`s).
+
+## School booking page
+
+Terms for the page shape. Decided 2026-08-18 on #54 against three built
+prototypes, and settled by the spec on #55.
+
+### Gated stepper
+
+The page's shape: **one screen per step, each gate a screen you cannot skip** —
+school, paste, rows, sessions, preview, result. Chosen over a two-pane cockpit
+and a single scrolling form.
+
+Its defining property is that the gates are **worked, not acknowledged**.
+Resolving an exception does real work, so gates visibly clear as they are
+cleared and Apply lights up when the last one goes.
+
+*Avoid*: "wizard". A wizard walks you through something that would otherwise
+work; these steps exist because the run must **not** start while anything is
+unresolved.
+
+### Inline row resolution
+
+An exception row **expanding in place** to offer its fix, rather than opening a
+second pane or a modal. A single-column stepper has nowhere to put a detail
+panel, and a modal would be a gate inside a gate.
+
+Available on **both** the Rows step and the Preview step, which is not symmetry
+for its own sake: [parse-time states](#parse-time-row-state) exist from step 3,
+but match states only exist after the Clubworx check between steps 4 and 5.
+Either surface alone leaves half the exceptions unreachable.
+
+Dismissing a row **reclassifies** it to `ignored` and never removes it — the
+[P1 reconciliation](#junk-line--unparseable-row) is asserted after a dismissal,
+not only after a parse.
+
+*Avoid*: "edit mode". Nothing here is a general editor; each control answers one
+specific refusal the tool has already made.
+
+### Permanence line
+
+The sentence above the preview table stating what the run is about to create,
+with the irreversible parts named as such — *"This will create 4 contacts
+(permanent) and 4 School Passes (permanent), and make 34 bookings
+(cancellable)."*
+
+It is **the same line in two tenses**: future before Apply, past after, since
+the preview table becomes the result table. The per-row version of the sentence
+lives inside the [expanded row](#inline-row-resolution), not in a column.
+
+*Avoid*: folding it into a success count. The three permanence classes are the
+whole point — collapsing "created" and "booked" into "done" hides which half can
+be taken back.
