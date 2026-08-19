@@ -33,7 +33,13 @@
 // contact no human-typed search will ever match again.
 //
 // The matching rules that consume compare form live in identity.js (#65); what
-// this module owes is that both forms are emitted for every row.
+// this module owes is that both forms are emitted for every row. That module
+// must **import** the two functions below rather than restate their rules: two
+// copies of one normalisation table will drift, and the drift is silent in the
+// worst way. The day compare form disagrees with itself, `O'Brien` stops
+// matching `OBrien`, a student who already has a contact comes back as `new`,
+// and a second permanent contact is written for them — with nothing thrown,
+// because both spellings are individually valid and contacts cannot be deleted.
 
 const ZERO_WIDTH = /[​‌‍⁠﻿]/g;
 const SPACEY = /[    ]/g; // NBSP, figure space, narrow NBSP, thin space
