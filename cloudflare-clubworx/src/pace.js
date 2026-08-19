@@ -96,3 +96,15 @@ export function createPacer({
   run.calls = 0;
   return run;
 }
+
+/**
+ * The pacer every Clubworx client uses unless it is handed another one.
+ *
+ * Module scope, deliberately. The account key comes from `env`, so the natural
+ * way to wire a client is to build one per request — and a pacer created inside
+ * that constructor would reset with it, leaving "one in flight" true only
+ * within a single request while the gym-wide ceiling it is protecting is not
+ * per-request at all. One pacer per isolate is the smallest thing that is
+ * actually the property being claimed.
+ */
+export const sharedPacer = createPacer();

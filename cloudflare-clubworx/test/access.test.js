@@ -249,6 +249,19 @@ describe('fail closed', () => {
     expect((await verify(await sign(validClaims()))).reason).toBe('jwks-unavailable');
   });
 
+  it('bounds the key-set fetch, so a hung certs endpoint cannot stall every request', async () => {
+    let sawSignal = null;
+    const fetchImpl = async (url, init) => {
+      sawSignal = init?.signal ?? null;
+      return new Response(JSON.stringify({ keys: jwks }), { status: 200 });
+    };
+    const verify = verifierWith(fetchImpl);
+
+    await verify(await sign(validClaims()));
+
+    expect(sawSignal).toBeInstanceOf(AbortSignal);
+  });
+
   it('rejects when the key set fetch throws', async () => {
     const verify = verifierWith(async () => {
       throw new Error('dns');

@@ -38,17 +38,38 @@ const DEFAULT_CACHE_TTL_MS = 60 * 60 * 1000;
 const UNKNOWN_KID_REFETCH_FLOOR_MS = 5 * 60 * 1000;
 
 /**
+ * How long to wait for the key set before giving up.
+ *
+ * Without this a hung certs endpoint stalls every request behind it. Failing
+ * closed is right; failing closed *slowly* is a different outage, and the same
+ * one either way from the operator's side.
+ */
+const JWKS_TIMEOUT_MS = 5000;
+
+/**
+ * The team's bare host, however the team domain was written in config.
+ *
+ * Both the certs URL and the expected `iss` are built from this, so they cannot
+ * disagree about what counts as the same team.
+ *
+ * @param {string} teamDomain e.g. `happyk.cloudflareaccess.com`
+ * @returns {string}
+ */
+export function accessHost(teamDomain) {
+  return String(teamDomain)
+    .trim()
+    .replace(/^https?:\/\//, '')
+    .replace(/\/+$/, '');
+}
+
+/**
  * Where a team publishes its Access signing keys.
  *
  * @param {string} teamDomain e.g. `happyk.cloudflareaccess.com`
  * @returns {string}
  */
 export function certsUrl(teamDomain) {
-  const host = String(teamDomain)
-    .trim()
-    .replace(/^https?:\/\//, '')
-    .replace(/\/+$/, '');
-  return `https://${host}/cdn-cgi/access/certs`;
+  return `https://${accessHost(teamDomain)}/cdn-cgi/access/certs`;
 }
 
 const reject = reason => ({ ok: false, reason, email: null, sub: null });
@@ -81,6 +102,7 @@ export function createAccessVerifier({
   fetchImpl = fetch,
   now = Date.now,
   cacheTtlMs = DEFAULT_CACHE_TTL_MS,
+  jwksTimeoutMs = JWKS_TIMEOUT_MS,
 }) {
   /** @type {{keys: any[], fetchedAt: number} | null} */
   let cache = null;
@@ -90,7 +112,9 @@ export function createAccessVerifier({
 
   const loadKeys = async () => {
     lastFetchAttemptAt = now();
-    const res = await fetchImpl(certsUrl(teamDomain));
+    const res = await fetchImpl(certsUrl(teamDomain), {
+      signal: AbortSignal.timeout(jwksTimeoutMs),
+    });
     if (!res || !res.ok) throw new Error(`jwks ${res ? res.status : 'no response'}`);
     const body = await res.json();
     const keys = Array.isArray(body?.keys) ? body.keys : [];
@@ -182,7 +206,7 @@ export function createAccessVerifier({
     if (typeof claims.exp !== 'number' || nowS > claims.exp + SKEW_S) return reject('expired');
     if (typeof claims.nbf === 'number' && nowS + SKEW_S < claims.nbf) return reject('not-yet-valid');
 
-    if (claims.iss !== `https://${certsUrl(teamDomain).split('/')[2]}`) return reject('wrong-issuer');
+    if (claims.iss !== `https://${accessHost(teamDomain)}`) return reject('wrong-issuer');
 
     // Every Access application on this team is signed by the same keys, so
     // without this a token minted for the n8n app would open this Worker.

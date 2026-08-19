@@ -31,76 +31,132 @@
 
 import { buildUrl, redact } from './request.js';
 import { errorMessageOf } from './errors.js';
-import { createPacer } from './pace.js';
+import { sharedPacer } from './pace.js';
 
 /** How much of a non-JSON body is worth keeping to diagnose a throttle or a WAF block. */
 const BODY_TEXT_LIMIT = 500;
 
 /**
+ * Everything that leaves this module as free text goes through here.
+ *
+ * `redact` removes the account key and nothing else, which is not enough on its
+ * own: both runtimes interpolate the failing request URL into a connection
+ * error, and that URL carries the query as well as the key. So the key goes,
+ * and any query string hanging off a URL goes with it.
+ */
+function scrub(text, accountKey) {
+  return redact(String(text), accountKey).replace(/(https?:\/\/\S+?)\?\S*/g, '$1');
+}
+
+/**
+ * A body and the Content-Type it has to be sent with — one concept, not two
+ * independent flags. Clubworx wants JSON for a create and form encoding for a
+ * delete, and pairing them here is what stops a caller sending one with the
+ * other's header.
+ */
+function encodeBody({ json: payload, form }) {
+  if (payload !== undefined) {
+    return {
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload),
+    };
+  }
+  if (form !== undefined) {
+    return {
+      headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+      body: new URLSearchParams(form).toString(),
+    };
+  }
+  return { headers: {}, body: undefined };
+}
+
+/** One shape for every outcome, so a caller never has to ask which kind it got. */
+const outcome = ({
+  ok,
+  status,
+  endpoint,
+  ms,
+  body = null,
+  bodyText = null,
+  message = null,
+  networkError = false,
+}) => ({
+  ok,
+  status,
+  url: endpoint,
+  ms,
+  body,
+  nonJson: body === null && !networkError,
+  bodyText,
+  message,
+  networkError,
+});
+
+/**
  * @param {object} opts
  * @param {string} opts.accountKey
  * @param {typeof fetch} [opts.fetchImpl]
- * @param {ReturnType<typeof createPacer>} [opts.pacer]
+ * @param {typeof sharedPacer} [opts.pacer]
  */
-export function createClubworxClient({ accountKey, fetchImpl = fetch, pacer = createPacer() }) {
+export function createClubworxClient({ accountKey, fetchImpl = fetch, pacer = sharedPacer }) {
   if (!accountKey) {
     throw new Error('createClubworxClient: an account key is required; refusing to call anonymously');
   }
 
   const send = async ({ method, path, params, json: payload, form }) => {
     const url = buildUrl({ path, accountKey, params });
-    const safeUrl = redact(url, accountKey);
+
+    // The endpoint WITHOUT its query, and it is the only form that leaves this
+    // module. The obvious use of a url field is a log line, and the query is
+    // where `?last_name=&dob=` puts a student's surname and date of birth —
+    // §6/D10. redact() would not catch that: it removes the account key and
+    // nothing else. Dropping the query is what makes the rule hold here.
+    const endpoint = redact(url.split('?')[0], accountKey);
+
+    const { headers, body: requestBody } = encodeBody({ json: payload, form });
     const started = Date.now();
 
     return pacer(async () => {
       try {
         const res = await fetchImpl(url, {
           method,
-          headers: {
-            Accept: 'application/json',
-            ...(payload !== undefined ? { 'Content-Type': 'application/json' } : {}),
-            ...(form !== undefined ? { 'Content-Type': 'application/x-www-form-urlencoded' } : {}),
-          },
-          ...(payload !== undefined ? { body: JSON.stringify(payload) } : {}),
-          ...(form !== undefined ? { body: new URLSearchParams(form).toString() } : {}),
+          headers: { Accept: 'application/json', ...headers },
+          ...(requestBody !== undefined ? { body: requestBody } : {}),
         });
 
         const text = await res.text();
 
         // A throttle or a WAF block answers in HTML. Parsing must not be what
         // decides whether the caller gets a usable result.
-        let body = null;
+        let parsed = null;
         try {
-          body = JSON.parse(text);
+          parsed = JSON.parse(text);
         } catch {
-          body = null;
+          parsed = null;
         }
 
-        return {
+        return outcome({
           ok: res.ok,
           status: res.status,
-          url: safeUrl,
+          endpoint,
           ms: Date.now() - started,
-          body,
-          nonJson: body === null,
-          bodyText: body === null ? redact(text, accountKey).slice(0, BODY_TEXT_LIMIT) : null,
-          message: errorMessageOf(body),
-          networkError: false,
-        };
+          body: parsed,
+          bodyText: parsed === null ? scrub(text, accountKey).slice(0, BODY_TEXT_LIMIT) : null,
+          message: errorMessageOf(parsed),
+        });
       } catch (err) {
-        return {
+        return outcome({
           ok: false,
           // 0 rather than null, so a caller comparing statuses cannot mistake a
           // connection failure for an upstream answer it simply did not read.
           status: 0,
-          url: safeUrl,
+          endpoint,
           ms: Date.now() - started,
-          body: null,
-          nonJson: false,
-          bodyText: null,
-          message: redact(err?.message ?? err?.code ?? 'unknown error', accountKey),
+          // Both runtimes interpolate the request URL into connection errors,
+          // and that URL carries the key and the query.
+          message: scrub(err?.message ?? err?.code ?? 'unknown error', accountKey),
           networkError: true,
-        };
+        });
       }
     });
   };

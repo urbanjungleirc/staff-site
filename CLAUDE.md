@@ -312,13 +312,17 @@ Access, so an unauthenticated request returns **HTTP 200 carrying the Access
 login page**, not the file you asked for — a success status and a body that
 never contains your change. Verifying content needs a real browser session.
 
-The two Workers deploy separately; a Pages publish does not touch them.
+The three Workers deploy separately; a Pages publish does not touch them.
 
 ```bash
 cd cloudflare-worker          # roster + tools.json API
 npx wrangler deploy
 
 cd cloudflare-payments-proxy  # voucher portal → uj-payments; happyk account
+npx wrangler deploy
+
+cd cloudflare-clubworx        # school-group booking → Clubworx; happyk account
+npx wrangler secret put CLUBWORX_ACCOUNT_KEY   # once per environment, not in git
 npx wrangler deploy
 ```
 

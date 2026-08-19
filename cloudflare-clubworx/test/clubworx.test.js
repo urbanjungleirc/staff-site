@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import { createClubworxClient } from '../src/clubworx.js';
-import { createPacer } from '../src/pace.js';
+import { createPacer, sharedPacer } from '../src/pace.js';
 
 // The Worker's only path to Clubworx. Everything asserted here is measured
 // behaviour from probes/ — the JSON POST, the form-encoded DELETE, the key in
@@ -128,9 +128,10 @@ describe('DELETE — measured as form-encoded, and it needs contact_key', () => 
 });
 
 describe('the key never leaves in anything handed back', () => {
-  it('redacts the key out of a network error message', async () => {
-    // node interpolates the URL into connection errors, and the URL carries the
-    // key. An unredacted throw is how a gym key reaches a log line.
+  it('strips the key out of a network error message', async () => {
+    // Both runtimes interpolate the failing URL into connection errors, and
+    // that URL carries the key. An unscrubbed throw is how a gym key reaches a
+    // log line.
     const client = clientWith(async () => {
       throw new Error(`connect ECONNREFUSED for https://app.clubworx.com/api/v2/events?account_key=${KEY}`);
     });
@@ -139,6 +140,21 @@ describe('the key never leaves in anything handed back', () => {
 
     expect(res.ok).toBe(false);
     expect(res.networkError).toBe(true);
+    expect(res.message).not.toContain(KEY);
+    // The whole query goes, not just the key inside it — the query is also
+    // where a student's surname would be.
+    expect(res.message).toBe('connect ECONNREFUSED for https://app.clubworx.com/api/v2/events');
+  });
+
+  it('still redacts a key quoted outside a url', async () => {
+    // Stripping the query is not a substitute for redaction: an error that
+    // names the key on its own has no query to strip.
+    const client = clientWith(async () => {
+      throw new Error(`bad credentials: ${KEY}`);
+    });
+
+    const res = await client.get('events');
+
     expect(res.message).not.toContain(KEY);
     expect(res.message).toContain('<CLUBWORX_ACCOUNT_KEY>');
   });
@@ -156,12 +172,35 @@ describe('the key never leaves in anything handed back', () => {
     expect(res.bodyText).not.toContain(KEY);
   });
 
-  it('reports the url it called with the key removed', async () => {
+  it('reports the endpoint it called, with the key removed', async () => {
     const client = clientWith(recorder(() => json({})));
     const res = await client.get('events');
 
-    expect(res.url).toContain('app.clubworx.com/api/v2/events');
+    expect(res.url).toBe('https://app.clubworx.com/api/v2/events');
     expect(res.url).not.toContain(KEY);
+  });
+
+  it('never hands back the query string, where a student surname travels', async () => {
+    // §6/D10: no student name or DOB in any log. The obvious use of a `url`
+    // field is a log line, and `GET /contacts?last_name=&dob=` is a route this
+    // design calls for — so the query must not survive this layer. redact()
+    // removes the account key and nothing else; it would not catch this.
+    const client = clientWith(recorder(() => json({})));
+    const res = await client.get('contacts', { last_name: 'Nowak', dob: '2009-03-02' });
+
+    expect(JSON.stringify(res)).not.toContain('Nowak');
+    expect(JSON.stringify(res)).not.toContain('2009-03-02');
+    expect(res.url).toBe('https://app.clubworx.com/api/v2/contacts');
+  });
+
+  it('keeps the query out of a network error message too', async () => {
+    const client = clientWith(async () => {
+      throw new Error('connect ECONNREFUSED https://app.clubworx.com/api/v2/contacts?last_name=Nowak');
+    });
+
+    const res = await client.get('contacts', { last_name: 'Nowak' });
+
+    expect(res.message).not.toContain('Nowak');
   });
 
   it('bounds a non-JSON body rather than carrying a whole error page around', async () => {
@@ -173,6 +212,20 @@ describe('the key never leaves in anything handed back', () => {
 });
 
 describe('pacing', () => {
+  it('defaults to one pacer for the whole isolate, not a fresh one per client', async () => {
+    // The account key comes from env, so the natural wiring downstream is to
+    // build a client per request. A per-client pacer would then mean "one in
+    // flight" held only within a single request — and the ceiling is gym-wide.
+    const before = sharedPacer.calls;
+    const a = createClubworxClient({ accountKey: KEY, fetchImpl: recorder(() => json({})) });
+    const b = createClubworxClient({ accountKey: KEY, fetchImpl: recorder(() => json({})) });
+
+    await a.get('events');
+    await b.get('events');
+
+    expect(sharedPacer.calls).toBe(before + 2);
+  });
+
   it('sends every call through the pacer', async () => {
     const pacer = instantPacer();
     const client = clientWith(recorder(() => json({})), { pacer });
