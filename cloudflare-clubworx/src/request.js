@@ -1,10 +1,16 @@
 /**
- * Request shaping and secret redaction for read-only Clubworx probes.
+ * Request shaping and secret redaction for every Clubworx call this repo makes.
  *
- * staff-site is a PUBLIC repo and Clubworx has no sandbox — every probe runs
- * against the live gym database. Both functions here exist so that neither the
- * URL nor anything printed about it can carry the account key into a terminal
- * log, a pasted issue comment, or a committed findings document.
+ * Written for the read-only probes; promoted here from `probes/lib/request.mjs`
+ * by staff-site#66 so the Worker uses the same two functions rather than a
+ * second copy of them. The probes now import it from here — there is one
+ * definition of how a Clubworx URL is built and one of how the key is hidden.
+ *
+ * staff-site is a PUBLIC repo and Clubworx has no sandbox — every call, probe or
+ * Worker, runs against the live gym database. Both functions here exist so that
+ * neither the URL nor anything printed about it can carry the account key into a
+ * terminal log, a Worker log line, a pasted issue comment, or a committed
+ * findings document.
  */
 
 export const CLUBWORX_BASE = 'https://app.clubworx.com/api/v2';

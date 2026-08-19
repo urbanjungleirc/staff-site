@@ -132,7 +132,8 @@ Every one of them is a consequence of *production, public repo, no sandbox*.
 ## Layout
 
 ```
-lib/request.mjs   URL building and redaction        (unit tested)
+../src/request.js URL building and redaction        (unit tested)
+../src/errors.js  a refusal, read safely            (unit tested)
 lib/report.mjs    response → publishable summary    (unit tested)
 lib/key.mjs       where the live key comes from     (unit tested)
 lib/http.mjs      the read path to Clubworx: GET    (unit tested)
@@ -148,6 +149,13 @@ run-49.mjs        the #49 probe itself — writes
 run-50.mjs        the #50 probe itself — writes and deletes
 run-60.mjs        the #60 probe itself — writes and deletes
 ```
+
+The two `../src/` entries are not probe files any more. staff-site#66 promoted
+them into the Worker's own module, because the Worker needs exactly the same URL
+construction, the same redaction and the same way of reading a refusal — and a
+second copy would re-derive their bugs and then drift on the first fix that
+landed in only one of them. The probes import them from there; their tests moved
+with them, to `../test/`.
 
 The libraries are tested and the runner is not. That split is deliberate: the
 runner's job is to talk to a live API, which a unit test cannot do, so

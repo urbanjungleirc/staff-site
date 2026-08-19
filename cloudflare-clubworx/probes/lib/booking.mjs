@@ -23,7 +23,7 @@
  * arbitrary id.
  */
 
-import { buildUrl, redact } from './request.mjs';
+import { buildUrl, redact } from '../../src/request.js';
 import { rateLimitHeaders } from './report.mjs';
 
 /** Fields that exist for the write-up, not for Clubworx. */

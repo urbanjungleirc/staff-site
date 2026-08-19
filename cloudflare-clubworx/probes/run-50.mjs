@@ -87,9 +87,9 @@ import {
   describeDuplicateBooking,
   describeCancellation,
   pickBookableEvents,
-  errorMessageOf,
 } from './lib/report.mjs';
-import { redact } from './lib/request.mjs';
+import { errorMessageOf } from '../src/errors.js';
+import { redact } from '../src/request.js';
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 const OUT_DIR = path.join(HERE, 'out');

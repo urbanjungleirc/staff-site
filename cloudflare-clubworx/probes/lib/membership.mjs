@@ -22,7 +22,7 @@
  * code that looks like something else entirely.
  */
 
-import { buildUrl, redact } from './request.mjs';
+import { buildUrl, redact } from '../../src/request.js';
 import { rateLimitHeaders } from './report.mjs';
 
 /**
