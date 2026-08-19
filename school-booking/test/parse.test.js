@@ -82,12 +82,21 @@ describe('variants the committed files cannot carry', () => {
   // list 2) has to be built here. It is what turns "this list has 3 columns"
   // into "6 columns, three of them blank".
   test('phantom trailing columns do not change the record count', () => {
+    // The README's own snippet, unmodified — including what it does to the
+    // trailing empty line, which becomes a row of nothing but tabs.
     const withPhantoms = SPREADSHEET.split('\n')
-      .map((line) => (line === '' ? line : `${line}\t\t\t`))
+      .map((l) => l + '\t\t\t')
       .join('\n');
     const result = parseStudentList(withPhantoms);
     expect(result.fieldCount).toBe(3);
     expect(result.records).toHaveLength(6);
+    expectReconciled(result);
+  });
+
+  test('a line of nothing but delimiters is blank, not a one-field junk row', () => {
+    const result = parseStudentList(`${SPREADSHEET}\t\t\t`);
+    expect(result.records).toHaveLength(6);
+    expect(result.ignored.filter((e) => e.reason === 'junk')).toHaveLength(0);
     expectReconciled(result);
   });
 
@@ -128,7 +137,13 @@ describe('P2 — the list-level inferences are emitted, not just the rows', () =
       'YearLevel',
       'Email',
     ]);
-    expect(result.columns).toEqual({ dob: 2, firstName: 0, lastName: 1, combined: null });
+    expect(result.columns).toEqual({
+      dob: 2,
+      firstName: 0,
+      lastName: 1,
+      combined: null,
+      firstNameIsPreferred: true,
+    });
     expect(result.dateOrientation.value).toBe('dmy');
     expect(result.dateOrientation.basis).toBe('proved');
     expect(result.verdict).toBe('read as 6 fields per student — 5 students found');
@@ -210,7 +225,13 @@ describe('P6 — columns are mapped content-first, never by position', () => {
         ['Tomas', 'Oakhill', '40731', '7/11/2010'],
       ])
     );
-    expect(result.columns).toEqual({ dob: 3, firstName: 0, lastName: 1, combined: null });
+    expect(result.columns).toEqual({
+      dob: 3,
+      firstName: 0,
+      lastName: 1,
+      combined: null,
+      firstNameIsPreferred: false,
+    });
     expect(result.ignoredColumns.map((c) => c.label)).toEqual(['Student ID']);
     expect(result.records[0].write.dob).toBe('2010-04-23');
   });
@@ -225,12 +246,45 @@ describe('P6 — columns are mapped content-first, never by position', () => {
         ['7/11/2010', 'Oakhill', 'Tomas'],
       ])
     );
-    expect(result.columns).toEqual({ dob: 0, firstName: 2, lastName: 1, combined: null });
+    expect(result.columns).toEqual({
+      dob: 0,
+      firstName: 2,
+      lastName: 1,
+      combined: null,
+      firstNameIsPreferred: false,
+    });
     expect(result.records[0].write).toEqual({
       firstName: 'Katie',
       lastName: 'Fernsby',
       dob: '2010-04-23',
     });
+  });
+});
+
+describe('a preferred name stays tellable apart from a legal first name', () => {
+  // CONTEXT.md § "Preferred name": *Avoid: treating it as the first name. The
+  // tie-breaker depends on telling them apart.* A first-name mismatch against
+  // Clubworx is an expected outcome of a *correct* match when the school ships
+  // a nickname column, which weakens the tie-breaker exactly where identity.js
+  // needs it — for twins.
+  test('a PreferredName column is mapped as the first name but marked as preferred', () => {
+    const result = parseStudentList(VERTICAL);
+    expect(result.columns.firstName).toBe(0);
+    expect(result.columns.firstNameIsPreferred).toBe(true);
+  });
+
+  test('an ordinary first-name column is not marked', () => {
+    expect(parseStudentList(SPREADSHEET).columns.firstNameIsPreferred).toBe(false);
+  });
+
+  test('with no header there is nothing that could say either way, so it is not claimed', () => {
+    const result = parseStudentList(
+      tsv([
+        ['Katie', 'Fernsby', '23/4/2010'],
+        ['Tomas', 'Oakhill', '7/11/2010'],
+      ])
+    );
+    expect(result.columns.firstNameIsPreferred).toBe(false);
   });
 });
 
@@ -303,6 +357,35 @@ describe('P8 — a combined name column, with graded confirmation', () => {
     expect(result.needs.filter((n) => n.kind === 'combined-name-comma')).toHaveLength(1);
   });
 
+  test('an answered split settles the row, so the UI never re-implements splitting', () => {
+    // Every question the module raises has an option that answers it; this is
+    // the channel for the per-row one. Row 2 of the paste starts at line 3.
+    const result = parseStudentList(combined, { nameSplits: { 3: 1 } });
+    const row = result.records[1];
+    expect(row.write).toMatchObject({ firstName: 'Mary', lastName: 'Jane Oakhill' });
+    expect(row.needs).toEqual([]);
+    expect(row.flags).toEqual([]);
+    expect(row.state).toBe('clean');
+  });
+
+  test('a split point that is not on offer is ignored rather than applied', () => {
+    const result = parseStudentList(combined, { nameSplits: { 3: 99 } });
+    expect(result.records[1].state).toBe('needs-confirmation');
+  });
+
+  test('a single token offers no split, because there is none to confirm', () => {
+    const result = parseStudentList(
+      tsv([
+        ['Name', 'DOB'],
+        ['Prince', '23/4/2010'],
+      ])
+    );
+    const row = result.records[0];
+    expect(row.flags).toContain('single-token-name');
+    expect(row.needs).toEqual([]); // not a question with no answers
+    expect(row.state).toBe('needs-confirmation');
+  });
+
   test('no particle list is consulted — van/der/de fall out of the token rule', () => {
     const result = parseStudentList(
       tsv([
@@ -326,6 +409,24 @@ describe('P9 — junk is defined by position', () => {
     expect(result.errors).toHaveLength(0);
   });
 
+  test('a second header row from a merged export is junk, not a student', () => {
+    // P9 names three conditions, but the field-count one is what separates junk
+    // from the header — which is caught under its own reason. A further
+    // modal-width date-free line before the first record has nowhere else to go,
+    // and cannot be a hidden student, because position is P9's whole protection.
+    const result = parseStudentList(
+      tsv([
+        ['First name', 'Surname', 'DOB'],
+        ['First name', 'Surname', 'DOB'],
+        ['Katie', 'Fernsby', '23/4/2010'],
+      ])
+    );
+    expect(result.records).toHaveLength(1);
+    expect(result.ignored.map((e) => e.reason)).toEqual(['header', 'junk']);
+    expect(result.errors).toHaveLength(0);
+    expectReconciled(result);
+  });
+
   test('the same line is junk before the first record and unparseable after it', () => {
     const stray = 'Please add Otto to the list if there is room.';
     const lines = WORD_TABLE.trimEnd().split('\n');
@@ -344,6 +445,21 @@ describe('P9 — junk is defined by position', () => {
     expect(after.ignored.filter((e) => e.reason === 'junk')).toHaveLength(2);
     expect(after.records).toHaveLength(8);
     expectReconciled(after);
+  });
+});
+
+describe('the layout hypothesis is decided by content, not by the delimiter', () => {
+  test('a vertical list survives one stray double-space inside a value', () => {
+    // Delimiter-first detection would call this horizontal, find one column,
+    // and refuse it for having no name columns — a misleading message for what
+    // is really a whole-list layout question.
+    const lines = VERTICAL.split('\n');
+    const nudged = lines.map((l) => (l === 'Katie' ? 'Katie  Fernsby' : l)).join('\n');
+    const result = parseStudentList(nudged);
+    expect(result.layout).toBe('vertical');
+    expect(result.blockSize).toBe(6);
+    expect(result.records).toHaveLength(5);
+    expectReconciled(result);
   });
 });
 
@@ -371,6 +487,11 @@ describe('P11 — date orientation is a property of the whole list', () => {
     expect(result.refusal.code).toBe('date-orientation-contradiction');
     expect(result.refusal.rows.map((r) => r.reading).sort()).toEqual(['dmy', 'mdy']);
     expect(result.refusal.rows.map((r) => r.value)).toEqual(['23/4/2010', '7/25/2010']);
+    // Refusing the *paste* has to mean no rows. Reading each self-proving date
+    // on its own orientation would be the row-by-row decision P11 forbids, and
+    // would hand a caller apply-ready rows for a list that cannot be read.
+    expect(result.records).toHaveLength(0);
+    expect(result.dateOrientation).toBeNull();
     expectReconciled(result);
   });
 

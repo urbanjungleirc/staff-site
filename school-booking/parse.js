@@ -71,7 +71,7 @@ const SERIAL = /^\d{5}$/;
 // for every serial above 60. The window is 1900–2100: a five-digit integer is
 // the weakest date shape there is, and bounding it keeps a column of student
 // IDs from reading as dates. It is also why serials are only consulted when no
-// unambiguous date shape exists anywhere (see `dateColumns`).
+// unambiguous date shape exists anywhere (see `dateBearing`).
 const SERIAL_EPOCH_UTC = Date.UTC(1899, 11, 30);
 const SERIAL_MIN = 1;
 const SERIAL_MAX = 73415; // 2100-12-31
@@ -88,8 +88,8 @@ function validDate(year, month, day) {
   return day <= last;
 }
 
-const iso = (year, month, day) =>
-  `${String(year).padStart(4, '0')}-${String(month).padStart(2, '0')}-${String(day).padStart(2, '0')}`;
+const pad = (n, width) => String(n).padStart(width, '0');
+const iso = (year, month, day) => `${pad(year, 4)}-${pad(month, 2)}-${pad(day, 2)}`;
 
 // `strict` excludes bare five-digit serials. Detection runs strict first so a
 // list that has a real date column is never anchored on an integer column.
@@ -237,6 +237,10 @@ function splitFields(raw, delimiter) {
   if (delimiter === 'tab') fields = raw.split('\t').map((f) => f.trim());
   else if (delimiter === 'spaces') fields = trimmed.split(/\s{2,}/).map((f) => f.trim());
   else fields = [trimmed];
+  // A line of nothing but delimiters carries no data, so it is blank — not a
+  // one-field row. Appending phantom tabs to a trailing empty line is exactly
+  // how this arises, and counting it as content would invent a junk line.
+  if (fields.every((f) => f === '')) return [];
   // Phantom trailing columns: styled but empty cells arrive as trailing tabs
   // and turn "this list has 3 columns" into "6 columns, three of them blank".
   // Interior blanks are left alone — those are missing values, not padding.
@@ -321,9 +325,18 @@ function isNameShaped(value) {
 }
 
 const label = (text) => String(text ?? '').toLowerCase().replace(/[^a-z]/g, '');
-const FIRST_WORDS = ['first', 'given', 'preferred', 'forename', 'christian'];
+const FIRST_WORDS = ['first', 'given', 'preferred', 'forename', 'christian', 'nickname'];
 const LAST_WORDS = ['last', 'surname', 'family'];
 const COMBINED_LABELS = ['name', 'studentname', 'fullname', 'student', 'pupil'];
+
+// A preferred name is a nickname, not the legal name, and the two must stay
+// tellable apart: a first-name mismatch against Clubworx is then an *expected*
+// outcome of a correct match, which weakens the first-name tie-breaker exactly
+// where identity.js (#65) needs it — for twins. One of the three real lists
+// ships a column headed `PreferredName`, so this is not hypothetical.
+const PREFERRED_WORDS = ['preferred', 'nickname', 'knownas'];
+
+const isPreferredLabel = (text) => PREFERRED_WORDS.some((w) => label(text).includes(w));
 
 function mapColumns(dataRows, width, dobCol, header) {
   const others = [];
@@ -337,11 +350,23 @@ function mapColumns(dataRows, width, dobCol, header) {
     const first = others.find((c) => FIRST_WORDS.some((w) => label(header[c]).includes(w)));
     const last = others.find((c) => LAST_WORDS.some((w) => label(header[c]).includes(w)));
     if (first !== undefined && last !== undefined && first !== last) {
-      return { firstName: first, lastName: last, combined: null, nameOrderKnown: true };
+      return {
+        firstName: first,
+        lastName: last,
+        combined: null,
+        nameOrderKnown: true,
+        firstNameIsPreferred: isPreferredLabel(header[first]),
+      };
     }
     const combined = others.find((c) => COMBINED_LABELS.includes(label(header[c])));
     if (combined !== undefined) {
-      return { firstName: null, lastName: null, combined, nameOrderKnown: false };
+      return {
+        firstName: null,
+        lastName: null,
+        combined,
+        nameOrderKnown: false,
+        firstNameIsPreferred: false,
+      };
     }
   }
 
@@ -354,10 +379,19 @@ function mapColumns(dataRows, width, dobCol, header) {
       lastName: nameShaped[1],
       combined: null,
       nameOrderKnown: false,
+      // Without a header there is nothing that could say so either way, and
+      // guessing "legal" would be the silent half of the mistake.
+      firstNameIsPreferred: false,
     };
   }
   if (nameShaped.length === 1) {
-    return { firstName: null, lastName: null, combined: nameShaped[0], nameOrderKnown: false };
+    return {
+      firstName: null,
+      lastName: null,
+      combined: nameShaped[0],
+      nameOrderKnown: false,
+      firstNameIsPreferred: false,
+    };
   }
   return null;
 }
@@ -374,12 +408,21 @@ function columnLabel(header, index) {
 // three or more tokens anyway, so the token rule catches them without a list
 // that is culturally incomplete by nature and silently wrong when it misses.
 
-function splitCombinedName(value, nameOrder) {
+// Which half of a document-order split is the given name is P7's question, not
+// this function's, so every split routes through here rather than restating the
+// nameOrder test at each site.
+const ordered = (left, right, nameOrder) =>
+  nameOrder === 'last-first'
+    ? { firstName: right, lastName: left }
+    : { firstName: left, lastName: right };
+
+function splitCombinedName(value, nameOrder, chosenSplit) {
   const name = writeForm(value);
   if (!name) return { firstName: '', lastName: '', needs: null, flag: 'empty-name' };
 
   if (name.includes(',')) {
-    // `Surname, Given` — the only reading a comma has in a name field.
+    // `Surname, Given` — the only reading a comma has in a name field, and it
+    // is explicit about which half is which, so nameOrder does not apply.
     // Confirmed once for the list, not once per row.
     const [surname, ...rest] = name.split(',');
     return {
@@ -393,19 +436,14 @@ function splitCombinedName(value, nameOrder) {
   const tokens = name.split(' ');
   if (tokens.length === 2) {
     // Auto-split: no other reading exists. Which way round is P7's problem.
-    const [a, b] = tokens;
-    return nameOrder === 'last-first'
-      ? { firstName: b, lastName: a, needs: null, flag: null }
-      : { firstName: a, lastName: b, needs: null, flag: null };
+    return { ...ordered(tokens[0], tokens[1], nameOrder), needs: null, flag: null };
   }
 
   if (tokens.length === 1) {
-    return {
-      firstName: '',
-      lastName: tokens[0],
-      needs: { kind: 'name-split', tokens, splitPoints: [], suggested: null },
-      flag: 'single-token-name',
-    };
+    // One token cannot be split, so there is no split to confirm and P8's table
+    // has no row for it. It is surfaced as a flag — which is enough to hold the
+    // row at needs-confirmation — rather than as a question with no answers.
+    return { firstName: '', lastName: tokens[0], needs: null, flag: 'single-token-name' };
   }
 
   // Three or more tokens: per-row confirmation, offering the split points as
@@ -415,12 +453,17 @@ function splitCombinedName(value, nameOrder) {
   // list needs about four confirmations, not sixty-three.
   const splitPoints = tokens.map((_, i) => i).slice(1);
   const suggested = nameOrder === 'last-first' ? 1 : tokens.length - 1;
-  const applied =
-    nameOrder === 'last-first'
-      ? { firstName: tokens.slice(1).join(' '), lastName: tokens[0] }
-      : { firstName: tokens.slice(0, -1).join(' '), lastName: tokens[tokens.length - 1] };
+  const at = (k) => ordered(tokens.slice(0, k).join(' '), tokens.slice(k).join(' '), nameOrder);
+
+  // An answered split is a settled row: this is the only channel by which the
+  // question below can come back, so without it #71 would have to re-implement
+  // the splitting the module already emits split points for.
+  if (splitPoints.includes(chosenSplit)) {
+    return { ...at(chosenSplit), needs: null, flag: null };
+  }
+
   return {
-    ...applied,
+    ...at(suggested),
     needs: { kind: 'name-split', tokens, splitPoints, suggested },
     flag: 'name-split',
   };
@@ -432,11 +475,14 @@ function splitCombinedName(value, nameOrder) {
 
 const REFUSALS = {
   'layout-not-held': 'The layout could not be established from the dates in this list.',
-  'no-dob-column': 'No column holds a date in every row, so the date of birth cannot be identified.',
-  'dob-column-ambiguous': 'More than one column holds a date in every row, so the date of birth is ambiguous.',
+  'no-dob-column':
+    'No column holds a date in every row, so the date of birth cannot be identified.',
+  'dob-column-ambiguous':
+    'More than one column holds a date in every row, so the date of birth is ambiguous.',
   'no-name-columns': 'No column holds names in every row.',
   'date-orientation-contradiction':
-    'This list contains dates that prove both day/month and month/day, so it cannot be read safely.',
+    'This list contains dates that prove both day/month and month/day, so it cannot be read '
+    + 'safely.',
 };
 
 const refusal = (code, extra = {}) => ({ code, message: REFUSALS[code], ...extra });
@@ -446,10 +492,17 @@ const refusal = (code, extra = {}) => ({ code, message: REFUSALS[code], ...extra
  * @param {object} [options]
  * @param {'dmy'|'mdy'} [options.dateOrientation]  answer to the P11 question
  * @param {'first-last'|'last-first'} [options.nameOrder]  answer to the P7 question
+ * @param {Object<number, number>} [options.nameSplits]  answers to the P8
+ *        per-row question: first source line number → chosen split point
  * @param {string} [options.eventDate]  ISO date, enables the P13 age band
+ *
+ * Every question this module raises in `needs` has an option above that answers
+ * it. Layout and column overrides deliberately do not: those are inferences
+ * with a UI affordance rather than questions, and their shape belongs to #71.
  */
 export function parseStudentList(text, options = {}) {
   const nameOrder = options.nameOrder === 'last-first' ? 'last-first' : 'first-last';
+  const nameSplits = options.nameSplits ?? {};
   const lines = splitLines(text);
   const delimiter = detectDelimiter(lines);
 
@@ -487,17 +540,36 @@ export function parseStudentList(text, options = {}) {
     });
 
   if (filled.length === 0) {
-    return finish({ lines, layout: null, records: [], ignored, errors, refusalValue: null, extras: {} });
+    return finish({
+      lines,
+      layout: null,
+      records: [],
+      ignored,
+      errors,
+      refusalValue: null,
+      extras: {},
+    });
   }
 
   // --- layout ------------------------------------------------------------
-  const vertical = delimiter === 'none';
+  // The delimiter narrows the hypothesis; the modal field count decides it. A
+  // list whose rows hold one field each cannot be one record per line whatever
+  // its delimiter, so a vertical list carrying a single stray double-space is
+  // still read as vertical rather than refused for having no name columns.
+  const counts = new Map();
+  for (const c of filled) counts.set(c.fields.length, (counts.get(c.fields.length) ?? 0) + 1);
+  const modalWidth = modalCount([...counts.entries()]);
+  const vertical = modalWidth === 1;
+
   let rows; // { fields, lineNumbers }
   let header = null;
   let width;
   let blockSize = null;
 
   if (vertical) {
+    // Every line contributes its first field: in a vertical list that is the
+    // whole line, and where a stray delimiter split one, the remainder is not
+    // part of the repeating block.
     const seq = filled.map((c) => ({ value: c.fields[0], n: c.n }));
     const shape = detectVertical(seq, true) || detectVertical(seq, false);
     if (!shape) return bail('layout-not-held');
@@ -527,9 +599,7 @@ export function parseStudentList(text, options = {}) {
       errors.push({ lineNumbers: [cell.n], text: cell.value, reason: 'incomplete-block' });
     }
   } else {
-    const counts = new Map();
-    for (const c of filled) counts.set(c.fields.length, (counts.get(c.fields.length) ?? 0) + 1);
-    width = modalCount([...counts.entries()]);
+    width = modalWidth;
     rows = filled
       .filter((c) => c.fields.length === width)
       .map((c) => ({ fields: c.fields, lineNumbers: [c.n], raw: c.raw }));
@@ -571,12 +641,17 @@ export function parseStudentList(text, options = {}) {
         // — and it is the only line whose text this parser reads for meaning.
         header = cell.fields;
         ignored.push({ lineNumbers: [cell.n], text: cell.raw, reason: 'header' });
-      } else if (before && !hasDate && cell.fields.length !== width) {
-        // Junk is defined by position: no date, a field count unlike the modal
-        // one, and before the first good record. The school title line and the
-        // stray prose sentence both collapse to a single field; data rows do not.
-        ignored.push({ lineNumbers: [cell.n], text: cell.raw, reason: 'junk' });
       } else if (before && !hasDate) {
+        // Junk is defined by position: no date, and before the first good
+        // record. The school title line and the stray prose sentence both
+        // collapse to a single field; data rows do not.
+        //
+        // P9 also names a field count unlike the modal one, but that clause is
+        // what separates junk from the *header* — which is caught above and
+        // ignored under its own reason. Once the header is taken, a further
+        // modal-width date-free line before the first record (a second header
+        // from a merged export) is junk too: P9's protection is positional, and
+        // nothing before the first good record can be a hidden student.
         ignored.push({ lineNumbers: [cell.n], text: cell.raw, reason: 'junk' });
       } else {
         // After the first good record, a line that does not parse is
@@ -592,7 +667,9 @@ export function parseStudentList(text, options = {}) {
   if (!mapping) return bail('no-name-columns');
 
   const usedCols = new Set(
-    [dobCol, mapping.firstName, mapping.lastName, mapping.combined].filter((c) => c !== null && c !== undefined)
+    [dobCol, mapping.firstName, mapping.lastName, mapping.combined].filter(
+      (c) => c !== null && c !== undefined
+    )
   );
   const ignoredColumns = [];
   for (let c = 0; c < width; c++) {
@@ -609,19 +686,23 @@ export function parseStudentList(text, options = {}) {
   let orientation = null;
   let orientationBasis;
   let orientationSample = null;
-  let orientationRefusal = null;
 
   if (evidence.size > 1) {
-    // Contradictory evidence refuses the whole paste, showing the two rows.
-    orientationBasis = 'contradicted';
-    orientationRefusal = refusal('date-orientation-contradiction', {
+    // Contradictory evidence refuses the whole *paste*, and refusing has to
+    // mean no rows. Falling through to the row loop here would let each
+    // self-proving date be read on its own orientation — the row-by-row
+    // decision P11 exists to forbid — and would hand the caller apply-ready
+    // rows for a list the spec says cannot be read at all.
+    return bail('date-orientation-contradiction', {
       rows: [...evidence.entries()].map(([reading, row]) => ({
         reading,
         value: row.fields[dobCol],
         lineNumbers: row.lineNumbers,
       })),
     });
-  } else if (evidence.size === 1) {
+  }
+
+  if (evidence.size === 1) {
     orientation = [...evidence.keys()][0];
     orientationBasis = 'proved'; // a field above 12 is a proof, not a heuristic
   } else if (options.dateOrientation === 'dmy' || options.dateOrientation === 'mdy') {
@@ -675,7 +756,13 @@ export function parseStudentList(text, options = {}) {
     let names;
 
     if (mapping.combined !== null) {
-      names = splitCombinedName(row.fields[mapping.combined], nameOrder);
+      // Splits are answered per row, keyed by the row's first source line —
+      // the one identifier that survives a re-parse of the same paste.
+      names = splitCombinedName(
+        row.fields[mapping.combined],
+        nameOrder,
+        nameSplits[row.lineNumbers[0]]
+      );
       rawFirst = row.fields[mapping.combined];
       rawLast = row.fields[mapping.combined];
       if (names.flag === 'comma-split') sawComma = true;
@@ -683,14 +770,10 @@ export function parseStudentList(text, options = {}) {
       rawFirst = row.fields[mapping.firstName];
       rawLast = row.fields[mapping.lastName];
       names = {
-        firstName: writeForm(rawFirst),
-        lastName: writeForm(rawLast),
+        ...ordered(writeForm(rawFirst), writeForm(rawLast), nameOrder),
         needs: null,
         flag: null,
       };
-      if (nameOrder === 'last-first') {
-        names = { ...names, firstName: names.lastName, lastName: names.firstName };
-      }
     }
 
     const read = readDate(rawDob, orientation);
@@ -728,6 +811,7 @@ export function parseStudentList(text, options = {}) {
       compare: { firstName: compareForm(names.firstName), lastName: compareForm(names.lastName) },
       flags,
       needs,
+      duplicateCount: 1, // raised by collapseDuplicates when a row absorbs another
       state: 'clean', // set below, once dedup has had its say
     });
   }
@@ -742,13 +826,16 @@ export function parseStudentList(text, options = {}) {
 
   records = collapseDuplicates(records);
   for (const record of records) {
-    record.state = record.needs.length > 0 || record.flags.length > 0 ? 'needs-confirmation' : 'clean';
+    const unsettled = record.needs.length > 0 || record.flags.length > 0;
+    record.state = unsettled ? 'needs-confirmation' : 'clean';
   }
 
   const students = records.length;
-  const verdict = vertical
-    ? `read as ${blockSize} fields per student — ${students} student${students === 1 ? '' : 's'} found`
-    : `read as one student per line, ${width} column${width === 1 ? '' : 's'} — ${students} student${students === 1 ? '' : 's'} found`;
+  const plural = (n, noun) => `${n} ${noun}${n === 1 ? '' : 's'}`;
+  const shape = vertical
+    ? `read as ${blockSize} fields per student`
+    : `read as one student per line, ${plural(width, 'column')}`;
+  const verdict = `${shape} — ${plural(students, 'student')} found`;
 
   return finish({
     lines,
@@ -756,7 +843,7 @@ export function parseStudentList(text, options = {}) {
     records,
     ignored,
     errors,
-    refusalValue: orientationRefusal,
+    refusalValue: null, // every refusal returns through bail() above
     extras: {
       blockSize,
       fieldCount: width,
@@ -767,6 +854,9 @@ export function parseStudentList(text, options = {}) {
         firstName: mapping.firstName,
         lastName: mapping.lastName,
         combined: mapping.combined,
+        // Emitted so identity.js can weaken the first-name tie-breaker rather
+        // than read a nickname mismatch as a wrong match.
+        firstNameIsPreferred: mapping.firstNameIsPreferred,
       },
       ignoredColumns,
       dateOrientation: {
