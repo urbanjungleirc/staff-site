@@ -319,9 +319,10 @@
               <th class="text-left px-4 py-2.5 text-[0.67rem] font-semibold text-neutral-400 uppercase tracking-wider">Read as</th>
             </tr>
           </thead>
-          <tbody class="divide-y divide-neutral-50">
-            <template x-for="r in tableRows" :key="r.id">
-              <tr class="lane" :class="laneFor(r.parse)">
+          <template x-for="r in tableRows" :key="r.id">
+            <tbody class="divide-y divide-neutral-50">
+              <tr class="lane" :class="[laneFor(r.parse), needsHuman(r) ? 'row-hit' : '']"
+                  @click="needsHuman(r) && toggleRow(r)">
                 <td class="px-4 py-2.5">
                   <div class="text-sm font-medium" :class="r.parse === 'error' ? 'text-rose-700 mono' : 'text-neutral-800'"
                        x-text="r.parse === 'error' ? r.raw : (r.first + ' ' + r.last)"></div>
@@ -329,11 +330,89 @@
                 </td>
                 <td class="px-4 py-2.5 text-sm mono text-neutral-600" x-text="r.dob || '—'"></td>
                 <td class="px-4 py-2.5">
-                  <span class="pill" :class="parseClass(r.parse)" x-text="r.parse"></span>
+                  <div class="flex items-center gap-2">
+                    <span class="pill" :class="parseTone(r)" x-text="parseLabel(r)"></span>
+                    <!-- a row that wants a human has to look clickable -->
+                    <button x-show="needsHuman(r)" type="button" class="text-xs font-semibold text-uj underline underline-offset-2"
+                            @click.stop="toggleRow(r)" x-text="expandedRow === r.id ? 'close' : 'sort it out'"></button>
+                  </div>
                 </td>
               </tr>
-            </template>
-          </tbody>
+              <tr x-show="expandedRow === r.id" x-cloak>
+                <td colspan="3" class="bg-neutral-50/70 border-t border-neutral-100 px-4 py-4">
+                  <div class="max-w-2xl">
+                    <div class="text-[0.67rem] font-semibold uppercase tracking-[0.05em] text-neutral-400 mb-2">Sort it out</div>
+
+                    <template x-if="r.parse === 'error'">
+                      <div class="space-y-2">
+                        <p class="text-xs text-rose-700">Sits after real students, so it may be one. Nothing runs until it is accounted for.</p>
+                        <div class="flex gap-2 flex-wrap">
+                          <input x-model="r.fixFirst" placeholder="First name" class="flex-1 min-w-[120px] rounded-xl border border-neutral-200 px-3 py-2 text-sm">
+                          <input x-model="r.fixLast" placeholder="Surname" class="flex-1 min-w-[120px] rounded-xl border border-neutral-200 px-3 py-2 text-sm">
+                          <input x-model="r.fixDob" placeholder="dd/mm/yyyy" class="w-32 rounded-xl border border-neutral-200 px-3 py-2 text-sm mono">
+                        </div>
+                        <div class="flex gap-2">
+                          <button type="button" class="rounded-xl bg-uj text-white px-3.5 py-2 text-sm font-semibold disabled:opacity-40"
+                                  :disabled="!(r.fixFirst || '').trim() || !(r.fixLast || '').trim()"
+                                  @click="acceptErrorRow(r); expandedRow = null">Use these</button>
+                          <button type="button" class="rounded-xl border border-neutral-300 px-3.5 py-2 text-sm font-semibold"
+                                  @click="dismissRow(r)">Not a student</button>
+                        </div>
+                      </div>
+                    </template>
+
+                    <template x-if="r.match === 'name variant'">
+                      <div class="space-y-1.5">
+                        <p class="text-xs text-neutral-500">Same surname and date of birth, different first name. Guessing either way is permanent.</p>
+                        <button type="button" class="w-full text-left rounded-xl border border-emerald-200 bg-emerald-50 px-3 py-2 text-sm hover:border-emerald-300"
+                                @click="resolveSamePerson(r); expandedRow = null">
+                          <b>Same person</b> — use the existing contact <span class="mono">Katherine Fernsby</span>
+                        </button>
+                        <button type="button" class="w-full text-left rounded-xl border border-neutral-200 px-3 py-2 text-sm hover:border-uj/30"
+                                @click="resolveDifferentPerson(r); expandedRow = null">
+                          <b>Different person</b> — create a new contact <span class="text-rose-600 font-semibold">(permanent)</span>
+                        </button>
+                      </div>
+                    </template>
+
+                    <template x-if="r.match === 'ambiguous'">
+                      <div class="space-y-1.5">
+                        <p class="text-xs text-neutral-500">Two contacts share this surname and date of birth. Pick one, or create a third.</p>
+                        <button type="button" class="w-full text-left rounded-xl border border-neutral-200 px-3 py-2 text-sm hover:border-uj/30"
+                                @click="resolvePickContact(r, '#41208'); expandedRow = null">
+                          <span class="mono text-xs text-neutral-400">#41208</span> Otto Brennan · joined 2024
+                        </button>
+                        <button type="button" class="w-full text-left rounded-xl border border-neutral-200 px-3 py-2 text-sm hover:border-uj/30"
+                                @click="resolvePickContact(r, '#57731'); expandedRow = null">
+                          <span class="mono text-xs text-neutral-400">#57731</span> Otto Brennan · joined 2026
+                        </button>
+                        <button type="button" class="w-full text-left rounded-xl border border-rose-200 px-3 py-2 text-sm text-rose-700 hover:bg-rose-50"
+                                @click="resolveDifferentPerson(r); expandedRow = null">
+                          Neither — create a new contact <span class="font-semibold">(permanent)</span>
+                        </button>
+                      </div>
+                    </template>
+
+                    <template x-if="r.parse === 'needs-confirmation' && r.match && !r.confirmed">
+                      <div class="space-y-2">
+                        <p class="text-xs text-amber-700" x-text="r.note"></p>
+                        <div class="flex gap-2 flex-wrap">
+                          <input x-model="r.first" class="flex-1 min-w-[120px] rounded-xl border border-neutral-200 px-3 py-2 text-sm" aria-label="First name">
+                          <input x-model="r.last" class="flex-1 min-w-[120px] rounded-xl border border-neutral-200 px-3 py-2 text-sm" aria-label="Surname">
+                        </div>
+                        <div class="flex gap-2">
+                          <button type="button" class="rounded-xl bg-amber-50 border border-amber-200 text-amber-800 px-3.5 py-2 text-sm font-semibold hover:bg-amber-100"
+                                  @click="confirmRow(r); expandedRow = null">Confirm and include</button>
+                          <button type="button" class="rounded-xl border border-neutral-300 px-3.5 py-2 text-sm font-semibold"
+                                  @click="dismissRow(r)">Not a student</button>
+                        </div>
+                      </div>
+                    </template>
+                  </div>
+                </td>
+              </tr>
+            </tbody>
+          </template>
         </table>
         <div class="px-4 py-2.5 border-t border-neutral-100 bg-neutral-50/50 text-xs text-neutral-500">
           <button type="button" class="hover:text-neutral-800" @click="showIgnored = !showIgnored">
@@ -348,9 +427,14 @@
         </div>
       </div>
 
-      <div x-show="errorRows.length" x-cloak class="mt-3 bg-rose-50 border border-rose-200 text-rose-700 rounded-xl px-3.5 py-2.5 text-sm">
-        <b class="mono" x-text="errorRows.length"></b> line could not be read, and it sits after real students —
-        so it may be one. Fix or dismiss it before you can run.
+      <div x-show="needRows().length" x-cloak class="mt-3 bg-amber-50 border border-amber-200 text-amber-800 rounded-xl px-3.5 py-2.5 text-sm">
+        <b class="mono" x-text="needRows().length"></b>
+        <span x-text="needRows().length === 1 ? 'row needs you' : 'rows need you'"></span> —
+        <span x-text="needRows().map(r => r.parse === 'error' ? 'an unreadable line' : (r.first + ' ' + r.last)).join(', ')"></span>.
+        Click a row to sort it out. Nothing permanent happens until they are all accounted for.
+      </div>
+      <div x-show="parsed && !needRows().length" x-cloak class="mt-3 bg-emerald-50 border border-emerald-200 text-emerald-800 rounded-xl px-3.5 py-2.5 text-sm">
+        Every row is accounted for.
       </div>
 
       <div class="flex justify-between mt-6">
@@ -446,7 +530,7 @@
           <template x-for="b in blockers()" :key="b.text">
             <li class="flex items-start gap-2">
               <span>•</span><span x-text="b.text"></span>
-              <button x-show="b.fix" type="button" class="underline underline-offset-2 font-semibold shrink-0" @click="b.fix()" x-text="b.fixLabel"></button>
+              <button x-show="b.fixLabel" type="button" class="underline underline-offset-2 font-semibold shrink-0" @click="b.fix()" x-text="b.fixLabel"></button>
             </li>
           </template>
         </ul>
@@ -468,9 +552,10 @@
               <th class="text-left px-4 py-2.5 text-[0.67rem] font-semibold text-neutral-400 uppercase tracking-wider" x-text="stepIndex === 5 ? 'Outcome' : ''"></th>
             </tr>
           </thead>
-          <tbody class="divide-y divide-neutral-50">
-            <template x-for="r in students" :key="r.id">
-              <tr class="lane" :class="r.outcome ? laneForOutcome(r.outcome) : laneFor(r.parse)">
+          <template x-for="r in students" :key="r.id">
+            <tbody class="divide-y divide-neutral-50">
+              <tr class="lane" :class="[r.outcome ? laneForOutcome(r.outcome) : laneFor(r.parse), needsHuman(r) ? 'row-hit' : '']"
+                  @click="needsHuman(r) && !running && toggleRow(r)">
                 <td class="px-4 py-2.5">
                   <div class="text-sm font-medium text-neutral-800" x-text="r.first + ' ' + r.last"></div>
                   <div class="text-xs text-neutral-400 mono" x-text="r.dob"></div>
@@ -480,7 +565,12 @@
                         :class="parseTone(r)" x-text="parseLabel(r)"></span>
                 </td>
                 <td class="px-4 py-2.5">
-                  <span class="pill" :class="matchClass(r.match)" x-text="r.match"></span>
+                  <div class="flex items-center gap-2 flex-wrap">
+                    <span class="pill" :class="matchClass(r.match)" x-text="r.match"></span>
+                    <button x-show="needsHuman(r) && !running" type="button"
+                            class="text-xs font-semibold text-uj underline underline-offset-2"
+                            @click.stop="toggleRow(r)" x-text="expandedRow === r.id ? 'close' : 'sort it out'"></button>
+                  </div>
                   <div x-show="r.matchNote" class="text-xs text-neutral-500 mt-1" x-text="r.matchNote"></div>
                 </td>
                 <td class="px-4 py-2.5 text-xs text-neutral-600" x-html="willDo(r)"></td>
@@ -490,8 +580,63 @@
                   <div x-show="r.outcomeNote" class="text-xs mt-1" :class="r.outcome === 'unknown' ? 'text-rose-700 mono' : 'text-neutral-500'" x-text="r.outcomeNote"></div>
                 </td>
               </tr>
-            </template>
-          </tbody>
+              <tr x-show="expandedRow === r.id" x-cloak>
+                <td colspan="4" class="bg-neutral-50/70 border-t border-neutral-100 px-4 py-4">
+                  <div class="max-w-2xl">
+                    <div class="text-[0.67rem] font-semibold uppercase tracking-[0.05em] text-neutral-400 mb-2">Sort it out</div>
+
+                    <template x-if="r.match === 'name variant'">
+                      <div class="space-y-1.5">
+                        <p class="text-xs text-neutral-500">Same surname and date of birth, different first name. Guessing either way is permanent.</p>
+                        <button type="button" class="w-full text-left rounded-xl border border-emerald-200 bg-emerald-50 px-3 py-2 text-sm hover:border-emerald-300"
+                                @click="resolveSamePerson(r); expandedRow = null">
+                          <b>Same person</b> — use the existing contact <span class="mono">Katherine Fernsby</span>
+                        </button>
+                        <button type="button" class="w-full text-left rounded-xl border border-neutral-200 px-3 py-2 text-sm hover:border-uj/30"
+                                @click="resolveDifferentPerson(r); expandedRow = null">
+                          <b>Different person</b> — create a new contact <span class="text-rose-600 font-semibold">(permanent)</span>
+                        </button>
+                      </div>
+                    </template>
+
+                    <template x-if="r.match === 'ambiguous'">
+                      <div class="space-y-1.5">
+                        <p class="text-xs text-neutral-500">Two contacts share this surname and date of birth. Pick one, or create a third.</p>
+                        <button type="button" class="w-full text-left rounded-xl border border-neutral-200 px-3 py-2 text-sm hover:border-uj/30"
+                                @click="resolvePickContact(r, '#41208'); expandedRow = null">
+                          <span class="mono text-xs text-neutral-400">#41208</span> Otto Brennan · joined 2024
+                        </button>
+                        <button type="button" class="w-full text-left rounded-xl border border-neutral-200 px-3 py-2 text-sm hover:border-uj/30"
+                                @click="resolvePickContact(r, '#57731'); expandedRow = null">
+                          <span class="mono text-xs text-neutral-400">#57731</span> Otto Brennan · joined 2026
+                        </button>
+                        <button type="button" class="w-full text-left rounded-xl border border-rose-200 px-3 py-2 text-sm text-rose-700 hover:bg-rose-50"
+                                @click="resolveDifferentPerson(r); expandedRow = null">
+                          Neither — create a new contact <span class="font-semibold">(permanent)</span>
+                        </button>
+                      </div>
+                    </template>
+
+                    <template x-if="r.parse === 'needs-confirmation' && r.match && !r.confirmed">
+                      <div class="space-y-2">
+                        <p class="text-xs text-amber-700" x-text="r.note"></p>
+                        <div class="flex gap-2 flex-wrap">
+                          <input x-model="r.first" class="flex-1 min-w-[120px] rounded-xl border border-neutral-200 px-3 py-2 text-sm" aria-label="First name">
+                          <input x-model="r.last" class="flex-1 min-w-[120px] rounded-xl border border-neutral-200 px-3 py-2 text-sm" aria-label="Surname">
+                        </div>
+                        <div class="flex gap-2">
+                          <button type="button" class="rounded-xl bg-amber-50 border border-amber-200 text-amber-800 px-3.5 py-2 text-sm font-semibold hover:bg-amber-100"
+                                  @click="confirmRow(r); expandedRow = null">Confirm and include</button>
+                          <button type="button" class="rounded-xl border border-neutral-300 px-3.5 py-2 text-sm font-semibold"
+                                  @click="dismissRow(r)">Not a student</button>
+                        </div>
+                      </div>
+                    </template>
+                  </div>
+                </td>
+              </tr>
+            </tbody>
+          </template>
         </table>
       </div>
 
@@ -836,15 +981,18 @@
         <p x-show="selectedRowObj()?.matchNote" class="text-sm text-neutral-600 mt-2" x-text="selectedRowObj()?.matchNote"></p>
 
         <!-- inline fix affordances, per row kind -->
-        <div class="mt-4 space-y-2" x-show="selectedRowObj()?.parse !== 'clean' || selectedRowObj()?.match === 'name variant' || selectedRowObj()?.match === 'ambiguous'">
+        <div class="mt-4 space-y-2" x-show="needsHuman(selectedRowObj())">
           <span class="field-label">Sort it out</span>
 
           <template x-if="selectedRowObj()?.match === 'name variant'">
             <div class="space-y-1.5">
-              <button type="button" class="w-full text-left rounded-xl border border-emerald-200 bg-emerald-50 px-3 py-2 text-sm hover:border-emerald-300">
+              <p class="text-xs text-neutral-500">Same surname and date of birth, different first name. Guessing either way is permanent.</p>
+              <button type="button" class="w-full text-left rounded-xl border border-emerald-200 bg-emerald-50 px-3 py-2 text-sm hover:border-emerald-300"
+                      @click="resolveSamePerson(selectedRowObj())">
                 <b>Same person</b> — use the existing contact <span class="mono">Katherine Fernsby</span>
               </button>
-              <button type="button" class="w-full text-left rounded-xl border border-neutral-200 px-3 py-2 text-sm hover:border-uj/30">
+              <button type="button" class="w-full text-left rounded-xl border border-neutral-200 px-3 py-2 text-sm hover:border-uj/30"
+                      @click="resolveDifferentPerson(selectedRowObj())">
                 <b>Different person</b> — create a new contact <span class="text-rose-600 font-semibold">(permanent)</span>
               </button>
             </div>
@@ -853,27 +1001,34 @@
           <template x-if="selectedRowObj()?.match === 'ambiguous'">
             <div class="space-y-1.5">
               <p class="text-xs text-neutral-500">Two contacts share this surname and date of birth. Pick one, or create a third.</p>
-              <button type="button" class="w-full text-left rounded-xl border border-neutral-200 px-3 py-2 text-sm hover:border-uj/30">
+              <button type="button" class="w-full text-left rounded-xl border border-neutral-200 px-3 py-2 text-sm hover:border-uj/30"
+                      @click="resolvePickContact(selectedRowObj(), '#41208')">
                 <span class="mono text-xs text-neutral-400">#41208</span> Otto Brennan · joined 2024
               </button>
-              <button type="button" class="w-full text-left rounded-xl border border-neutral-200 px-3 py-2 text-sm hover:border-uj/30">
+              <button type="button" class="w-full text-left rounded-xl border border-neutral-200 px-3 py-2 text-sm hover:border-uj/30"
+                      @click="resolvePickContact(selectedRowObj(), '#57731')">
                 <span class="mono text-xs text-neutral-400">#57731</span> Otto Brennan · joined 2026
               </button>
-              <button type="button" class="w-full text-left rounded-xl border border-rose-200 px-3 py-2 text-sm text-rose-700 hover:bg-rose-50">
+              <button type="button" class="w-full text-left rounded-xl border border-rose-200 px-3 py-2 text-sm text-rose-700 hover:bg-rose-50"
+                      @click="resolveDifferentPerson(selectedRowObj())">
                 Neither — create a new contact <span class="font-semibold">(permanent)</span>
               </button>
             </div>
           </template>
 
-          <template x-if="selectedRowObj()?.parse === 'needs-confirmation'">
+          <template x-if="selectedRowObj()?.parse === 'needs-confirmation' && selectedRowObj()?.match && !selectedRowObj()?.confirmed">
             <div class="space-y-1.5">
+              <p class="text-xs text-amber-700" x-text="selectedRowObj()?.note"></p>
               <div class="flex gap-2">
-                <input :value="selectedRowObj()?.first" class="flex-1 rounded-xl border border-neutral-200 px-3 py-2 text-sm" aria-label="First name">
-                <input :value="selectedRowObj()?.last" class="flex-1 rounded-xl border border-neutral-200 px-3 py-2 text-sm" aria-label="Surname">
+                <input x-model="selectedRowObj().first" class="flex-1 rounded-xl border border-neutral-200 px-3 py-2 text-sm" aria-label="First name">
+                <input x-model="selectedRowObj().last" class="flex-1 rounded-xl border border-neutral-200 px-3 py-2 text-sm" aria-label="Surname">
               </div>
-              <button type="button" class="w-full rounded-xl bg-amber-50 border border-amber-200 text-amber-800 px-3 py-2 text-sm font-semibold hover:bg-amber-100">
-                Confirm and include
-              </button>
+              <div class="flex gap-2">
+                <button type="button" class="flex-1 rounded-xl bg-amber-50 border border-amber-200 text-amber-800 px-3 py-2 text-sm font-semibold hover:bg-amber-100"
+                        @click="confirmRow(selectedRowObj())">Confirm and include</button>
+                <button type="button" class="rounded-xl border border-neutral-300 px-3 py-2 text-sm font-semibold"
+                        @click="dismissRow(selectedRowObj())">Not a student</button>
+              </div>
             </div>
           </template>
 
@@ -881,12 +1036,16 @@
             <div class="space-y-1.5">
               <p class="text-xs text-rose-700">This line sits after real students, so it may be one. Nothing runs until it is accounted for.</p>
               <div class="flex gap-2">
-                <input placeholder="First" class="flex-1 rounded-xl border border-neutral-200 px-3 py-2 text-sm" aria-label="First name">
-                <input placeholder="Surname" class="flex-1 rounded-xl border border-neutral-200 px-3 py-2 text-sm" aria-label="Surname">
+                <input x-model="selectedRowObj().fixFirst" placeholder="First" class="flex-1 rounded-xl border border-neutral-200 px-3 py-2 text-sm" aria-label="First name">
+                <input x-model="selectedRowObj().fixLast" placeholder="Surname" class="flex-1 rounded-xl border border-neutral-200 px-3 py-2 text-sm" aria-label="Surname">
               </div>
+              <input x-model="selectedRowObj().fixDob" placeholder="dd/mm/yyyy" class="w-full rounded-xl border border-neutral-200 px-3 py-2 text-sm mono" aria-label="Date of birth">
               <div class="flex gap-2">
-                <button type="button" class="flex-1 rounded-xl bg-uj text-white px-3 py-2 text-sm font-semibold">Use these</button>
-                <button type="button" class="flex-1 rounded-xl border border-neutral-300 px-3 py-2 text-sm font-semibold">Not a student</button>
+                <button type="button" class="flex-1 rounded-xl bg-uj text-white px-3 py-2 text-sm font-semibold disabled:opacity-40"
+                        :disabled="!(selectedRowObj().fixFirst || '').trim() || !(selectedRowObj().fixLast || '').trim()"
+                        @click="acceptErrorRow(selectedRowObj())">Use these</button>
+                <button type="button" class="flex-1 rounded-xl border border-neutral-300 px-3 py-2 text-sm font-semibold"
+                        @click="dismissRow(selectedRowObj())">Not a student</button>
               </div>
             </div>
           </template>
@@ -951,7 +1110,7 @@
             <template x-for="b in blockers()" :key="b.text">
               <div class="text-xs text-rose-700 flex items-start gap-1.5">
                 <span>•</span><span x-text="b.text"></span>
-                <button x-show="b.fix" type="button" class="underline font-semibold" @click="b.fix()" x-text="b.fixLabel"></button>
+                <button x-show="b.fixLabel" type="button" class="underline font-semibold" @click="b.fix()" x-text="b.fixLabel"></button>
               </div>
             </template>
           </div>
@@ -1063,6 +1222,7 @@ Wednesday group - please add if room`,
 
     showIgnored: false,
     selectedRow: null,
+    expandedRow: null,
     filterC: 'need',
 
     // combo open flags — one per variant so the three don't share a popover
@@ -1083,6 +1243,7 @@ Wednesday group - please add if room`,
     selected: [],
 
     running: false, done: false, runIndex: -1, runLog: [], timer: null,
+    manualEdits: 0,
 
     // ── lifecycle ─────────────────────────────────────────────────────────
     init() {
@@ -1185,11 +1346,7 @@ Wednesday group - please add if room`,
     // read as a student, before the teacher is excluded
     get countMismatch() { return !this.expectedUnknown && Number(this.expectedCount) !== this.recordRows.length; },
 
-    needRows() {
-      return this.parsedRows.filter(r =>
-        r.parse === 'error' || r.parse === 'needs-confirmation' ||
-        r.match === 'name variant' || r.match === 'ambiguous');
-    },
+    needRows() { return this.parsedRows.filter(r => this.needsHuman(r)); },
     visibleC() { return this.filterC === 'need' ? this.needRows() : this.parsedRows.filter(r => r.parse !== 'ignored'); },
     selectedRowObj() { return this.parsedRows.find(r => r.id === this.selectedRow) || null; },
 
@@ -1220,10 +1377,24 @@ Wednesday group - please add if room`,
     },
 
     // ── gates ─────────────────────────────────────────────────────────────
+    // Each blocker may carry a `fix` function. Bind directives to `fixLabel`
+    // (a string), NEVER to `fix` — Alpine invokes a function returned by an
+    // expression, so `x-show="b.fix"` silently *ran* every fix on every render
+    // tick. Here that auto-confirmed rows nobody had confirmed, which is the
+    // precise failure this screen exists to prevent. Same family as the
+    // x-init double-bootstrap in vouchers#69.
     blockers() {
       const out = [];
       if (this.errorRows.length) out.push({ text: `${this.errorRows.length} line could not be read and is unaccounted for.` });
-      if (this.countMismatch) out.push({ text: `You expected ${this.expectedCount} students; we read ${this.recordRows.length}.` });
+      if (this.countMismatch) out.push({
+        text: `You expected ${this.expectedCount} students; we read ${this.recordRows.length}.`,
+        // Only offered once staff have edited rows themselves. Without that
+        // guard this is a one-click "make the gate go away", which is exactly
+        // what P5 exists to prevent — the gate is there to catch a misread,
+        // not to be dismissed.
+        fixLabel: this.manualEdits ? `you changed rows — re-declare as ${this.recordRows.length}` : null,
+        fix: this.manualEdits ? () => { this.expectedCount = this.recordRows.length; } : null,
+      });
       // #52 P13 — an implausible age or a confirmed split is needs-confirmation:
       // the row cannot be written until ticked, but the run is not refused.
       const unconfirmed = this.recordRows.filter(r => r.parse === 'needs-confirmation' && r.match && !r.confirmed);
@@ -1353,6 +1524,51 @@ Wednesday group - please add if room`,
     // A confirmed row reads as confirmed everywhere. A row we read fine but are
     // not booking (the teacher) reads as excluded — never as "confirmed", which
     // would claim the opposite of what is about to happen to it.
+    // ── resolving a row ───────────────────────────────────────────────────
+    // Real state changes, so the gates actually clear as you work them. Each of
+    // these is a human answering a question the tool deliberately refused to
+    // guess — the "refuse and let the human fix it" posture, made operable.
+    resolveSamePerson(r) {
+      r.match = 'matched';
+      r.matchNote = 'Confirmed the same person as the existing contact. No new contact.';
+    },
+    resolveDifferentPerson(r) {
+      r.match = 'new';
+      r.matchNote = 'Confirmed a different person — a new permanent contact will be created.';
+    },
+    resolvePickContact(r, ref) {
+      r.match = 'matched';
+      r.matchNote = `Resolved to contact ${ref}.`;
+    },
+    confirmRow(r) { r.confirmed = true; },
+    acceptErrorRow(r) {
+      const first = (r.fixFirst || '').trim(), last = (r.fixLast || '').trim();
+      if (!first || !last) return;
+      r.first = first; r.last = last;
+      r.parse = 'needs-confirmation'; r.confirmed = true; r.match = 'new';
+      r.dob = r.fixDob || r.dob || '—';
+      r.note = 'Typed in by staff after the line could not be read.';
+      this.manualEdits++;
+    },
+    dismissRow(r) {
+      // reclassified, never dropped — the three counts must still sum (#52 P1)
+      r.parse = 'ignored';
+      r.note = 'Dismissed by staff as not a student.';
+      r.match = null;
+      this.manualEdits++;
+      if (this.selectedRow === r.id) this.selectedRow = null;
+      if (this.expandedRow === r.id) this.expandedRow = null;
+    },
+    // does this row still want a human?
+    needsHuman(r) {
+      if (!r) return false;
+      if (r.outcome) return false;           // the run has already spoken
+      if (r.parse === 'error') return true;
+      if (r.parse === 'needs-confirmation' && r.match && !r.confirmed) return true;
+      return r.match === 'name variant' || r.match === 'ambiguous';
+    },
+    toggleRow(r) { this.expandedRow = this.expandedRow === r.id ? null : r.id; },
+
     isExcluded(r) { return (r.parse === 'clean' || r.parse === 'needs-confirmation') && !r.match; },
     parseLabel(r) {
       if (this.isExcluded(r)) return 'not a student';
@@ -1415,23 +1631,26 @@ Wednesday group - please add if room`,
       });
     },
 
+    // "seed" leaves the exceptions standing so they can actually be worked;
+    // "result" clears them and runs, for judging the back half on its own.
     seedTo(where) {
       clearTimeout(this.timer);
       this.parse(); this.match();
-      this.resolveExceptions();
+      if (where === 'done') this.resolveExceptions();
       this.pickFirst('e1');
       this.selected = this.selected.filter(id => !this.leadBreach(this.eventById(id)));
       this.expectedCount = this.recordRows.length;
-      this.running = false; this.done = false; this.runIndex = -1; this.runLog = [];
+      this.running = false; this.done = false; this.runIndex = -1; this.runLog = []; this.manualEdits = 0;
       this.parsedRows.forEach(r => { r.outcome = null; r.outcomeNote = null; });
-      this.selectedRow = null; this.filterC = 'all';
+      this.selectedRow = null; this.expandedRow = null;
+      this.filterC = where === 'done' ? 'all' : 'need';
       this.go(where === 'done' ? 5 : 4);
       if (where === 'done') this.run();
     },
     hardReset() {
       clearTimeout(this.timer);
       this.parsed = false; this.parsedRows = []; this.selected = []; this.firstEvent = null;
-      this.running = false; this.done = false; this.runIndex = -1; this.runLog = [];
+      this.running = false; this.done = false; this.runIndex = -1; this.runLog = []; this.manualEdits = 0;
       this.selectedRow = null; this.stepIndex = 0; this.maxStepReached = 0; this.gateOpen = false;
     },
   };
