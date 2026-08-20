@@ -744,3 +744,172 @@ export function pickBookableEvents(body, { now = new Date().toISOString() } = {}
   const byStart = (a, b) => String(a.event_start_at).localeCompare(String(b.event_start_at));
   return { free: free.sort(byStart), paid: paid.sort(byStart), skipped };
 }
+
+/**
+ * Did the create actually land? Decided by the re-read, never by the status.
+ *
+ * staff-site#63's standing rule — *"verify each write by re-reading the
+ * resource, never by the status code"* — exists because this map has been
+ * misled by a status twice. #50 read a malformed request's `401` as a
+ * permissions wall. #49 found that a successful contact create answers `200`
+ * where a reader would expect `201`. Neither number described what was in the
+ * database.
+ *
+ * So the verdict here comes from what a subsequent search found, and the status
+ * code is demoted to a single boolean — `statusAgrees` — whose only job is to
+ * record *whether Clubworx told the truth this time*. That is itself a finding
+ * the write-up wants, and it is not the same question as whether a permanent
+ * contact now exists.
+ *
+ * Three distinctions are load-bearing, because contacts cannot be deleted:
+ *
+ *   - **`absent` vs `unverified`.** "We looked and it was not there" and "we did
+ *     not look" must not collapse. The first means nothing was created; the
+ *     second means something may have been, and belongs on the cleanup list.
+ *   - **A transport error is not a failure.** A write that threw may still have
+ *     landed — ACCESS.md says so — and the re-read is the only thing that knows.
+ *   - **`duplicated` is named, not averaged.** Taking `[0]` of two rows would
+ *     hide a second permanent record behind a cheerful "created".
+ *
+ * @param {object} opts
+ * @param {{status?: number|null, error?: string|null, refused?: string|null}} opts.create
+ * @param {Array<{contact_key?: string}>|null} [opts.found] Rows the re-read matched, or null if it did not run.
+ */
+export function describeMemberCreation({ create = {}, found = null } = {}) {
+  const { status = null, error = null, refused = null } = create ?? {};
+
+  // A local refusal never reached the network, so nothing can be claimed about
+  // production and there is no status to agree or disagree with.
+  if (refused) {
+    return {
+      verdict: 'refused',
+      landed: false,
+      contactKey: null,
+      duplicates: 0,
+      status,
+      statusAgrees: null,
+      refused,
+      summary: `refused before the request: ${refused}`,
+    };
+  }
+
+  if (found === null || found === undefined) {
+    return {
+      verdict: 'unverified',
+      landed: null,
+      contactKey: null,
+      duplicates: 0,
+      status,
+      statusAgrees: null,
+      refused: null,
+      summary:
+        `HTTP ${status ?? 'n/a'} and no re-read — whether a permanent contact exists is unknown`,
+    };
+  }
+
+  const rows = Array.isArray(found) ? found.filter(Boolean) : [];
+  const ok = typeof status === 'number' && status >= 200 && status < 300;
+
+  if (rows.length === 0) {
+    return {
+      verdict: 'absent',
+      landed: false,
+      contactKey: null,
+      duplicates: 0,
+      status,
+      // A 2xx with nothing behind it is the case worth shouting about; a 4xx
+      // with nothing behind it is Clubworx being honest.
+      statusAgrees: !ok,
+      refused: null,
+      summary: ok
+        ? `HTTP ${status} but the re-read found nothing — the status did not describe the database`
+        : `HTTP ${status ?? 'n/a'} and the re-read found nothing — nothing was created`,
+    };
+  }
+
+  const verdict = rows.length > 1 ? 'duplicated' : 'created';
+
+  return {
+    verdict,
+    landed: true,
+    contactKey: rows[0].contact_key ?? null,
+    duplicates: rows.length,
+    status,
+    statusAgrees: ok,
+    refused: null,
+    summary:
+      verdict === 'duplicated'
+        ? `${rows.length} contacts match — a duplicate was created and cannot be deleted`
+        : `HTTP ${status ?? 'n/a'}${ok ? '' : ' (or none)'} and the re-read found it — created`,
+  };
+}
+
+const DAY_MS = 86_400_000;
+
+/**
+ * What pass the contact ended up holding, and on whose terms — questions 3 and 4.
+ *
+ * Question 3 asks whether `membership_plan_id` on `POST /members` produces a
+ * *usable* pass; question 4 asks what `start_date` it gets, since that call
+ * accepts none. The trade-off #63 has to price is exactly there: the two-call
+ * route sends a start date and reads a 12-week expiry back, and the one-call
+ * route would hand that choice to Clubworx.
+ *
+ * `startsOnCreationDay` and `spanDays` are what make the answer a measurement
+ * rather than an impression, and `honouredRequest` stays **null** when no start
+ * date was asked for — the one-call route sends none, so there is nothing there
+ * to have been honoured or ignored, and reporting `false` would read as
+ * "Clubworx overrode us".
+ *
+ * Takes the `planStates` from `summariseMemberships` rather than raw rows, so
+ * the "a membership has no `status` field" rule (#60) is applied in exactly one
+ * place.
+ *
+ * @param {object} opts
+ * @param {Array<{start_date?: string|null, expiration_date?: string|null, active?: boolean}>} opts.states
+ * @param {string} opts.on ISO day the create ran.
+ * @param {string|null} [opts.requested] The start_date that was asked for, if any.
+ */
+export function describeCreatedPass({ states = [], on, requested = null } = {}) {
+  const held = Array.isArray(states) ? states.filter(Boolean) : [];
+
+  if (held.length === 0) {
+    return {
+      granted: false,
+      active: false,
+      held: 0,
+      startDate: null,
+      expirationDate: null,
+      spanDays: null,
+      startsOnCreationDay: false,
+      honouredRequest: requested ? false : null,
+      summary: 'no pass on this plan',
+    };
+  }
+
+  // An expired pass is still a held plan. Reporting its dates as the answer
+  // would describe a pass the booking will not accept.
+  const state = held.find(s => s.active) ?? held[0];
+  const startDate = state.start_date ?? null;
+  const expirationDate = state.expiration_date ?? null;
+
+  const start = startDate ? Date.parse(`${startDate}T00:00:00Z`) : NaN;
+  const end = expirationDate ? Date.parse(`${expirationDate}T00:00:00Z`) : NaN;
+  const spanDays =
+    Number.isNaN(start) || Number.isNaN(end) ? null : Math.round((end - start) / DAY_MS);
+
+  return {
+    granted: true,
+    active: Boolean(state.active),
+    held: held.length,
+    startDate,
+    expirationDate,
+    spanDays,
+    startsOnCreationDay: startDate !== null && startDate === on,
+    honouredRequest: requested ? startDate === requested : null,
+    summary:
+      `start ${startDate ?? 'n/a'} · expires ${expirationDate ?? 'n/a'}` +
+      (spanDays === null ? '' : ` · ${spanDays}d`) +
+      ` · active ${Boolean(state.active)}`,
+  };
+}

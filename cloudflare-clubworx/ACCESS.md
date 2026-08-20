@@ -250,6 +250,43 @@ prospects that ticket needs. A fourth contact is a new decision.
 
 Findings: `probes/49-plus-addressed-duplicates.md`.
 
+### Amendment, 2026-08-20: two more, for #63 — SPENT
+
+**Authorised by Jiri, 2026-08-20**, when #63 ran. The amendment above is spent
+and could not be stretched: #63 asks what `POST /api/v2/members` does when it
+**creates** a contact, and every contact from #49 already exists. There is no
+way to ask that of a contact that is already there.
+
+Two, not one, for the same structural reason #49 needed three. Question 1 needs
+a create carrying only the required fields; questions 3 and 4 need
+`membership_plan_id` **on the create call**, which only a contact that does not
+yet exist can test. Folding them together would have answered one pair and left
+the other resting on the reference.
+
+These two now exist in production and are **permanent**:
+
+| | Name | Email | `contact_key` |
+|---|---|---|---|
+| D | `Ztest Wayfinderfour` | `noreply+wayfindertest@urbanjungleirc.com` | `5a7f1d25-7964-4f42-bbc2-1ec93e7f7aeb` |
+| E | `Ztest Wayfinderfive` | `noreply+wayfindertest@urbanjungleirc.com` | `676df583-e637-42e6-9fee-38631461baad` |
+
+Both were created through `POST /api/v2/members` and both landed **directly in
+the `/members` view, holding no membership at all** — so a contact's status view
+is set by the endpoint that created it, not derived from holding a pass.
+
+**Two School Passes came with them, and are equally permanent:**
+
+| Contact | Membership | Start | Expires |
+|---|---|---|---|
+| D | `2629905` | 2026-08-20 | 2026-11-11 |
+| E | `2629906` (granted by the create call) | 2026-08-20 | 2026-11-11 |
+
+**This authorisation is spent.** It covered #63's two contacts. A sixth contact
+is a new decision. `run-63.mjs` searches before every create and reuses what it
+finds, so re-running it costs nothing permanent — verified on 2026-08-20.
+
+Findings: `probes/63-member-creation.md`.
+
 ### Before the first write probe
 
 Search first. If `Ztest Wayfinder` already exists from an earlier run, reuse it
@@ -271,6 +308,9 @@ verified to make zero writes. Any new write probe must do the same.
 | **Memberships have no delete** (#60) | `POST /memberships` creates a permanent record. A School Pass lapses at `expiration_date`; it cannot be removed. Search first and reuse an active one |
 | A membership record has **no `status` field** (#60) | Only `start_date` and `expiration_date`. Code checking `status` reads `undefined` and would treat a live pass as inactive — derive activity from the dates |
 | `GET /membership_plans` **truncates at 50** (#60) | UJ has 57 plans and `School Pass` was beyond the default page, so a name lookup reports "no such plan". Same trap as `/events` (#51). Always pass `page_size`, and treat a full page as truncated |
+| `POST /members` answers **200**, and works with a **JSON** body (#63) | The reference calls it form-encoded; JSON was tried first because it is the only contact-create shape ever measured here (#49) and it succeeded, so the form shape is still untested. Build on JSON. A client testing for `201` reads a successful create as a failure |
+| A contact's **status view is set by the creating endpoint** (#63) | `POST /members` puts a contact straight into `/members` while it holds *no membership at all*. #49's "disjoint views by status" holds, but the status is a label applied at creation, not a consequence of holding a pass |
+| `membership_plan_id` **works on `POST /members`** (#63) | The pass is granted by the create call, active immediately, and starts on the **creation day** — the same date the two-call route was sending. A new student is two writes, not three |
 | Clubworx issues **one key per gym**, confirmed | Attribution by key is impossible; the `noreply+<school>@` marker is the only provenance signal. One key's leak or rotation hits every integration |
 | Rate limits undocumented **and unadvertised** | Confirmed live, and confirmed again *while being throttled* (#51): no `Retry-After` or `X-RateLimit-*` headers come back at any point. A client cannot self-throttle from response metadata or see a ceiling approaching — only hit it |
 | The ceiling is **tight**: ~50 fast requests, then ~18s of 429 (#51) | 75 req/min ran clean; 120 did not. Every caller must pace, and the allowance is shared across the whole gym key, so this tool can throttle HVT and vice versa |

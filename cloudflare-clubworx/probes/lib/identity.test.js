@@ -2,6 +2,7 @@ import { describe, it, expect } from 'vitest';
 import {
   TEST_IDENTITY,
   PROBE_CONTACTS,
+  MEMBER_PROBE_CONTACTS,
   assertProbeIdentity,
   planContacts,
   pickProbeRows,
@@ -211,5 +212,90 @@ describe('plusTag', () => {
 
   it('returns null when there is no tag', () => {
     expect(plusTag('noreply@urbanjungleirc.com')).toBeNull();
+  });
+});
+
+// ── staff-site#63 ───────────────────────────────────────────────────────────
+//
+// #63 is the first ticket to create a contact through `POST /members`, and the
+// #49 authorisation is spent — ACCESS.md section 4 says in as many words that a
+// fourth contact is a new decision. These assertions are what make the size of
+// that decision checkable: two contacts, both inside the guard that already
+// exists, and neither of them able to carry the probe's own bookkeeping onto a
+// record that can never be deleted.
+
+describe('MEMBER_PROBE_CONTACTS', () => {
+  it('is two contacts — the minimum that answers all four of #63’s questions', () => {
+    // One contact cannot answer both. Question 1 needs a create with only the
+    // required fields; question 3 needs `membership_plan_id` *on the create
+    // call*, which a contact that already exists can never test.
+    expect(MEMBER_PROBE_CONTACTS).toHaveLength(2);
+  });
+
+  it('passes the identity guard that fronts every write', () => {
+    // If a surname were mistyped here, the refusal would arrive mid-run against
+    // production rather than in this file.
+    for (const contact of MEMBER_PROBE_CONTACTS) {
+      expect(() => assertProbeIdentity(contact)).not.toThrow();
+    }
+  });
+
+  it('gives each one a surname no earlier probe used', () => {
+    const earlier = new Set(PROBE_CONTACTS.map(c => c.last_name));
+    const names = MEMBER_PROBE_CONTACTS.map(c => c.last_name);
+
+    expect(new Set(names).size).toBe(names.length);
+    for (const name of names) expect(earlier.has(name)).toBe(false);
+  });
+
+  it('reuses an existing plus-tag rather than opening a new one', () => {
+    // A new tag is a new search surface for every later probe to sweep. #49
+    // already proved a tag isolates; #63 has nothing to learn from a third one.
+    const tags = new Set(PROBE_CONTACTS.map(c => plusTag(c.email)));
+    for (const contact of MEMBER_PROBE_CONTACTS) {
+      expect(tags.has(plusTag(contact.email))).toBe(true);
+    }
+  });
+
+  it('marks exactly one of them as the pass-on-create case', () => {
+    const marked = MEMBER_PROBE_CONTACTS.filter(c => c.withPlanOnCreate);
+    expect(marked).toHaveLength(1);
+    expect(marked[0].label).toBe('E');
+  });
+
+  it('carries no membership_plan_id of its own — the id is resolved by name at run time', () => {
+    // A hard-coded plan id is a number nobody can check against the Clubworx
+    // UI, and #60 found the name lookup silently truncating at 50 plans. The
+    // probe resolves it and refuses to guess; declaring one here would smuggle
+    // the guess back in.
+    for (const contact of MEMBER_PROBE_CONTACTS) {
+      expect(contact.membership_plan_id).toBeUndefined();
+    }
+  });
+
+  it('is found by planContacts once it exists, so a re-run creates nothing', () => {
+    const existing = MEMBER_PROBE_CONTACTS.map((c, i) => ({
+      contact_key: `ck-${i}`,
+      email: c.email,
+      last_name: c.last_name,
+    }));
+
+    const { create, reuse } = planContacts({ wanted: MEMBER_PROBE_CONTACTS, existing });
+
+    expect(create).toHaveLength(0);
+    expect(reuse).toHaveLength(2);
+  });
+
+  it('is not confused with #49’s contacts, which share its email', () => {
+    // Matching is on email *and* surname. If it were email alone, D and E would
+    // look already-present the moment A exists and #63 would silently never run.
+    const existing = PROBE_CONTACTS.map((c, i) => ({
+      contact_key: `ck-${i}`,
+      email: c.email,
+      last_name: c.last_name,
+    }));
+
+    const { create } = planContacts({ wanted: MEMBER_PROBE_CONTACTS, existing });
+    expect(create).toHaveLength(2);
   });
 });

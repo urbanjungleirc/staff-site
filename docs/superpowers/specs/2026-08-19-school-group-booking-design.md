@@ -15,8 +15,9 @@ This spec describes a staff-portal page that takes the pasted list and does it
 in about four minutes.
 
 > **Every claim here about Clubworx behaviour was measured**, in
-> `cloudflare-clubworx/probes/`, against production, on 2026-08-17/18. Where
-> something is inferred from the reference rather than observed, it says so.
+> `cloudflare-clubworx/probes/`, against production, on 2026-08-17/18 and
+> 2026-08-20 (#63, the member-creation gate). Where something is inferred from
+> the reference rather than observed, it says so.
 > The reference has been wrong twice on this effort — see
 > [Two things the reference got wrong](#two-things-the-reference-got-wrong) —
 > so the distinction is not pedantry.
@@ -55,8 +56,11 @@ School Session.**
 paste ──► parse ──► match against Clubworx
                           │
                           ├─ found  ──► (re-read membership) ──► ensure School Pass ──► book ×N
-                          └─ new    ──► create contact ──────► assign School Pass ──► book ×N
+                          └─ new    ──► create contact WITH the pass ─────────────────► book ×N
 ```
+
+A **found** student needs the pass assigned separately; a **new** one gets it in
+the create call. Both measured — see below.
 
 ### Why the original prospect route failed
 
@@ -77,48 +81,71 @@ Two consequences outlived the route change:
 2. **An error message can point confidently at the wrong mechanism.** This is
    why §11 never paraphrases an unrecognised refusal.
 
-### The replacement, measured end to end in #60
+### The replacement, measured end to end in #60 and #63
 
 | Step | Call | Status |
 |---|---|---|
-| Create contact | `POST /api/v2/members` | **Documented, not measured** — see below |
-| Assign pass | `POST /api/v2/memberships` | **Measured.** Form-encoded, with `account_key`, `contact_key`, `membership_plan_id`, `start_date`. **200**; active immediately |
+| Create contact | `POST /api/v2/members` | **Measured (#63).** **JSON**, with `account_key` in the query string. **200**; lands straight in `/members`. Takes `membership_plan_id`, so the next row is optional for new students |
+| Assign pass | `POST /api/v2/memberships` | **Measured.** Form-encoded, with `account_key`, `contact_key`, `membership_plan_id`, `start_date`. **200**; active immediately. Needed only for contacts that **already existed** — see below |
 | Book | `POST /api/v2/bookings` | **Measured.** **200**; a second identical call is refused by Clubworx itself |
 | Unbook | `DELETE /api/v2/bookings/:id` | **Measured.** **200**; needs **`contact_key` as well as `account_key`, form-encoded in the body** |
 
-> ### ⚠ Creating a member is the one write in this chain nobody has run
+### Creating a member — measured, and the one-call route is adopted
+
+[#63](https://github.com/urbanjungleirc/staff-site/issues/63) ran this against
+production on 2026-08-20. Full evidence:
+`cloudflare-clubworx/probes/63-member-creation.md`.
+
+**`POST /api/v2/members` works, and the pass rides along.** So a **new** student
+is created and given their School Pass in **one** request:
+
+```
+POST /api/v2/members    first_name, last_name, email, dob, membership_plan_id
+                        JSON body, account_key in the query string
+                        -> 200, contact created, pass active from today
+```
+
+| What was unknown | What was measured |
+|---|---|
+| Does `POST /members` succeed? | **Yes** — HTTP **200**, not `201` |
+| Which body shape? | **JSON**. See the warning below |
+| Is the contact bookable? | **Yes** — booked and cancelled cleanly, both routes |
+| Does `membership_plan_id` work on create? | **Yes** — exactly one pass, active on the next read |
+| What `start_date` does it get? | **The creation day** — the same date the two-call route was sending |
+
+**The trade-off this section was braced for does not exist.** The one-call pass
+and the two-call pass came back identical — same `start_date` (2026-08-20), same
+`expiration_date` (2026-11-11), same `class_access`. Nothing is given up by
+letting Clubworx choose, because it chooses today.
+
+**The two-call route stays, for contacts that already exist.** A student the
+matcher *finds* cannot be re-created, so a found contact without an active pass
+still needs `POST /memberships` (§2's `found` branch). Both paths are measured.
+
+**Consequence for §12:** the "contact created, pass failed" stranded state is
+now unreachable **for new students** — the contact and the pass are one request,
+which either happened or did not. §12 still handles it for found contacts.
+
+> ⚠️ **Send JSON, not form-encoded.** The reference calls this endpoint
+> form-encoded. #63 tried JSON first — the only contact-create shape ever
+> measured here (#49) — and it answered 200 on the first attempt, so **the
+> form-encoded shape was never tested** and cannot now be tested without
+> creating another permanent contact. JSON is what is measured; do not "correct"
+> it to form-encoding on the strength of the reference alone.
 >
-> **#60 did not create its members — it converted existing prospects by hand in
-> the Clubworx UI before the probe ran.** #49 created contacts, but through
-> `POST /api/v2/prospects`. So `POST /api/v2/members` is taken from the
-> reference, and the reference has been wrong twice on this effort (§12).
+> To be fair to the reference: on this endpoint it was **right**. It said
+> `membership_plan_id` works on create, and it does. The encoding is the one
+> claim #63 could not check, because the first shape it tried succeeded.
 >
-> The reference gives it `account_key`, `first_name`, `last_name`, `email`
-> (all required), plus optional `phone`, `dob`, `member_number`, address fields
-> — **and `membership_plan_id`.**
->
-> Two things follow, and the first implementation ticket resolves both against
-> production before anything is built on them:
->
-> 1. **Whether a contact created this way is bookable.** The design's assumption
->    is that it does not matter: what makes a contact bookable is **holding an
->    active School Pass**, not the status label — and #49 established the three
->    status endpoints are *disjoint views by status*, so assigning a pass should
->    move the contact into `/members` regardless of which endpoint created it.
->    That reasoning is sound but unproven. **Fallback if `POST /members`
->    refuses:** create via `POST /prospects` (measured in #49) and let the pass
->    move them. The rest of this spec is unchanged either way.
-> 2. **Whether the pass can be assigned in the same call.** If
->    `membership_plan_id` works on create, a new student is **two writes, not
->    three**, and the "contact created, pass failed" stranded state (§12)
->    disappears for new students entirely — the most valuable simplification
->    available here. But it takes **no `start_date`**, so the pass would start
->    whenever Clubworx decides, where the two-call route sends a start date and
->    reads the 12-week expiry back.
->
->    **Do not adopt the one-call route on the strength of the reference.** The
->    two-call route is measured; this one is not, and getting it wrong writes a
->    permanent membership with an unintended start date. Verify it, then decide.
+> Note the sibling write paths differ: `/memberships` and `/bookings` **are**
+> form-encoded (#60). The encoding is per-endpoint, not per-API.
+
+**A created member holds no membership until one is granted.** #63 found D
+sitting in `GET /members` with an empty `/memberships` list. This section
+previously reasoned that assigning a pass is what *moves* a contact into
+`/members`; that is not the mechanism. **The status view is set by the endpoint
+that created the contact.** The conclusion was right and is now better — no move
+is needed, because the contact starts where it belongs.
 
 **A School Pass costs nothing** — `upfront_payment_amount "0.0"`, no recurring
 charge — and starts no billing schedule.
@@ -775,6 +802,13 @@ So the undo asymmetry is exactly: **bookings yes, contacts and memberships
 never.** It is narrower than the map first feared — #50 wrongly reported that
 bookings could not be deleted either — but it is still an asymmetry, and the UI
 must never imply that undo restores the prior state.
+
+**One stranded case is now unreachable.** #63 adopted the one-call create for
+new students (§2), so "contact created, then the pass call failed" cannot happen
+to a student this tool creates — the contact and the pass are a single request.
+A **found** student can still be stranded that way, and every student can still
+be stranded by D3's rollback, which cancels bookings and leaves the permanent
+contact and pass behind. The result table must still name them.
 
 ### Two things the reference got wrong
 
