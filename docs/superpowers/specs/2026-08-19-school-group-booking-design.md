@@ -152,7 +152,9 @@ charge — and starts no billing schedule.
 
 **`expiration_date` comes back as exactly the configured 12 weeks.** The tool
 sends a `start_date` and *reads* the end date. It never computes an expiry, so
-nothing here can drift from the plan's configuration.
+nothing here can drift from the plan's configuration. Whether twelve weeks from
+*the day of the run* is long enough is a different question, and the answer is
+no for a term booked far enough ahead — see §3.
 
 **A membership has no `status` field.** Whether a pass is active is derived from
 `start_date`/`expiration_date`, inclusive at both ends. Code that looks for
@@ -180,6 +182,58 @@ Duration stays out of the name because `GET /membership_plans` already exposes
 
 **12 weeks** is chosen to cover a UJ term including its snapped edges — see
 [ADR 0002](../../adr/0002-uj-term-weeks-are-snapped.md).
+
+### 12 weeks covers a term. It does not cover a term booked far ahead
+
+> **Raised 2026-08-20, after the spec was written.** The 12 weeks were sized
+> against the *term*, and silently assumed the booking is made at the start of
+> it. School bookings are not always made that way: a school can send its list
+> and have staff book the whole term **three or four weeks before the first
+> session**. This is unlikely but real, and it is the one case the duration
+> was never checked against.
+
+The pass runs from its `start_date` for **84 days of access** (#63 measured
+83 days of difference, inclusive at both ends). A ten-session weekly term spans
+**63 days** — first session day 0, tenth session day 63. Under the adopted
+route the pass starts on the **creation day**, which is the day staff run the
+tool, so:
+
+```
+lead time L  →  last session lands on day L + 63
+pass covers  →  days 0 … 83
+safe while   →  L ≤ 20 days
+```
+
+A run made **three weeks ahead loses the last session; four weeks ahead loses
+the last two.** Nothing in the tool would notice: every booking is written on
+the day of the run, when the pass is unambiguously active.
+
+**Whether that actually costs anything is unmeasured**, and it is the first
+thing to establish, because it decides whether there is a bug at all:
+
+- If Clubworx checks the pass **only at booking time**, a pass expiring before
+  session ten is irrelevant — the booking already exists, and attendance is a
+  property of the booking. Nothing needs changing.
+- If it checks the pass **against the session date**, the far-ahead bookings are
+  refused at write time, and the run visibly fails on the tail sessions.
+- If it checks **both**, then a future `start_date` cannot be the fix — the pass
+  would not be active when the booking is written — and the only lever left is
+  the plan's **duration**.
+
+Three candidate fixes follow, and they are deliberately not chosen here:
+
+| Fix | Cost | Depends on |
+|---|---|---|
+| **Lengthen the plan** in Clubworx (e.g. a 20–26 week School Pass) | Config only. **No code, no date logic anywhere** | Nothing. Works under all three checking models |
+| **Start the pass at the first selected session** | Loses the one-call create route for any far-ahead run, since `POST /members` starts the pass *today* (#63); the write chain needs the session dates it does not currently receive; "active" stops meaning "active today" and starts meaning "covers every selected session", which drags in the never-probed second-pass question | A future `start_date` being honoured — **unproven**, flagged in #63 — *and* session-date checking |
+| **Refuse the run** when the last selected session falls outside the pass | Small, and consistent with §11's stated posture — refuse and let the human fix it | Session-date checking. Solves nothing on its own; it makes the failure visible instead of silent |
+
+The pass **costs nothing and starts no billing schedule**, so lengthening it is
+cheap in money. What it is not free of is §15's open reporting question: a
+longer pass keeps a term's intake counted as **current members** for longer.
+
+Filed as [#90](https://github.com/urbanjungleirc/staff-site/issues/90), which
+blocks the write chain ([#69](https://github.com/urbanjungleirc/staff-site/issues/69)).
 
 ### Why there is no event-naming convention
 
@@ -965,7 +1019,17 @@ removed through the API. Use a marker slug that makes them findable
 
 ## 15. Known gaps and open questions
 
-Carried forward deliberately. None blocks the build.
+Carried forward deliberately. All but the first block nothing.
+
+- **Whether a School Pass is checked against the session date, or only at
+  booking time.** Raised 2026-08-20. A term booked three or four weeks ahead
+  puts its last sessions past the pass's 84 days — see §3 for the arithmetic and
+  the three candidate fixes. **This one blocks the write chain**, because it
+  decides whether the pass may start on the day of the run at all. It is
+  cheaply answerable and fully reversible: book a pass-holder into an event
+  beyond their `expiration_date` and see whether Clubworx refuses. Bookings are
+  the one write that can be undone. Filed as
+  [#90](https://github.com/urbanjungleirc/staff-site/issues/90).
 
 - **Whether `POST /api/v2/members` works, and whether it can carry
   `membership_plan_id`.** The one write in the chain that has never been run —
