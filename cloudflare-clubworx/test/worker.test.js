@@ -230,3 +230,206 @@ describe('responses', () => {
     expect(res.headers.get('Cache-Control')).toContain('no-store');
   });
 });
+
+describe('GET /contacts', () => {
+  // The dedup read. What is asserted here is the *route* — validation, status
+  // mapping and the log line. The three-view search itself is pinned in
+  // contacts.test.js.
+
+  const found = {
+    ok: true,
+    candidates: [{ contact_key: 'ck-1', first_name: 'Amelia', last_name: 'Nowak', dob: '2009-03-02' }],
+    views: [{ view: 'prospects', pages: 1, rows: 1 }],
+    requests: 3,
+  };
+
+  const failed = over => ({
+    ok: false,
+    reason: 'upstream-error',
+    upstreamStatus: 500,
+    view: 'members',
+    message: null,
+    candidates: [],
+    requests: 2,
+    ...over,
+  });
+
+  /** A handler whose search is stubbed, recording what the route asked it for. */
+  function routeWith(result, { env = ENV } = {}) {
+    const asked = [];
+    const lines = [];
+    const handle = createHandler({
+      makeVerifier: () => accepts('staff@urbanjungleirc.com'),
+      log: line => lines.push(line),
+      search: async args => {
+        asked.push(args);
+        return typeof result === 'function' ? result(args) : result;
+      },
+    });
+    return {
+      asked,
+      lines,
+      call: (path, init = withJwt) => handle(new Request(`https://ujstaff.happyk.au${path}`, init), env),
+    };
+  }
+
+  const query = '/api/clubworx/contacts?last_name=Nowak&dob=2009-03-02';
+
+  it('hands back the candidate set the search merged', async () => {
+    const h = routeWith(found);
+    const res = await h.call(query);
+
+    expect(res.status).toBe(200);
+    expect((await res.json()).candidates).toHaveLength(1);
+  });
+
+  it('passes the surname and date of birth through to the search', async () => {
+    const h = routeWith(found);
+    await h.call(query);
+
+    expect(h.asked[0]).toMatchObject({ lastName: 'Nowak', dob: '2009-03-02' });
+  });
+
+  it('reports what the search cost, so a run can be held to its budget', async () => {
+    // 3 reads per student; a 25-student list spends ~75 requests on this route
+    // alone, against a measured ceiling of 75/min shared with the whole gym.
+    const h = routeWith(found);
+
+    expect((await (await h.call(query)).json()).requests).toBe(3);
+  });
+
+  it('trims the surname rather than searching for a padded one', async () => {
+    const h = routeWith(found);
+    await h.call('/api/clubworx/contacts?last_name=%20Nowak%20&dob=2009-03-02');
+
+    expect(h.asked[0].lastName).toBe('Nowak');
+  });
+
+  it('refuses a method it does not implement — this route is read-only', async () => {
+    const h = routeWith(found);
+    expect((await h.call(query, { ...withJwt, method: 'POST' })).status).toBe(405);
+  });
+
+  describe('what it refuses to ask Clubworx', () => {
+    const refuses = async path => {
+      const h = routeWith(found);
+      const res = await h.call(path);
+      return { status: res.status, body: await res.json(), asked: h.asked };
+    };
+
+    it('refuses a missing surname instead of sweeping the database', async () => {
+      // Both halves of the identity key are required (§5). A surname-less query
+      // is a walk through ~60,000 contacts, and it cannot conclude anything.
+      const { status, asked } = await refuses('/api/clubworx/contacts?dob=2009-03-02');
+
+      expect(status).toBe(400);
+      expect(asked).toHaveLength(0);
+    });
+
+    it('refuses a blank surname, which a template can produce by accident', async () => {
+      expect((await refuses('/api/clubworx/contacts?last_name=%20%20&dob=2009-03-02')).status).toBe(400);
+    });
+
+    it('refuses a missing date of birth', async () => {
+      expect((await refuses('/api/clubworx/contacts?last_name=Nowak')).status).toBe(400);
+    });
+
+    it('refuses a date that is not YYYY-MM-DD', async () => {
+      // Date orientation is the standing hazard on this map: 03/02/2009 is two
+      // different children depending on who typed it. This route takes one form.
+      expect((await refuses('/api/clubworx/contacts?last_name=Nowak&dob=02/03/2009')).status).toBe(400);
+    });
+
+    it('refuses a well-shaped date that is not a real day', async () => {
+      expect((await refuses('/api/clubworx/contacts?last_name=Nowak&dob=2009-02-30')).status).toBe(400);
+    });
+
+    it('says which field it refused, without repeating the value back', async () => {
+      const { body } = await refuses('/api/clubworx/contacts?last_name=Nowak&dob=02/03/2009');
+
+      expect(body.reason).toBe('bad-request');
+      expect(body.error).toMatch(/dob/);
+      expect(JSON.stringify(body)).not.toContain('02/03/2009');
+    });
+  });
+
+  describe('when the search cannot answer', () => {
+    it('passes a throttle through as 429, because the page pauses the whole run on it', async () => {
+      // §11: the allowance is gym-wide, so backing off one student while the
+      // others continue just spends the next window failing. The Worker does not
+      // retry — it reports, and the run decides.
+      const h = routeWith(failed({ reason: 'throttled', upstreamStatus: 429, view: 'prospects' }));
+      const res = await h.call(query);
+
+      expect(res.status).toBe(429);
+      expect((await res.json()).reason).toBe('throttled');
+    });
+
+    it('answers 502 for an upstream failure, not the upstream status', async () => {
+      // Clubworx answering 401 must not reach the browser as 401 — that is the
+      // Access gate's code on this Worker, and confusing the two sends an
+      // operator to re-authenticate against a problem that is not theirs.
+      const h = routeWith(failed({ upstreamStatus: 401, message: 'Authorization failed' }));
+      const res = await h.call(query);
+
+      expect(res.status).toBe(502);
+      expect((await res.json()).upstreamStatus).toBe(401);
+    });
+
+    it('carries the upstream message verbatim, never re-worded (D6)', async () => {
+      const h = routeWith(failed({ upstreamStatus: 400, message: 'Woops! Something new' }));
+
+      expect((await (await h.call(query)).json()).error).toContain('Woops! Something new');
+    });
+
+    it('refuses a sweep that never narrowed, rather than serving a truncated list', async () => {
+      const h = routeWith(
+        failed({ reason: 'search-not-narrowed', upstreamStatus: 200, view: 'prospects', message: 'still full at page 3' }),
+      );
+      const res = await h.call(query);
+
+      expect(res.status).toBe(502);
+      expect((await res.json()).reason).toBe('search-not-narrowed');
+    });
+
+    it('never answers 200 with an empty list when the search failed', async () => {
+      // An empty candidate set is read as `new`, and `new` writes a contact that
+      // Clubworx cannot delete. A failure must never look like "nobody found".
+      const h = routeWith(failed());
+      const res = await h.call(query);
+
+      expect(res.status).not.toBe(200);
+      expect((await res.json()).candidates).toBeUndefined();
+    });
+  });
+
+  it('says the key was never put, rather than failing as though Clubworx refused', async () => {
+    const h = routeWith(found, { env: { ...ENV, CLUBWORX_ACCOUNT_KEY: undefined } });
+    const res = await h.call(query);
+
+    expect(res.status).toBe(503);
+    expect((await res.json()).reason).toBe('not-configured');
+  });
+
+  it('keeps the student out of the log line, on every path through the route', async () => {
+    // The one rule in §6/D10 that a single debugging console.log undoes. The
+    // route's own query string is where a surname and a birthday travel.
+    const h = routeWith(failed());
+    await h.call(query);
+    await h.call('/api/clubworx/contacts?last_name=Nowak');
+
+    for (const raw of h.lines) {
+      expect(raw).not.toContain('Nowak');
+      expect(raw).not.toContain('2009-03-02');
+    }
+    expect(JSON.parse(h.lines[0]).route).toBe('/api/clubworx/contacts');
+  });
+
+  it('never lets a candidate reach the log line either', async () => {
+    const h = routeWith(found);
+    await h.call(query);
+
+    expect(h.lines[0]).not.toContain('Amelia');
+    expect(h.lines[0]).not.toContain('ck-1');
+  });
+});
