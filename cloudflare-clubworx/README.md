@@ -104,14 +104,21 @@ the route takes exactly one form rather than guessing.
       "last_name": "Nowak",
       "dob": "2009-03-02",
       "email": "noreply+newman@urbanjungleirc.com",
-      "status": "Prospect",
+      "status": "Member",
       "status_view": "members"
     }
   ],
-  "views": [{ "view": "prospects", "pages": 1, "rows": 0 }],
+  "views": [
+    { "view": "prospects", "pages": 1, "rows": 0 },
+    { "view": "members", "pages": 1, "rows": 1 },
+    { "view": "non_attending_contacts", "pages": 1, "rows": 0 }
+  ],
   "requests": 3
 }
 ```
+
+Amelia was created as a prospect and has since taken a membership, so she is in
+`/members` now — which is the whole reason all three are searched.
 
 ### It searches all three status views
 
@@ -178,6 +185,19 @@ birthday travelling to a browser. So the walk is bounded at `MAX_PAGES`, and
 hitting that ceiling is a **refusal**, not a truncation flag: a flag is
 something a caller can ignore, and ignoring this one writes a duplicate contact.
 
+### The unmeasured assumption underneath it — [#92]
+
+`dob` is passed through exactly as Clubworx sent it, and `matchStudent` compares
+it as a string against `parse.js`'s ISO `YYYY-MM-DD`. **Nothing has ever
+measured what format Clubworx returns** — [#49] recorded the contact schema
+deliberately without values.
+
+If it comes back as `02/05/1999`, every comparison is false, every student
+reports `new`, and a 25-student run writes 25 permanent contacts, silently.
+Normalising on a guess would be worse than not normalising, because orientation
+is ambiguous and a wrong guess is the same duplicate with a confident comment
+over it. [#92] measures it; until then this is the known soft spot in the route.
+
 ### It does not retry
 
 §11's D8 retries `429`, `5xx` and network errors — but **a `429` pauses the
@@ -185,6 +205,22 @@ whole run, not one row**, because the allowance is gym-wide ([#47]) and backing
 off a single student while the others continue just spends the next window
 failing. Retrying inside the Worker would hide the throttle from the only layer
 that can act on it.
+
+So the caller implements D8, and `upstreamStatus` is what it classifies on.
+`reason` says what kind of failure it was; `upstreamStatus` says whether D8 may
+retry it:
+
+| `upstreamStatus` | Was | D8 |
+|---|---|---|
+| `429` | throttled | retry after the ~20 s floor — and pause the **whole run** |
+| `0` | a connection failure, never an upstream answer | retryable |
+| `5xx` | Clubworx erred | retryable |
+| `4xx` | Clubworx refused our request | **never retry** — permanent for that attempt |
+| `200` | `search-not-narrowed` | not a retry; the query itself is the problem |
+
+`0` rather than `null` for a connection failure is deliberate in `clubworx.js`,
+so a caller comparing statuses cannot mistake it for an answer it simply did not
+read.
 
 ### What a run costs here
 
@@ -198,6 +234,7 @@ response so a run can be held to that budget.
 [#50]: https://github.com/urbanjungleirc/staff-site/issues/50
 [#51]: https://github.com/urbanjungleirc/staff-site/issues/51
 [#60]: https://github.com/urbanjungleirc/staff-site/issues/60
+[#92]: https://github.com/urbanjungleirc/staff-site/issues/92
 
 ## Pacing
 

@@ -365,6 +365,28 @@ describe('GET /contacts', () => {
       expect((await res.json()).reason).toBe('throttled');
     });
 
+    it('gives a throttle §11 wording even though the upstream body is HTML', async () => {
+      // The bug this pins: a throttle answers in HTML, so `errorMessageOf` finds
+      // nothing and clubworx.js falls back to `bodyText` — up to 500 characters
+      // of scrubbed markup, which is non-null and would win a `??` against the
+      // sentence §11 requires. The operator would meet a WAF page instead of
+      // being told the cause may be another system on the same gym-wide key.
+      const h = routeWith(
+        failed({
+          reason: 'throttled',
+          upstreamStatus: 429,
+          view: 'prospects',
+          message: '<html><head><title>429 Too Many Requests</title></head><body>…</body></html>',
+        }),
+      );
+      const body = await (await h.call(query)).json();
+
+      expect(body.error).toBe(
+        'Clubworx is busy — this can be caused by another system, not this page. Try again shortly.',
+      );
+      expect(body.error).not.toContain('html');
+    });
+
     it('answers 502 for an upstream failure, not the upstream status', async () => {
       // Clubworx answering 401 must not reach the browser as 401 — that is the
       // Access gate's code on this Worker, and confusing the two sends an

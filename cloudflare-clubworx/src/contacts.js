@@ -48,6 +48,24 @@
  * `matchStudent` already re-checks surname *and* DOB against every candidate,
  * so an over-broad set is safe and a locally-narrowed one is not.
  *
+ * ---------------------------------------------------------------------------
+ * The unmeasured assumption underneath all of it — #92
+ * ---------------------------------------------------------------------------
+ * `dob` is passed through exactly as Clubworx sent it, and `matchStudent`
+ * compares it as a string against `parse.js`'s ISO `YYYY-MM-DD`. **Nothing has
+ * ever measured what format Clubworx returns.** #49 recorded the contact schema
+ * deliberately without values, so the field is known to exist and its shape is
+ * not.
+ *
+ * If it comes back as `02/05/1999`, every comparison is false, every student
+ * reports `new`, and a 25-student run writes 25 permanent contacts. It fails
+ * silently — nothing throws, and a school that has never climbed here before
+ * looks exactly the same.
+ *
+ * Normalising on a guess would be worse than not normalising: orientation is
+ * ambiguous, and a wrong guess is the same permanent duplicate with a confident
+ * comment above it. So this passes through and #92 measures it.
+ *
  * **It does not retry.** §11's D8 retries `429`, `5xx` and network errors — but
  * *a `429` pauses the whole run, not one row*, because the allowance is
  * gym-wide (one key per gym, #47) and backing off a single student while the
@@ -55,8 +73,6 @@
  * Worker would hide the throttle from the only layer that can act on it, so the
  * `429` is reported as itself and the page decides.
  */
-
-import { errorMessageOf } from './errors.js';
 
 /**
  * The three disjoint status views, in the order #49 measured them.
@@ -143,19 +159,11 @@ const failure = ({ reason, message, view, upstreamStatus = null, requests }) => 
  *   A `createClubworxClient` instance. Everything it sends is paced.
  * @param {string} opts.lastName  Surname, as the operator's paste spelled it.
  * @param {string} opts.dob       `YYYY-MM-DD`.
- * @param {number} [opts.pageSize]
- * @param {number} [opts.maxPages]
  * @returns {Promise<{ok: true, candidates: object[], views: object[], requests: number}
  *                 | {ok: false, reason: string, message: string|null, view: string,
  *                    upstreamStatus: number|null, candidates: [], requests: number}>}
  */
-export async function searchContacts({
-  client,
-  lastName,
-  dob,
-  pageSize = PAGE_SIZE,
-  maxPages = MAX_PAGES,
-}) {
+export async function searchContacts({ client, lastName, dob }) {
   // Keyed by contact_key, so a contact seen in two views — or twice across a
   // shifting page boundary — merges instead of duplicating. First sighting wins:
   // the views are disjoint, so a second one is a race, not new information.
@@ -167,12 +175,12 @@ export async function searchContacts({
     let pages = 0;
     let rowsSeen = 0;
 
-    for (let page = 1; page <= maxPages; page += 1) {
+    for (let page = 1; page <= MAX_PAGES; page += 1) {
       const res = await client.get(view, {
         last_name: lastName,
         dob,
         page,
-        page_size: pageSize,
+        page_size: PAGE_SIZE,
       });
       requests += 1;
       pages += 1;
@@ -184,7 +192,11 @@ export async function searchContacts({
         // gym-wide key.
         return failure({
           reason: res.status === 429 ? 'throttled' : 'upstream-error',
-          message: res.message ?? errorMessageOf(res.body) ?? res.bodyText ?? null,
+          // `message` is the client's own contract: it runs `errorMessageOf`
+          // over every JSON body and puts the scrubbed reason there on a
+          // connection failure. `bodyText` is the leftover case — a throttle or
+          // a WAF block answering in HTML, already redacted and truncated.
+          message: res.message ?? res.bodyText ?? null,
           view,
           upstreamStatus: res.status,
           requests,
@@ -216,14 +228,14 @@ export async function searchContacts({
       // is, since #51 confirmed no total and no next-page link come back. A page
       // that is exactly full is ambiguous, so it costs one more request to find
       // out; that is the price of not silently truncating.
-      if (res.body.length < pageSize) break;
+      if (res.body.length < PAGE_SIZE) break;
 
-      if (page === maxPages) {
+      if (page === MAX_PAGES) {
         // Still full at the ceiling: the query did not narrow. See MAX_PAGES.
         return failure({
           reason: 'search-not-narrowed',
           message:
-            `${view} was still returning a full page of ${pageSize} at page ${maxPages} — ` +
+            `${view} was still returning a full page of ${PAGE_SIZE} at page ${MAX_PAGES} — ` +
             'the surname and date of birth did not narrow the search, so this answer ' +
             'cannot be told apart from a sweep of the whole contact database',
           view,

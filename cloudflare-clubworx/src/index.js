@@ -220,14 +220,21 @@ export function createHandler({
         return done(
           json(
             {
-              // Verbatim, never re-worded — D6. #50 is the cautionary tale: a
-              // truthful-sounding paraphrase pointed at the wrong mechanism and
-              // cost an architectural route.
+              // A throttle gets §11's wording and never the upstream text. It is
+              // the one case where there IS no upstream message to be faithful
+              // to: a throttle answers in HTML, so `errorMessageOf` finds
+              // nothing and the client falls back to `bodyText` — up to 500
+              // characters of scrubbed markup. Letting that win would put a WAF
+              // page in front of the operator instead of the sentence that says
+              // the cause may be another system on the same gym-wide key.
+              //
+              // Everything else is verbatim, never re-worded — D6. #50 is the
+              // cautionary tale: a truthful-sounding paraphrase pointed at the
+              // wrong mechanism and cost an architectural route.
               error:
-                result.message ??
-                (result.reason === 'throttled'
+                result.reason === 'throttled'
                   ? 'Clubworx is busy — this can be caused by another system, not this page. Try again shortly.'
-                  : 'the Clubworx contact search failed'),
+                  : (result.message ?? 'the Clubworx contact search failed'),
               reason: result.reason,
               view: result.view ?? null,
               upstreamStatus: result.upstreamStatus ?? null,
