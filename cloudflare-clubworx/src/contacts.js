@@ -49,22 +49,28 @@
  * so an over-broad set is safe and a locally-narrowed one is not.
  *
  * ---------------------------------------------------------------------------
- * The unmeasured assumption underneath all of it — #92
+ * Why `dob` is passed through untouched — measured, #92
  * ---------------------------------------------------------------------------
- * `dob` is passed through exactly as Clubworx sent it, and `matchStudent`
- * compares it as a string against `parse.js`'s ISO `YYYY-MM-DD`. **Nothing has
- * ever measured what format Clubworx returns.** #49 recorded the contact schema
- * deliberately without values, so the field is known to exist and its shape is
- * not.
+ * `dob` leaves here exactly as Clubworx sent it, and `matchStudent` compares it
+ * as a string against `parse.js`'s ISO `YYYY-MM-DD`.
  *
- * If it comes back as `02/05/1999`, every comparison is false, every student
- * reports `new`, and a 25-student run writes 25 permanent contacts. It fails
- * silently — nothing throws, and a school that has never climbed here before
- * looks exactly the same.
+ * That rested on an assumption until 2026-08-20, when it was checked live: **a
+ * contact reads back with `dob` as ISO `YYYY-MM-DD`**, no time component — the
+ * probe contact returned `1900-01-01`, the exact string it was written with. So
+ * the comparison is sound and **no normalisation belongs here**.
  *
- * Normalising on a guess would be worse than not normalising: orientation is
- * ambiguous, and a wrong guess is the same permanent duplicate with a confident
- * comment above it. So this passes through and #92 measures it.
+ * Keep it that way. The reason this was never normalised on a guess is worth
+ * more than the finding: if the format had been `02/05/1999`, orientation would
+ * have been ambiguous, and a wrong guess would have made every comparison
+ * false, reported every student `new`, and written a permanent contact for each
+ * — silently, since a school that has never climbed here looks exactly the
+ * same. Anyone adding a date transform here is re-opening that.
+ *
+ * The call also returned rather than tripping the `search-not-narrowed`
+ * ceiling, which proves the filtering happens server-side: with both filters
+ * ignored, `/prospects` alone would have answered three full pages. Which of
+ * the two narrows, and whether `last_name` is exact or partial, is still open
+ * on #92 — a sizing question now, not a correctness one.
  *
  * **It does not retry.** §11's D8 retries `429`, `5xx` and network errors — but
  * *a `429` pauses the whole run, not one row*, because the allowance is
@@ -95,14 +101,25 @@ export const PAGE_SIZE = 200;
 /**
  * How far a single view may be walked before the search is called broken.
  *
- * Whether Clubworx honours `last_name` and `dob` as *filters* is unmeasured —
- * the only contact filter ever measured here is `email` (#49). If it ignores
- * them, every page comes back full and this is a walk through a 60,000-person
- * database at 75 requests a minute: ~13 minutes for one student, and every row
- * of it a stranger's name and date of birth travelling to a browser.
+ * This was written when it was unknown whether Clubworx honoured `last_name`
+ * and `dob` as *filters* at all — the only contact filter ever measured was
+ * `email` (#49) — and an ignored filter would make every page come back full:
+ * a walk through a 60,000-person database at 75 requests a minute, ~13 minutes
+ * for one student, every row a stranger's name and date of birth going to a
+ * browser.
+ *
+ * **The filtering does happen server-side** (#92, 2026-08-20). A live
+ * `?last_name=&dob=` search returned instead of tripping this ceiling, which is
+ * only possible if at least one filter narrows. So this is a guard against an
+ * anomaly rather than the expected path, and it should not fire in normal use.
+ *
+ * Still worth keeping, and still worth knowing the open half: whether
+ * `last_name` matches **exactly or partially** is unmeasured, and `probes/`
+ * suggests partial. If it is, a common surname returns more rows than a rare
+ * one, and this ceiling is what stands between that and a silent truncation.
  *
  * Three pages is generous for the intended query — a surname and a birthday
- * should match a handful — and small enough that the anomaly is caught in
+ * should match a handful — and small enough that an anomaly is caught in
  * seconds. Hitting it means the query did not narrow, which is a refusal
  * (`search-not-narrowed`), not a truncation flag: a flag is something a caller
  * can ignore, and ignoring this one writes a duplicate contact.
