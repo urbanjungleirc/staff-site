@@ -177,26 +177,44 @@ indistinguishable from a complete list. Each view is therefore paged until a
 short page arrives — at `page_size=200`, never the default 50 that hid `School
 Pass` from [#60].
 
-Whether Clubworx honours `last_name` and `dob` as *filters* is **unmeasured**;
-the only contact filter ever measured here is `email` ([#49]). If it ignores
-them, every page comes back full and this becomes a walk through the whole
-database at 75 req/min — minutes per student, every row a stranger's name and
-birthday travelling to a browser. So the walk is bounded at `MAX_PAGES`, and
-hitting that ceiling is a **refusal**, not a truncation flag: a flag is
-something a caller can ignore, and ignoring this one writes a duplicate contact.
+The walk is bounded at `MAX_PAGES`, and hitting that ceiling is a **refusal**,
+not a truncation flag: a flag is something a caller can ignore, and ignoring
+this one writes a duplicate contact.
 
-### The unmeasured assumption underneath it — [#92]
+That bound was written against a real unknown — whether Clubworx honoured
+`last_name` and `dob` as *filters* at all, the only contact filter ever measured
+being `email` ([#49]). An ignored filter would have made this a walk through the
+whole database at 75 req/min, minutes per student.
 
-`dob` is passed through exactly as Clubworx sent it, and `matchStudent` compares
-it as a string against `parse.js`'s ISO `YYYY-MM-DD`. **Nothing has ever
-measured what format Clubworx returns** — [#49] recorded the contact schema
-deliberately without values.
+**The filtering does happen server-side** ([#92], 2026-08-20): a live search
+returned instead of tripping the ceiling, which is only possible if at least one
+filter narrows. So the bound guards an anomaly rather than the expected path.
 
-If it comes back as `02/05/1999`, every comparison is false, every student
-reports `new`, and a 25-student run writes 25 permanent contacts, silently.
-Normalising on a guess would be worse than not normalising, because orientation
-is ambiguous and a wrong guess is the same duplicate with a confident comment
-over it. [#92] measures it; until then this is the known soft spot in the route.
+The open half is worth knowing: whether `last_name` matches **exactly or
+partially** is unmeasured, and `probes/README.md` suggests partial. If it is, a
+common surname returns more rows than a rare one, and this ceiling is what
+stands between that and a silent truncation.
+
+### `dob` is passed through untouched, and that is now measured — [#92]
+
+`dob` leaves the Worker exactly as Clubworx sent it, and `matchStudent` compares
+it as a string against `parse.js`'s ISO `YYYY-MM-DD`.
+
+Checked live on 2026-08-20: **a contact reads back with `dob` as ISO
+`YYYY-MM-DD`**, no time component — the probe contact returned `1900-01-01`, the
+exact string it was written with. The comparison is sound, and **no
+normalisation belongs in this route.**
+
+Keep it that way. Had the format been `02/05/1999`, orientation would have been
+ambiguous, and normalising on a guess would have made every comparison false,
+reported every student `new`, and written a permanent contact for each —
+silently. Anyone adding a date transform here is re-opening that.
+
+The same call returned rather than tripping `search-not-narrowed`, which proves
+the filtering happens server-side: with both filters ignored, `/prospects` alone
+would have answered three full pages. Which of the two narrows, and whether
+`last_name` is exact or partial, is still open on [#92] — a sizing question now
+rather than a correctness one.
 
 ### It does not retry
 
