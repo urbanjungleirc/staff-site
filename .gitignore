@@ -41,3 +41,9 @@ _site/
 # tree to a public site, and the write probes on #49/#50 will hold contact keys.
 # The findings that matter are written up by hand in probes/*.md.
 cloudflare-clubworx/probes/out/
+
+# Agent scratch space, including git worktrees. A worktree under .claude/ is a
+# second full checkout of this repo, so `git add -A` would commit a duplicate
+# of the tree into itself. Nothing here is authored — the worktree's own
+# checkout is tracked by the branch it holds, not by this one.
+.claude/
