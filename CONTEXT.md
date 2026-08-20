@@ -302,6 +302,13 @@ appears in `/prospects` **only**, and moves when their status changes.
 So a lookup searches all three and merges. Which one holds a given student is a
 fact about their membership today, not about how they were created.
 
+That lookup is `cloudflare-clubworx/src/contacts.js`, behind
+`GET /api/clubworx/contacts?last_name=&dob=` (#68). It narrows and merges;
+deciding the match is `school-booking/identity.js`. It **refuses** rather than
+answering short — a failed view, an unreadable body or a query that never
+narrowed all return an error, because an empty candidate set is read as `new`,
+and `new` writes a contact Clubworx cannot delete.
+
 ## Clubworx school booking
 
 Terms for the route a student takes into a session. Decided 2026-08-18, after

@@ -22,8 +22,14 @@ cloudflare-clubworx/    - uj-clubworx-api, the Worker for the school-group booki
                           comes from and where it lives). Verifies the Access JWT
                           rather than trusting the header, paces at 75 req/min, and
                           stores nothing — no student name or DOB in any store or
-                          log line. Only GET /api/clubworx/health so far (#66); the
-                          working routes arrive with #67/#68/#70.
+                          log line. GET /api/clubworx/health (#66) and
+                          GET /api/clubworx/contacts (#68) so far; events, plan,
+                          schools, student and unbook arrive with #67/#69/#70.
+cloudflare-clubworx/src/contacts.js - the dedup read. Searches all three disjoint
+                          status views and merges, because a contact moves between
+                          them (#49). Every uncertain answer is a refusal: an
+                          empty candidate set means "new", and "new" writes a
+                          contact Clubworx cannot delete.
 cloudflare-clubworx/src/ - the Worker. request.js and errors.js were moved here
                           from probes/lib/ by #66 and the probes import them back.
 cloudflare-clubworx/probes/ - read-only probes against the live Clubworx API, and

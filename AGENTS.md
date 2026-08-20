@@ -15,9 +15,15 @@ index.html              - hub homepage; renders cards/groups from tools.json
 tools.json              - source of truth for hub entries
 roster.html             - daily staff roster, pulled from Deputy via Cloudflare Worker
 cloudflare-worker/      - Worker for roster API and tools.json editor API
-cloudflare-clubworx/    - Clubworx API access for the school-group booking tool (#46).
-                          ACCESS.md is the answer to #47: where the key comes from,
-                          where it lives, and what is still owed. No Worker code yet.
+cloudflare-clubworx/    - uj-clubworx-api, the Worker for the school-group booking
+                          tool (#46). Deploys separately from Pages. Start with its
+                          README.md; ACCESS.md is the answer to #47 (where the key
+                          comes from and where it lives). Verifies the Access JWT
+                          rather than trusting the header, paces at 75 req/min, and
+                          stores nothing — no student name or DOB in any store or
+                          log line. GET /api/clubworx/health (#66) and
+                          GET /api/clubworx/contacts (#68) so far; events, plan,
+                          schools, student and unbook arrive with #67/#69/#70.
 hvt/                    - High-volume Training tool copy
 slideshow/              - Google Drive TV slideshow tool
 sls_tv.html             - Summer Lead Series TV display
@@ -200,13 +206,17 @@ Access, so an unauthenticated request returns **HTTP 200 carrying the Access
 login page**, not the file you asked for — a success status and a body that
 never contains your change. Verifying content needs a real browser session.
 
-The two Workers deploy separately; a Pages publish does not touch them.
+The three Workers deploy separately; a Pages publish does not touch them.
 
 ```bash
 cd cloudflare-worker          # roster + tools.json API
 npx wrangler deploy
 
 cd cloudflare-payments-proxy  # voucher portal → uj-payments; happyk account
+npx wrangler deploy
+
+cd cloudflare-clubworx        # school-group booking → Clubworx; happyk account
+npx wrangler secret put CLUBWORX_ACCOUNT_KEY   # once per environment, not in git
 npx wrangler deploy
 ```
 
