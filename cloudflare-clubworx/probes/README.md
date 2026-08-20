@@ -15,6 +15,13 @@ only way to learn how it behaves is to ask it, carefully, in production.
 | `run-50.mjs` | The probe that produced it — **writes** |
 | `60-member-school-pass-booking.md` | [#60](https://github.com/urbanjungleirc/staff-site/issues/60) — the member + **School Pass** route **works**: it books, the server refuses duplicates itself, and `DELETE` reverses cleanly |
 | `run-60.mjs` | The probe that produced it — **writes, and deletes** |
+| `63-member-creation.md` | [#63](https://github.com/urbanjungleirc/staff-site/issues/63) — the gate on the #46 build: does `POST /api/v2/members` create a contact, is it bookable, and can the School Pass ride along on the create call |
+| `run-63.mjs` | The probe that produced it — **creates contacts, assigns passes, books and cancels** |
+
+A file's number is the issue it answers, so `63-member-creation.md` belongs to
+[#63](https://github.com/urbanjungleirc/staff-site/issues/63). That ticket's own
+*Done when* line asks for `61-member-creation.md`, written before the issue was
+renumbered — there is no #61, and a file named for it would point at nothing.
 
 Access, authorisation and the key's whereabouts: `../ACCESS.md`.
 
@@ -46,6 +53,11 @@ node probes/run-60.mjs --dry-run     # the plan and every request, zero network
 node probes/run-60.mjs               # read-only: contacts, plan, memberships, event
 node probes/run-60.mjs --event=<id> --write  # ⚠️ assigns a PERMANENT School Pass, then books
 
+node probes/run-63.mjs --dry-run     # the plan and every request, zero network
+node probes/run-63.mjs               # read-only: what exists already, and the plan lookup
+node probes/run-63.mjs --event=<id> --write  # ⚠️ creates up to 2 PERMANENT contacts + 2 passes
+node probes/run-63.mjs --encoding=form       # force the body shape rather than discovering it
+
 npm test                             # the pure logic, no network
 ```
 
@@ -53,7 +65,7 @@ npm test                             # the pure logic, no network
 worktree, for instance, where `.dev.vars` is gitignored and so does not follow
 the checkout.
 
-**Neither booking probe picks the event itself.** `--write` without
+**No booking probe picks the event itself.** `--write` without
 `--event=<id>` stops. A booking lands on a real class that staff see and consumes
 one of its spaces, so choosing by sort order means choosing somebody's actual
 session; a read-only run lists the candidates and a human picks one. Everything
@@ -148,6 +160,8 @@ run-51.mjs        the #51 probe itself — read-only
 run-49.mjs        the #49 probe itself — writes
 run-50.mjs        the #50 probe itself — writes and deletes
 run-60.mjs        the #60 probe itself — writes and deletes
+run-63.mjs        the #63 probe itself — creates contacts,
+                  assigns passes, books and deletes
 ```
 
 The two `../src/` entries are not probe files any more. staff-site#66 promoted

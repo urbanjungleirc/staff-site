@@ -19,6 +19,8 @@ import {
   findPlanByName,
   summariseMemberships,
   describeLeadTime,
+  describeMemberCreation,
+  describeCreatedPass,
 } from './report.mjs';
 
 // What a probe is allowed to write down. Everything here is counts, ids, status
@@ -763,5 +765,158 @@ describe('describeLeadTime', () => {
 
   it('reports an unreadable timestamp rather than guessing', () => {
     expect(describeLeadTime('not a date', { now: NOW }).unreadable).toBe(true);
+  });
+});
+
+// ── staff-site#63: did the create land, and did a pass ride along? ───────────
+//
+// #63's standing rule is "verify each write by re-reading the resource, never
+// by the status code". These two helpers are where that rule is enforced, so
+// that a probe cannot report a permanent contact into existence — or out of it
+// — on the strength of a number Clubworx returned.
+
+describe('describeMemberCreation', () => {
+  const found = keys => keys.map(contact_key => ({ contact_key }));
+
+  it('calls it created when the re-read finds the contact', () => {
+    const r = describeMemberCreation({ create: { status: 200 }, found: found(['ck-1']) });
+    expect(r.landed).toBe(true);
+    expect(r.verdict).toBe('created');
+    expect(r.contactKey).toBe('ck-1');
+  });
+
+  it('calls it absent when the re-read finds nothing, even on a 200', () => {
+    // The whole point of the rule. A 200 that did not create anything is the
+    // failure mode the status code cannot show.
+    const r = describeMemberCreation({ create: { status: 200 }, found: [] });
+    expect(r.landed).toBe(false);
+    expect(r.verdict).toBe('absent');
+    expect(r.statusAgrees).toBe(false);
+  });
+
+  it('calls it created when the re-read finds it despite a transport error', () => {
+    // ACCESS.md: a failed write may still have landed. This is the case that
+    // decides whether something goes on the cleanup list.
+    const r = describeMemberCreation({
+      create: { status: null, error: 'ECONNRESET' },
+      found: found(['ck-9']),
+    });
+    expect(r.landed).toBe(true);
+    expect(r.verdict).toBe('created');
+    expect(r.statusAgrees).toBe(false);
+  });
+
+  it('reports a refusal without claiming anything about production', () => {
+    const r = describeMemberCreation({ create: { refused: 'not Ztest' }, found: [] });
+    expect(r.verdict).toBe('refused');
+    expect(r.landed).toBe(false);
+    // Nothing was sent, so the status cannot disagree with anything.
+    expect(r.statusAgrees).toBeNull();
+  });
+
+  it('flags a duplicate when the re-read finds more than one', () => {
+    // Contacts cannot be deleted, so a second one is a permanent mistake that
+    // has to be named rather than averaged away by taking [0].
+    const r = describeMemberCreation({ create: { status: 200 }, found: found(['ck-1', 'ck-2']) });
+    expect(r.verdict).toBe('duplicated');
+    expect(r.landed).toBe(true);
+    expect(r.duplicates).toBe(2);
+  });
+
+  it('says the status agreed when a 4xx is matched by an absent contact', () => {
+    const r = describeMemberCreation({ create: { status: 422 }, found: [] });
+    expect(r.verdict).toBe('absent');
+    expect(r.statusAgrees).toBe(true);
+  });
+
+  it('treats a missing re-read as unknown rather than as absent', () => {
+    // "We did not look" and "we looked and it was not there" must not collapse:
+    // one of them puts a permanent record on the cleanup list and the other
+    // does not.
+    const r = describeMemberCreation({ create: { status: 200 }, found: null });
+    expect(r.verdict).toBe('unverified');
+    expect(r.landed).toBeNull();
+  });
+});
+
+describe('describeCreatedPass', () => {
+  const on = '2026-08-20';
+
+  it('reports no pass when the plan states are empty', () => {
+    const r = describeCreatedPass({ states: [], on });
+    expect(r.granted).toBe(false);
+    expect(r.active).toBe(false);
+  });
+
+  it('reports the dates of a pass that was granted', () => {
+    const r = describeCreatedPass({
+      states: [{ start_date: '2026-08-20', expiration_date: '2026-11-12', active: true }],
+      on,
+    });
+    expect(r.granted).toBe(true);
+    expect(r.active).toBe(true);
+    expect(r.startDate).toBe('2026-08-20');
+    expect(r.expirationDate).toBe('2026-11-12');
+  });
+
+  it('measures the span in days, so a 12-week plan can be recognised', () => {
+    const r = describeCreatedPass({
+      states: [{ start_date: '2026-08-20', expiration_date: '2026-11-12', active: true }],
+      on,
+    });
+    expect(r.spanDays).toBe(84);
+  });
+
+  it('says whether the pass started on the day it was created — question 4', () => {
+    // `POST /members` takes no start_date. Whether Clubworx defaults it to
+    // today is the whole trade-off in adopting the one-call route.
+    const same = describeCreatedPass({
+      states: [{ start_date: '2026-08-20', expiration_date: '2026-11-12', active: true }],
+      on,
+    });
+    const not = describeCreatedPass({
+      states: [{ start_date: '2026-08-01', expiration_date: '2026-10-24', active: true }],
+      on,
+    });
+    expect(same.startsOnCreationDay).toBe(true);
+    expect(not.startsOnCreationDay).toBe(false);
+  });
+
+  it('says whether the start date matched one that was asked for', () => {
+    const r = describeCreatedPass({
+      states: [{ start_date: '2026-08-25', expiration_date: '2026-11-17', active: true }],
+      on,
+      requested: '2026-08-25',
+    });
+    expect(r.honouredRequest).toBe(true);
+  });
+
+  it('leaves honouredRequest null when nothing was asked for', () => {
+    // The one-call route sends no start_date at all, so there is no request to
+    // have been honoured or ignored.
+    const r = describeCreatedPass({
+      states: [{ start_date: '2026-08-20', expiration_date: '2026-11-12', active: true }],
+      on,
+    });
+    expect(r.honouredRequest).toBeNull();
+  });
+
+  it('prefers the active pass when a contact holds more than one', () => {
+    const r = describeCreatedPass({
+      states: [
+        { start_date: '2026-01-01', expiration_date: '2026-03-26', active: false },
+        { start_date: '2026-08-20', expiration_date: '2026-11-12', active: true },
+      ],
+      on,
+    });
+    expect(r.startDate).toBe('2026-08-20');
+    expect(r.held).toBe(2);
+  });
+
+  it('survives a pass with no dates rather than computing a span from null', () => {
+    const r = describeCreatedPass({ states: [{ start_date: null, expiration_date: null }], on });
+    expect(r.granted).toBe(true);
+    expect(r.spanDays).toBeNull();
+    expect(r.startsOnCreationDay).toBe(false);
   });
 });

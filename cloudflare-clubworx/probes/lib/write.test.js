@@ -163,3 +163,166 @@ describe('createPoster', () => {
     expect(post.writes).toBe(0);
   });
 });
+
+// ── Encoding ────────────────────────────────────────────────────────────────
+//
+// #49 created contacts through `POST /prospects` with a JSON body and got a
+// 200, so JSON is the *measured* shape for a contact create. The reference
+// describes `POST /members` as form-encoded, and the two sibling write paths
+// this repo has measured — `/memberships` (#60) and `/bookings` (#60) — are
+// both form-encoded. staff-site#63 has to be able to try either without
+// guessing, because a guess that lands still creates a permanent contact.
+
+describe('createPoster encoding', () => {
+  it('defaults to JSON, so #49’s measured shape is what an unconfigured caller sends', async () => {
+    const calls = [];
+    const post = createPoster({ accountKey: key, fetchImpl: fakeFetch(calls), live: true });
+
+    await post('members', contact);
+
+    expect(calls[0].init.headers['Content-Type']).toBe('application/json');
+  });
+
+  it('sends a form-encoded body when asked for one', async () => {
+    const calls = [];
+    const post = createPoster({
+      accountKey: key,
+      fetchImpl: fakeFetch(calls),
+      live: true,
+      encoding: 'form',
+    });
+
+    await post('members', contact);
+
+    expect(calls[0].init.headers['Content-Type']).toBe('application/x-www-form-urlencoded');
+    const sent = Object.fromEntries(new URLSearchParams(calls[0].init.body));
+    expect(sent).toMatchObject({
+      first_name: contact.first_name,
+      last_name: contact.last_name,
+      email: contact.email,
+      dob: contact.dob,
+    });
+  });
+
+  it('strips bookkeeping fields from a form body too', async () => {
+    const calls = [];
+    const post = createPoster({
+      accountKey: key,
+      fetchImpl: fakeFetch(calls),
+      live: true,
+      encoding: 'form',
+    });
+
+    await post('members', contact);
+
+    const sent = Object.fromEntries(new URLSearchParams(calls[0].init.body));
+    expect(sent.label).toBeUndefined();
+    expect(sent.why).toBeUndefined();
+  });
+
+  it('omits an absent field rather than sending the string "undefined"', async () => {
+    // URLSearchParams stringifies everything it is given, so an optional field
+    // left undefined would arrive as the literal text `undefined` and be
+    // written onto a permanent record. JSON.stringify drops it; this must too.
+    const calls = [];
+    const post = createPoster({
+      accountKey: key,
+      fetchImpl: fakeFetch(calls),
+      live: true,
+      encoding: 'form',
+    });
+
+    await post('members', { ...contact, membership_plan_id: undefined, phone: null });
+
+    const body = calls[0].init.body;
+    expect(body).not.toContain('undefined');
+    expect(body).not.toContain('membership_plan_id');
+    expect(body).not.toContain('phone');
+  });
+
+  it('carries an extra field such as membership_plan_id through both encodings', async () => {
+    // Question 3 of #63 is whether the pass can ride along on the create call.
+    // The poster must not have an allowlist that silently drops it.
+    const jsonCalls = [];
+    const formCalls = [];
+    const withPlan = { ...contact, membership_plan_id: 4242 };
+
+    await createPoster({ accountKey: key, fetchImpl: fakeFetch(jsonCalls), live: true })(
+      'members',
+      withPlan,
+    );
+    await createPoster({
+      accountKey: key,
+      fetchImpl: fakeFetch(formCalls),
+      live: true,
+      encoding: 'form',
+    })('members', withPlan);
+
+    expect(JSON.parse(jsonCalls[0].init.body).membership_plan_id).toBe(4242);
+    expect(Object.fromEntries(new URLSearchParams(formCalls[0].init.body)).membership_plan_id).toBe(
+      '4242',
+    );
+  });
+
+  it('refuses an unrecognised encoding instead of quietly falling back to JSON', async () => {
+    // A typo here would send a shape the probe did not choose and then report
+    // the result under the shape it thinks it sent — the write-up would record
+    // the wrong finding about a permanent write.
+    expect(() => createPoster({ accountKey: key, encoding: 'multipart' })).toThrow(/encoding/i);
+  });
+
+  it('still refuses an unauthorised identity when form-encoded', async () => {
+    const calls = [];
+    const post = createPoster({
+      accountKey: key,
+      fetchImpl: fakeFetch(calls),
+      live: true,
+      encoding: 'form',
+    });
+
+    const res = await post('members', { ...contact, last_name: 'Nguyen' });
+
+    expect(calls).toHaveLength(0);
+    expect(res.refused).toMatch(/Wayfinder/);
+  });
+
+  it('reports the encoding it used, so a sample says which shape was measured', async () => {
+    const post = createPoster({
+      accountKey: key,
+      fetchImpl: fakeFetch([]),
+      live: true,
+      encoding: 'form',
+    });
+    const res = await post('members', contact);
+
+    expect(res.encoding).toBe('form');
+  });
+});
+
+describe('createPoster bookkeeping', () => {
+  it('strips withPlanOnCreate, which is a probe’s note to itself', async () => {
+    // #63 marks one contact as the pass-on-create case. Posting that marker
+    // would write a field Clubworx never asked for onto a record that cannot
+    // be deleted — and it would sit there under a real-looking contact forever.
+    const calls = [];
+    const post = createPoster({ accountKey: key, fetchImpl: fakeFetch(calls), live: true });
+
+    await post('members', { ...contact, withPlanOnCreate: true });
+
+    expect(JSON.parse(calls[0].init.body).withPlanOnCreate).toBeUndefined();
+  });
+
+  it('strips it from a form body too', async () => {
+    const calls = [];
+    const post = createPoster({
+      accountKey: key,
+      fetchImpl: fakeFetch(calls),
+      live: true,
+      encoding: 'form',
+    });
+
+    await post('members', { ...contact, withPlanOnCreate: true });
+
+    expect(calls[0].init.body).not.toContain('withPlanOnCreate');
+  });
+});

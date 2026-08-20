@@ -7,9 +7,11 @@
  * UI. So the identity is not a fixture detail — it is the blast radius, and
  * `assertProbeIdentity` is the control that keeps it that size.
  *
- * The set below is deliberately the *smallest* one that can answer
- * staff-site#49. Adding to it is a decision to leave more permanent records in
- * a production database, not a refactor.
+ * Each set below is deliberately the *smallest* one that can answer its ticket
+ * — `PROBE_CONTACTS` for staff-site#49, `MEMBER_PROBE_CONTACTS` for #63. Adding
+ * to either is a decision to leave more permanent records in a production
+ * database, not a refactor, and each set carries its own authorisation in
+ * ACCESS.md section 4.
  */
 
 /** The identity ACCESS.md section 4 agreed, 2026-08-17. */
@@ -189,3 +191,61 @@ export function planContacts({ wanted, existing = [] }) {
 
   return { create, reuse };
 }
+
+/**
+ * The two contacts staff-site#63 needs, and why there are two.
+ *
+ * **This is a new authorisation, not a reuse of #49's.** ACCESS.md section 4
+ * says the three-contact amendment is *spent* — *"A fourth contact is a new
+ * decision"* — and #63 cannot borrow those three: every one of them already
+ * exists, and the question is what `POST /api/v2/members` does when it
+ * *creates* one. There is no way to ask that of a contact that is already
+ * there.
+ *
+ * Two is the minimum that answers all four of #63's questions, for the same
+ * structural reason #49 needed three rather than one:
+ *
+ *   - **D** is created with only the four required fields. That is question 1
+ *     on its own — does the endpoint work at all — and, once it is given a pass
+ *     through the *measured* two-call route, question 2: is a contact made this
+ *     way bookable.
+ *   - **E** is created with `membership_plan_id` in the same call. That is
+ *     questions 3 and 4, and it cannot be folded into D: the plan has to ride
+ *     along on the **create**, so testing it needs a contact that does not yet
+ *     exist.
+ *
+ * Folding them into one contact would answer either 1 and 2, or 3 and 4, and
+ * leave the other pair resting on the reference — which is the exact thing #63
+ * exists to stop, the reference having been wrong twice on this map already.
+ *
+ * They reuse #49's plus-tag deliberately. A third tag would be a new search
+ * surface every later probe has to sweep, and #49 already settled that a tag
+ * isolates.
+ *
+ * Both are **permanent**. The probe creates E only if D's create is seen to
+ * work, so a `POST /members` that turns out to be refused costs one contact
+ * rather than two.
+ */
+export const MEMBER_PROBE_CONTACTS = [
+  {
+    label: 'D',
+    first_name: 'Ztest',
+    last_name: 'Wayfinderfour',
+    dob: PROBE_DOB,
+    email: TEST_IDENTITY.email,
+    why: 'plain create — does POST /members work, and is the result bookable with a pass? (Q1, Q2)',
+  },
+  {
+    label: 'E',
+    first_name: 'Ztest',
+    last_name: 'Wayfinderfive',
+    dob: PROBE_DOB,
+    email: TEST_IDENTITY.email,
+    // The id itself is resolved by name at run time and deliberately not
+    // declared here — #60 watched `GET /membership_plans` truncate at 50 and
+    // hide this very plan, so a hard-coded id is a guess nobody can check
+    // against the Clubworx UI.
+    withPlanOnCreate: true,
+    why: 'create with membership_plan_id — does the pass ride along, and what start_date does it get? (Q3, Q4)',
+  },
+];

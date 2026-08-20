@@ -45,7 +45,8 @@ import { createBooker } from './lib/booking.mjs';
 import { createMembershipAssigner } from './lib/membership.mjs';
 import { loadAccountKey } from './lib/key.mjs';
 import { PROBE_CONTACTS, pickProbeRows, plusTag } from './lib/identity.mjs';
-import { redact } from './lib/request.mjs';
+import { redact } from '../src/request.js';
+import { errorMessageOf } from '../src/errors.js';
 import {
   summariseContacts,
   summariseBookings,
@@ -56,7 +57,6 @@ import {
   describeCancellation,
   findPlanByName,
   describeLeadTime,
-  errorMessageOf,
 } from './lib/report.mjs';
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
@@ -156,7 +156,7 @@ async function resolvePlan(get) {
 }
 
 /** Question 1: does the contact hold an active pass, and assign one if not. */
-async function ensureMembership(get, assigner, { contact, plan, live }) {
+async function ensureMembership(get, assigner, { contact, plan, live, accountKey }) {
   rule('1. School Pass — does the contact hold one?');
 
   const before = await get('memberships', { contact_key: contact.contact_key });
@@ -186,7 +186,10 @@ async function ensureMembership(get, assigner, { contact, plan, live }) {
     start_date: isoDay(0),
   });
   const outcome = classifyWrite(res);
-  const reason = res.body ? redact(errorMessageOf(res.body) ?? '', ' ') : null;
+  // Was passing a NUL byte where the secret belongs: it satisfies redact's refuse-to-no-op guard
+  // while matching nothing, so the account key travelled through unredacted on
+  // the one path most likely to echo it back. Found by the #63 review.
+  const reason = res.body ? redact(errorMessageOf(res.body) ?? '', accountKey) : null;
 
   line(
     'assign',
@@ -490,6 +493,7 @@ async function main() {
     contact: subject,
     plan: plan.plan,
     live: WRITE,
+    accountKey,
   });
   await sleep(GAP_MS);
 
