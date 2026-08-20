@@ -122,8 +122,72 @@ describe('DELETE — measured as form-encoded, and it needs contact_key', () => 
     const sent = fetchImpl.sent[0];
     expect(sent.method).toBe('DELETE');
     expect(sent.headers['Content-Type']).toBe('application/x-www-form-urlencoded');
-    expect(sent.body).toBe('contact_key=ck-1');
+    expect(sent.body).toBe(`account_key=${KEY}&contact_key=ck-1`);
     expect(sent.url).toContain(`account_key=${KEY}`);
+  });
+
+  it('puts account_key in the body too, which is the shape that was measured', async () => {
+    // The working #60 call sent it in both places. The query alone has never
+    // been tried, and the way this fails is a 401 that reads like a permissions
+    // problem — the exact misdiagnosis that cost #50 a week.
+    const fetchImpl = recorder(() => json({ success: true }));
+    const client = clientWith(fetchImpl);
+
+    await client.del('bookings/bk-1', { contact_key: 'ck-1' });
+
+    expect(fetchImpl.sent[0].body).toContain(`account_key=${KEY}`);
+  });
+
+  it('takes the account key from the client, so no caller ever holds it', async () => {
+    const fetchImpl = recorder(() => json({ success: true }));
+    const client = clientWith(fetchImpl);
+
+    // No account_key passed in — the client supplies its own.
+    await client.postForm('memberships', { contact_key: 'ck-1', membership_plan_id: '64189' });
+
+    expect(fetchImpl.sent[0].body).toContain(`account_key=${KEY}`);
+  });
+});
+
+describe('POST with a form body — the measured shape for /memberships', () => {
+  it('form-encodes, because the encoding is per-endpoint and this one is not JSON', async () => {
+    // `/members` and `/bookings` take JSON; `/memberships` takes a form (#60).
+    // Sending one endpoint's shape to the other is how this API answers with a
+    // status that describes something else entirely.
+    const fetchImpl = recorder(() => json({ id: 2627746 }));
+    const client = clientWith(fetchImpl);
+
+    await client.postForm('memberships', {
+      contact_key: 'ck-1',
+      membership_plan_id: '64189',
+      start_date: '2026-08-20',
+    });
+
+    const sent = fetchImpl.sent[0];
+    expect(sent.method).toBe('POST');
+    expect(sent.headers['Content-Type']).toBe('application/x-www-form-urlencoded');
+    expect(sent.body).toContain('contact_key=ck-1');
+    expect(sent.body).toContain('membership_plan_id=64189');
+    expect(sent.body).toContain('start_date=2026-08-20');
+  });
+
+  it('never puts the query string on the endpoint it hands back', async () => {
+    const fetchImpl = recorder(() => json({}));
+    const client = clientWith(fetchImpl);
+
+    const res = await client.postForm('memberships', { contact_key: 'ck-1' });
+
+    expect(res.url).not.toContain('?');
+    expect(res.url).not.toContain(KEY);
+  });
+
+  it('goes through the pacer like everything else', async () => {
+    const pacer = instantPacer();
+    const client = clientWith(recorder(() => json({})), { pacer });
+
+    await client.postForm('memberships', { contact_key: 'ck-1' });
+
+    expect(pacer.calls).toBe(1);
   });
 });
 

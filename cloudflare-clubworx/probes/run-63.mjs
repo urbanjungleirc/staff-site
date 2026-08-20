@@ -69,7 +69,6 @@ import { errorMessageOf } from '../src/errors.js';
 import {
   summariseContacts,
   summariseBookings,
-  summariseMemberships,
   classifyWrite,
   describeMemberCreation,
   describeCreatedPass,
@@ -78,6 +77,7 @@ import {
   describeLeadTime,
   summariseEvents,
 } from './lib/report.mjs';
+import { summariseMemberships } from '../src/memberships.js';
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 const OUT_DIR = path.join(HERE, 'out');

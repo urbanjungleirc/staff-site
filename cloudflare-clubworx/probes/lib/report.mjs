@@ -598,71 +598,16 @@ export function findPlanByName(body, name, { requestedPageSize = null } = {}) {
 }
 
 /**
- * Reduce a memberships response to something publishable.
+ * `summariseMemberships` moved to `src/memberships.js` (staff-site#69).
  *
- * `GET /memberships?contact_key=` is how a probe answers "does this contact
- * already hold the pass?" before assigning another one. Memberships have no
- * delete endpoint, so search-first is not a courtesy here — it is the only
- * thing standing between a re-run and a pile of duplicate permanent records.
- *
- * **There is no `status` field.** A membership record carries `start_date` and
- * `expiration_date` and nothing that says "active" — verified against a real
- * record on 2026-08-18. Whether a School Pass is active, which is what a School
- * Session actually checks, has to be derived from those two dates. A caller
- * looking for `status` would find `undefined` and could read a live pass as
- * inactive.
- *
- * @param {unknown} body
- * @param {string|number} [planId] The plan being looked for.
- * @param {{on?: string}} [opts] The date to judge activity against.
+ * The Worker's write chain needs the same derivation the probes needed — a
+ * membership has no `status` field, so "active" comes from `start_date` and
+ * `expiration_date` — and #69 also needs a second question answered against the
+ * same rows: does the held pass reach the last selected session? Both live
+ * beside each other in `src/memberships.js` now, the same way `errorMessageOf`
+ * and `buildUrl` were promoted out of here before it. Probes import it from
+ * there; there is one definition.
  */
-export function summariseMemberships(body, planId = null, { on = null } = {}) {
-  if (!Array.isArray(body)) {
-    return { count: 0, fields: [], holdsPlan: false, holdsActivePlan: false, planStates: [], notAnArray: true };
-  }
-
-  const today = (on ?? new Date().toISOString()).slice(0, 10);
-  const fields = new Set();
-  const planStates = [];
-  let holdsPlan = false;
-  let holdsActivePlan = false;
-
-  for (const row of body) {
-    for (const key of Object.keys(row ?? {})) fields.add(key);
-
-    if (planId !== null && String(row?.membership_plan_id) === String(planId)) {
-      holdsPlan = true;
-
-      const start = row?.start_date ?? null;
-      const expires = row?.expiration_date ?? null;
-      // Dates are plain `YYYY-MM-DD`, so string comparison is the date
-      // comparison — no timezone to get wrong. Inclusive at both ends: a pass
-      // starting today is usable today.
-      const active =
-        (!start || start <= today) && (!expires || expires >= today);
-
-      if (active) holdsActivePlan = true;
-
-      planStates.push({
-        start_date: start,
-        expiration_date: expires,
-        active,
-        classes_booked: row?.classes_booked ?? null,
-        classes_remaining: row?.classes_remaining ?? null,
-        class_access: row?.class_access ?? null,
-      });
-    }
-  }
-
-  return {
-    count: body.length,
-    fields: [...fields],
-    holdsPlan,
-    holdsActivePlan,
-    planStates,
-    notAnArray: false,
-  };
-}
 
 /**
  * How long until an event starts, and whether a lead-time rule would allow it.

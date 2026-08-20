@@ -50,7 +50,6 @@ import { errorMessageOf } from '../src/errors.js';
 import {
   summariseContacts,
   summariseBookings,
-  summariseMemberships,
   summariseEvents,
   classifyWrite,
   describeDuplicateBooking,
@@ -58,6 +57,7 @@ import {
   findPlanByName,
   describeLeadTime,
 } from './lib/report.mjs';
+import { summariseMemberships } from '../src/memberships.js';
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 const OUT_DIR = path.join(HERE, 'out');
