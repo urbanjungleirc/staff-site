@@ -5,13 +5,15 @@ the school group booking map ([#46](https://github.com/urbanjungleirc/staff-site
 Design: `docs/superpowers/specs/2026-08-19-school-group-booking-design.md` §6.
 
 #66 shipped the **skeleton**: the Worker, the Access gate, the pacer and the
-request layer. #68 added the dedup read. The rest — `events`, `plan`, `schools`,
-`student`, `unbook` — arrive with #67, #69 and #70, and answer `404` until then.
+request layer. #68 added the dedup read, and #69 the write chain. The rest —
+`events`, `plan`, `schools`, `unbook` — arrive with #67 and #70, and answer
+`404` until then.
 
 | Route | Ticket | Does |
 |---|---|---|
 | `GET /api/clubworx/health` | #66 | Names the authenticated operator; says whether the secret was put |
 | `GET /api/clubworx/contacts?last_name=&dob=` | #68 | Searches all three status views and merges — see below |
+| `POST /api/clubworx/student` | #69 | **The only route that writes.** One student, all their sessions — see below |
 
 `ACCESS.md` in this directory is the answer to #47: where the key comes from,
 where it lives, and what is still owed. Read it first.
@@ -23,6 +25,11 @@ src/index.js     the Worker: routing, the Access gate, the log line
 src/access.js    Cloudflare Access JWT verification against the team JWKS
 src/clubworx.js  the only path to Clubworx: paced, redacted, measured shapes
 src/contacts.js  the dedup read: all three status views, merged  (#68)
+src/student.js   the per-student write chain, and D3's rollback   (#69)
+src/bookings.js  book, cancel, and the error vocabulary           (#69)
+src/memberships.js  summariseMemberships + D4's pass verdict (promoted, #69)
+src/duration.js  the plan's duration, and what a pass covers      (#69)
+src/upstream.js  what a Clubworx failure means: retry, report, neither (#69)
 src/pace.js      75 req/min, one in flight — the constant #51 measured
 src/request.js   buildUrl + redact                (promoted from probes/lib)
 src/errors.js    errorMessageOf                   (promoted from probes/lib)
@@ -30,8 +37,8 @@ test/            vitest, run by hand — this repo runs no tests in CI
 probes/          the read-only probes, and what they found
 ```
 
-`src/request.js` and `src/errors.js` were **moved** out of `probes/lib/`, not
-copied. The probes import them from here now. They were written against measured
+`src/request.js`, `src/errors.js` and `summariseMemberships` were **moved** out
+of `probes/lib/`, not copied. The probes import them from here now. They were written against measured
 Clubworx behaviour and carry their own test files; a second copy would re-derive
 their bugs, and the two would drift on the first fix that only landed in one.
 
@@ -253,6 +260,132 @@ response so a run can be held to that budget.
 [#51]: https://github.com/urbanjungleirc/staff-site/issues/51
 [#60]: https://github.com/urbanjungleirc/staff-site/issues/60
 [#92]: https://github.com/urbanjungleirc/staff-site/issues/92
+
+## `POST /student` — the per-student write chain
+
+**The only route in this Worker that creates permanent records.** Read
+[§12 of the design spec](../docs/superpowers/specs/2026-08-19-school-group-booking-design.md)
+before changing any of it.
+
+```jsonc
+POST /api/clubworx/student
+{
+  "student": { "first_name": "…", "last_name": "…", "dob": "2012-03-04",
+               "email": "noreply+stbedes@urbanjungleirc.com" },
+  "contact_key": null,              // null means "new" — this call creates them
+  "membership_plan_id": 64189,      // from GET /plan
+  "membership_duration": "26 weeks",// the plan's own string, raw
+  "events": [{ "event_id": 101, "starts_at": "2026-09-03T10:00:00+08:00" }]
+}
+```
+
+```
+matched → re-read membership → ensure School Pass → book ×N → verify
+new     → create contact WITH the pass ───────────→ book ×N → verify
+```
+
+### The unit is one student, and it is all-or-nothing
+
+**D2** — a student is the only unit whose failure boundary is a sentence staff
+can say out loud: *"the first six are in, the rest are not."* Per-event strands
+a child who turns up to session 4 and is not on the list.
+
+**D3** — any failure abandons the student and **cancels the bookings this run
+already made for them**. The rollback runs the same code path as the human
+"Cancel bookings from this run" control, with no human present, so it honours
+the same interlock: act on `booked`, **never** on `already booked`.
+
+It leaves a **stranded student** — a permanent contact and pass, no bookings —
+which the response names in `stranded` and `strandedDetail`. Under D3 an
+abandoned student is *guaranteed* to be stranded, so it is a routine outcome and
+not an edge case.
+
+### `ensure School Pass` means *covers the last session*, not *active today*
+
+The check compares the held pass's `expiration_date` against the **latest
+selected session**, inclusive. *Active today* is the answer that hid the original
+bug: every booking in a run is written on a day the pass is active, so an
+insufficient pass looks perfect at write time and fails weeks later at a session
+nobody is watching ([ADR 0005](../docs/adr/0005-school-pass-runs-26-weeks.md)).
+
+| Case | What happens |
+|---|---|
+| New contact | `POST /members` carrying `membership_plan_id` — one call, pass starts today |
+| Returning, pass **covers** the term | skip the grant |
+| Returning, pass **expired** | grant |
+| Returning, pass **active but not covering** | **`needs-confirmation`** — never a silent second grant |
+
+That last row is [#90](https://github.com/urbanjungleirc/staff-site/issues/90)'s
+open question. Granting there means putting a second School Pass on a live
+holder, which has deliberately never been probed because memberships have no
+delete. Until it is answered the row refuses and a human decides.
+
+**The number 26 is nowhere in the code.** `membership_duration` is read off the
+plan and `expiration_date` off the granted pass. The duration is a *human string*
+— parsed best-effort, and an unparseable one produces a `warnings` entry naming
+the raw value rather than a silently skipped check.
+
+### The error vocabulary
+
+Three distinct refusals share HTTP `400` and `{"error": "…"}`. **The message
+string is the only discriminator.**
+
+| Clubworx says | Row outcome |
+|---|---|
+| *"Woops! You've already booked into this class!"* | **success** — `already booked`. It *is* the idempotency guarantee |
+| *"Sorry! This class is now closed for bookings."* | permanent for that event; the lead-time stop should pre-empt it |
+| *"Sorry, this class has no free spaces available."* | ambiguous **by construction** — shown as *"Refused — check the session"*, **never** "class full" |
+| anything else | `unknown` — **verbatim**, attributed to Clubworx, never retried, never re-worded |
+
+**D6** — paraphrasing an unrecognised message is what makes new Clubworx
+behaviour invisible. [#50] is the cautionary tale.
+
+### Every write is verified by re-reading it
+
+Never by the status code. An accepted-but-silent failure and a success are the
+same `200`, and this is how [#60] established booking idempotency in the first
+place — by counting either side.
+
+- **Contact** — re-read from `/members`; the `contact_key` the chain uses comes
+  from that read, not from the create response.
+- **Pass** — re-read and re-judged; a grant that produced a pass expiring
+  mid-term answers `200` exactly like one that did not.
+- **Bookings** — one `GET /bookings?contact_key=` at the end, checked against
+  every event attempted.
+
+A retry always re-reads first. A connection error on `POST /members` may have
+landed, and retrying blind is how one student becomes two permanent records.
+
+A failed *verification read* is the one case that does **not** roll back: it is
+not a failed write, and cancelling good bookings because a read timed out would
+destroy the thing being checked. It answers `outcome: "unverified"` with the
+rows attached.
+
+### Which statuses leave
+
+Only two things are not a `200`, and in both there is nothing to record:
+
+- **`429`** — a throttle **that wrote nothing**. §11 pauses the *whole run* on a
+  throttle, because the allowance is gym-wide.
+- **`400`** — a refusal that happened before any write: a session inside the
+  24-hour lead time, a pass that will not cover the term, a malformed request.
+
+Everything else — including an abandoned, rolled-back student, and including a
+throttle that struck *after* something permanent was written — is a `200`
+carrying the full result. **A result is not an error.** D10 writes each row to
+the browser as it lands because a page reload destroying the only record of a
+creation that cannot be undone is the specific failure that defends against, and
+a non-200 invites a client to throw the body away. `reason: "throttled"` is in
+the body either way, which is what the page should pause on.
+
+### What a run costs here
+
+Per student: 1 membership read (matched only) + 1 write + 1 verification read
++ one booking per event + 1 verification read. A 25-student, 6-session list is
+roughly **250 requests** against a 75/min ceiling shared with the roster Worker
+and n8n — about four minutes of gym-wide slowdown. `requests` is on every
+response.
+
 
 ## Pacing
 

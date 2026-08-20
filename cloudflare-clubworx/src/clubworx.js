@@ -161,14 +161,45 @@ export function createClubworxClient({ accountKey, fetchImpl = fetch, pacer = sh
     });
   };
 
+  /**
+   * The measured form-encoded shape carries `account_key` **in the body as well
+   * as the query**, and both calls that use it were measured that way — the
+   * `POST /memberships` that worked (#60) and the `DELETE /bookings/:id` that
+   * worked (#60) after #50 had spent a week reporting that deletes were
+   * forbidden.
+   *
+   * Sending it in the query alone has never been tried. It might well be
+   * enough; the point is that nobody knows, and the cost of finding out the hard
+   * way is asymmetric — the failure looks like `401 "Authorization failed"`,
+   * which is indistinguishable from a key without permission and has already
+   * cost this effort an architectural route once.
+   *
+   * Injected here rather than passed in, so no caller has to hold the account
+   * key to send a form body. That is the property that keeps the key inside this
+   * module.
+   */
+  const withKey = form => ({ account_key: accountKey, ...form });
+
   return {
     /** @param {string} path @param {Record<string, string|number|undefined>} [params] */
     get: (path, params = {}) => send({ method: 'GET', path, params }),
 
-    /** A create or a booking. JSON body; Clubworx answers 200, not 201. */
+    /**
+     * A contact create or a booking. **JSON** body; Clubworx answers 200, not 201.
+     *
+     * The encoding is per-endpoint, not per-API: `/members` and `/bookings` take
+     * JSON (#49, #60, #63); `/memberships` takes a form. Do not unify them.
+     */
     post: (path, payload, params = {}) => send({ method: 'POST', path, params, json: payload }),
 
+    /**
+     * A membership assignment. **Form-encoded** — measured on `POST /memberships`
+     * (#60), and deliberately not the same shape as `post`.
+     */
+    postForm: (path, form, params = {}) =>
+      send({ method: 'POST', path, params, form: withKey(form) }),
+
     /** Form-encoded, and `contact_key` is not optional. */
-    del: (path, form, params = {}) => send({ method: 'DELETE', path, params, form }),
+    del: (path, form, params = {}) => send({ method: 'DELETE', path, params, form: withKey(form) }),
   };
 }
