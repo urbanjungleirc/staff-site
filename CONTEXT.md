@@ -320,10 +320,15 @@ meaning is one too many.
 
 ### School Pass
 
-The **membership plan** every imported student is given, valid **12 weeks** —
-long enough to cover a UJ [term](#uj-term-week) including its snapped edges. It
-is what makes a student bookable: a School Session admits pass-holders and
-nobody else.
+The **membership plan** every imported student is given, valid **26 weeks** —
+long enough to cover a UJ [term](#uj-term-week) including its snapped edges *and*
+the lead time the booking is made with. It is what makes a student bookable: a
+School Session admits pass-holders and nobody else.
+
+It ran 12 weeks until 2026-08-20, which covered the term but not a term booked
+three or four weeks ahead of its first session. See
+[ADR 0005](docs/adr/0005-school-pass-runs-26-weeks.md) — and do not shorten it
+back, which is what that ADR exists to say.
 
 Deliberately a different noun from School Session. A *session* happens on a
 date; a *pass* is held by a person. The pair was otherwise easy to confuse in a
@@ -349,6 +354,33 @@ pass as inactive.
 *Avoid*: "has a School Pass" as a synonym. Holding the plan and holding an
 **active** one are different: an expired pass is still a returned row, and the
 session admits only the active kind.
+
+*Avoid*: treating it as the test for whether a student can be booked into a
+**term**. That is a [covering pass](#covering-pass), and it is a different
+question.
+
+### Covering pass
+
+Whether a School Pass admits its holder on **the last session of the run** — not
+today. `expiration_date` against the latest selected session date, inclusive.
+
+This is the test the write chain uses, because *active today* is exactly the
+answer that hid the problem [ADR 0005](docs/adr/0005-school-pass-runs-26-weeks.md)
+was written about: every booking is made on the day of the run, when any pass
+granted that day is unambiguously active, and the shortfall only shows up weeks
+later at a session nobody is looking at.
+
+The distinction bites hardest on a **returning student**. At 26 weeks the tool
+will regularly find someone holding a pass that is active but expires mid-term —
+a case a 12-week pass mostly turned into a clean "expired, grant a new one".
+Granting the covering pass then means granting a **second** pass to a live
+holder, which is the one thing on this effort deliberately never probed
+([#90](https://github.com/urbanjungleirc/staff-site/issues/90)), because
+memberships have no delete.
+
+*Avoid*: hard-coding the 26 weeks to compute it. For a held pass, read
+`expiration_date`; for a pass not yet granted, read `membership_duration` off the
+plan. The number lives in Clubworx.
 
 ### Reversible write
 

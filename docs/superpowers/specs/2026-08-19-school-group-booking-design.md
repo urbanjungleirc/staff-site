@@ -150,11 +150,11 @@ is needed, because the contact starts where it belongs.
 **A School Pass costs nothing** — `upfront_payment_amount "0.0"`, no recurring
 charge — and starts no billing schedule.
 
-**`expiration_date` comes back as exactly the configured 12 weeks.** The tool
-sends a `start_date` and *reads* the end date. It never computes an expiry, so
-nothing here can drift from the plan's configuration. Whether twelve weeks from
-*the day of the run* is long enough is a different question, and the answer is
-no for a term booked far enough ahead — see §3.
+**`expiration_date` comes back as exactly the plan's configured duration** — 12
+weeks when #60 and #63 measured it, **26 weeks since 2026-08-20** (§3, ADR 0005).
+The tool sends a `start_date` and *reads* the end date. It never computes an
+expiry, so nothing here can drift from the plan's configuration, and the
+duration change needed no code.
 
 **A membership has no `status` field.** Whether a pass is active is derived from
 `start_date`/`expiration_date`, inclusive at both ends. Code that looks for
@@ -180,10 +180,13 @@ membership's `start_date`.
 Duration stays out of the name because `GET /membership_plans` already exposes
 `membership_duration`.
 
-**12 weeks** is chosen to cover a UJ term including its snapped edges — see
-[ADR 0002](../../adr/0002-uj-term-weeks-are-snapped.md).
+**The pass runs 26 weeks** — long enough to cover a UJ term including its
+snapped edges ([ADR 0002](../../adr/0002-uj-term-weeks-are-snapped.md)) *and*
+the lead time a school booking is made with. It ran 12 weeks until 2026-08-20;
+why it does not any more is the next section, and the decision is
+[ADR 0005](../../adr/0005-school-pass-runs-26-weeks.md).
 
-### 12 weeks covers a term. It does not cover a term booked far ahead
+### Why the pass is 26 weeks and not 12
 
 > **Raised 2026-08-20, after the spec was written.** The 12 weeks were sized
 > against the *term*, and silently assumed the booking is made at the start of
@@ -208,8 +211,10 @@ A run made **three weeks ahead loses the last session; four weeks ahead loses
 the last two.** Nothing in the tool would notice: every booking is written on
 the day of the run, when the pass is unambiguously active.
 
-**Whether that actually costs anything is unmeasured**, and it is the first
-thing to establish, because it decides whether there is a bug at all:
+**Whether that actually costs anything is unmeasured** — and the fix adopted
+below deliberately does not wait to find out, because it holds either way. The
+three possibilities are worth stating, because they are what makes the *other*
+two fixes conditional and this one not:
 
 - If Clubworx checks the pass **only at booking time**, a pass expiring before
   session ten is irrelevant — the booking already exists, and attendance is a
@@ -220,20 +225,56 @@ thing to establish, because it decides whether there is a bug at all:
   would not be active when the booking is written — and the only lever left is
   the plan's **duration**.
 
-Three candidate fixes follow, and they are deliberately not chosen here:
+Three fixes were considered. **The plan is lengthened to 26 weeks** — decided
+2026-08-20, recorded in [ADR 0005](../../adr/0005-school-pass-runs-26-weeks.md).
 
-| Fix | Cost | Depends on |
-|---|---|---|
-| **Lengthen the plan** in Clubworx (e.g. a 20–26 week School Pass) | Config only. **No code, no date logic anywhere** | Nothing. Works under all three checking models |
-| **Start the pass at the first selected session** | Loses the one-call create route for any far-ahead run, since `POST /members` starts the pass *today* (#63); the write chain needs the session dates it does not currently receive; "active" stops meaning "active today" and starts meaning "covers every selected session", which drags in the never-probed second-pass question | A future `start_date` being honoured — **unproven**, flagged in #63 — *and* session-date checking |
-| **Refuse the run** when the last selected session falls outside the pass | Small, and consistent with §11's stated posture — refuse and let the human fix it | Session-date checking. Solves nothing on its own; it makes the failure visible instead of silent |
+| Fix | Verdict |
+|---|---|
+| **Lengthen the plan** in Clubworx to **26 weeks** | **Adopted.** Config only — no code, no date arithmetic, and it holds under all three checking models above, so it does not wait on #90 |
+| **Start the pass at the first selected session** | Rejected. Gives up the one-call create for any far-ahead run, since `POST /members` starts the pass *today* (#63); the write chain would need session dates it does not receive; and it rests on a future `start_date` being honoured, which is **unproven** — flagged in #63 — *and* on session-date checking, which is unmeasured. Two unknowns to buy what a config change buys outright |
+| **Refuse the run** when the last selected session falls outside the pass | **Kept, but as a guard rather than a fix.** It solves nothing alone — it makes the failure visible instead of silent — and it is the thing that stops this hole reopening quietly. See below |
 
-The pass **costs nothing and starts no billing schedule**, so lengthening it is
-cheap in money. What it is not free of is §15's open reporting question: a
-longer pass keeps a term's intake counted as **current members** for longer.
+**26 weeks is 182 days of access.** A 63-day term therefore stays covered with
+**up to 118 days — just under 17 weeks — of lead time**, which is past any
+plausible school booking. The pass costs nothing and starts no billing schedule
+(#60), so the duration is free in money.
 
-Filed as [#90](https://github.com/urbanjungleirc/staff-site/issues/90), which
-blocks the write chain ([#69](https://github.com/urbanjungleirc/staff-site/issues/69)).
+**What it is not free of** is §15's open reporting question, and this decision
+makes it bigger rather than smaller: a term's intake now reads as **current
+members for six months** rather than three, and the lapse lands mid-following-term
+rather than at the end of the one they attended.
+
+### The guard that keeps this from reopening
+
+The duration lives in Clubworx, where it can be edited by anyone, and the tool
+reads it rather than owning it. So the tool checks coverage rather than trusting
+the number:
+
+- **Before any write** — the last selected session must fall within
+  `today + membership_duration`. `GET /membership_plans` returns
+  `membership_duration` as a **human string** (`"12 weeks"`, `"6 weeks"`), so
+  this parse is best-effort: if it cannot be read, say so on screen rather than
+  skipping the check silently.
+- **For a found student** — compare the held pass's **`expiration_date`** against
+  the last selected session. No parsing, no assumption: the field is exact.
+  *This is the check that matters, and it is not solved by the 26 weeks* — see
+  below.
+- **The number 26 appears nowhere in the code.** A pass whose duration is later
+  shortened produces a visible refusal, not a silent tail of missing bookings.
+
+### 26 weeks makes the *found* branch harder, not easier
+
+Under a 12-week pass a returning student's old School Pass had usually expired,
+so §2's `found` branch simply granted a new one. At 26 weeks it will far more
+often find a pass that is **active today but expires mid-term** — the band where
+the old pass covers session one and not session ten.
+
+`ensure School Pass` therefore cannot mean *active today*. It means **covers the
+last selected session**. That is what makes the never-probed question — whether a
+second School Pass on an active holder duplicates it — start to matter, where D4
+previously closed it for free. It stays open, and it is now the sharper of the
+two: [#90](https://github.com/urbanjungleirc/staff-site/issues/90) is re-scoped
+to this branch, and no longer blocks #69.
 
 ### Why there is no event-naming convention
 
@@ -768,18 +809,30 @@ matched contacts.**
 | Case | Read-then-write | Blind assign |
 |---|---|---|
 | New contact (provably holds no pass) | 1 read + 1 write = **2** | **1** |
-| Returning, holds an active pass | 1 read, skip = **1** | **1** |
+| Returning, holds a **covering** pass | 1 read, skip = **1** | **1** |
 | Returning, pass expired | 1 read + 1 write = **2** | **1** |
 
 The read is only ever wasted on a contact we just created. For a student who
-already holds an active pass, reading and assigning cost the **same single
+already holds a covering pass, reading and assigning cost the **same single
 request** — so blind assignment buys nothing in exactly the case where it would
 create the duplicate.
 
-**Consequence: whether a second School Pass duplicates is no longer worth
-probing.** It is not load-bearing under this design, and memberships have no
-delete, so no permanent duplicate is spent learning something that would change
-nothing.
+**The test is *covers the last selected session*, not *active today*.** Amended
+2026-08-20 with the 26-week pass (§3, ADR 0005). Compare the held pass's
+`expiration_date` against the latest selected session date, inclusive. *Active
+today* is the answer that hides the problem, because every booking is written on
+a day the pass is active and the shortfall surfaces weeks later at a session
+nobody is watching.
+
+**Consequence: whether a second School Pass duplicates matters again.** It was
+not load-bearing while D4 only ever assigned to a holder with no live pass. At 26
+weeks the middle row above splits — a returning student can hold a pass that is
+active and **not** covering — and granting the covering pass means granting a
+second one to a live holder. Still not probed, because memberships have no
+delete; carried on [#90](https://github.com/urbanjungleirc/staff-site/issues/90)
+and §15. **Until it is answered, a non-covering live pass is a
+`needs-confirmation` row rather than a silent second grant** — §11's posture:
+refuse and let the human fix it.
 
 **D14 — The membership is re-read at Apply, immediately before its own write.**
 Preview reads can be minutes old. Contact and booking both have server-side
@@ -799,6 +852,8 @@ staleness. Nothing else is re-validated.
 | Any selected event starts inside the 24-hour lead time | **Hard-stop**, with the reason on screen and a one-click *"remove this session"* |
 | No events selected, or zero parseable rows | **Hard-stop** |
 | Any unresolved gate — unparseable row, count mismatch, unconfirmed age | **Hard-stop** (§9) |
+| The last selected session falls outside `today + membership_duration` | **Hard-stop the run** (§3, ADR 0005) |
+| `membership_duration` unparseable — it is a human string | **Warn on screen**, naming the raw value. Never skip the coverage check silently |
 | `spaces_available` below the student count | **Warn, never block.** That number has been wrong in both directions |
 
 **D9, the lead time.** Dropping the event automatically was rejected as a silent
@@ -1019,16 +1074,18 @@ removed through the API. Use a marker slug that makes them findable
 
 ## 15. Known gaps and open questions
 
-Carried forward deliberately. All but the first block nothing.
+Carried forward deliberately. None blocks the build.
 
 - **Whether a School Pass is checked against the session date, or only at
-  booking time.** Raised 2026-08-20. A term booked three or four weeks ahead
-  puts its last sessions past the pass's 84 days — see §3 for the arithmetic and
-  the three candidate fixes. **This one blocks the write chain**, because it
-  decides whether the pass may start on the day of the run at all. It is
-  cheaply answerable and fully reversible: book a pass-holder into an event
-  beyond their `expiration_date` and see whether Clubworx refuses. Bookings are
-  the one write that can be undone. Filed as
+  booking time.** Raised 2026-08-20, when a term booked three or four weeks
+  ahead was found to put its last sessions past the pass's 84 days. **Answered
+  by configuration rather than by measurement** — the plan now runs 26 weeks
+  (§3, ADR 0005), which holds whichever way Clubworx behaves. The question
+  survives in one place: §2's `found` branch, where a returning student may hold
+  a pass that is active today and expires mid-term. It is cheaply answerable and
+  fully reversible — book a pass-holder into an event beyond their
+  `expiration_date` and see whether Clubworx refuses; bookings are the one write
+  that can be undone. [#90](https://github.com/urbanjungleirc/staff-site/issues/90). Filed as
   [#90](https://github.com/urbanjungleirc/staff-site/issues/90).
 
 - **Whether `POST /api/v2/members` works, and whether it can carry
@@ -1043,14 +1100,19 @@ Carried forward deliberately. All but the first block nothing.
   own issue.
 - **Whether a second School Pass on an active holder duplicates it.** Not
   probed, on purpose — memberships have no delete, so the probe would leave the
-  permanent record it was testing for. D4's read-then-write guard closes it for
-  free.
+  permanent record it was testing for. D4's read-then-write guard closed it for
+  free while *active* meant "active today". **The 26-week pass reopens it**: a
+  returning student will now often hold a pass that is active today and expires
+  mid-term, and granting the pass that covers the term means granting a second
+  one to a live holder. See §3.
 - **What a term's intake does to Clubworx reporting.** These are now *members*,
   not prospects, so a school group lands in member counts, retention and revenue,
   and an expired School Pass leaves a **lapsed member** rather than a stale
   prospect. Whether that needs archiving, marketing suppression (Resend), or any
   cleanup at all is unresolved — and contacts cannot be deleted, so the options
-  are narrow. Open on #46.
+  are narrow. **Sharper since the pass went to 26 weeks:** an intake reads as
+  current members for six months rather than three, and lapses mid-following-term
+  rather than at the end of the term it attended. Open on #46.
 - **Who may run the tool.** staff-portal is Access-gated as a whole; bulk
   creation of permanent contacts may warrant a narrower allowlist, as the
   voucher hard-delete has. v1 gates on Access alone and records the verified
