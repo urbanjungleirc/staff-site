@@ -77,7 +77,16 @@
 
 import { assessPass, summariseMemberships } from './memberships.js';
 import { isRealDay, parsePlanDuration, passCoverageEnd, perthDay } from './duration.js';
-import { bookEvent, cancelRunBookings, readBookings } from './bookings.js';
+import {
+  ALREADY_BOOKED_STATE,
+  BOOKED,
+  FAILED,
+  bookEvent,
+  cancelRunBookings,
+  readBookings,
+} from './bookings.js';
+import { PAGE_SIZE } from './contacts.js';
+import { isRetryable, upstreamMessage, upstreamReason } from './upstream.js';
 
 /**
  * UJ's School Sessions refuse a booking made inside a day of the start. The
@@ -92,27 +101,25 @@ export const MIN_LEAD_HOURS = 24;
 export const RETRY_BACKOFF_MS = 20_000;
 export const MAX_ATTEMPTS = 2;
 
-/** Never the default 50 — a full page is silent truncation (#51). */
-const PAGE_SIZE = 200;
-
 const MS_PER_HOUR = 60 * 60 * 1000;
+
+/**
+ * The only fields that may be sent to `POST /members`.
+ *
+ * An allowlist, not a spread of whatever the caller passed. `probes/lib/write.mjs`
+ * makes the same point about its own bookkeeping fields: *"posting it would put a
+ * field Clubworx never asked for onto a record nobody can delete."* The request
+ * body arrives over HTTP from a page this Worker does not control, and an extra
+ * key in it would be written onto a permanent contact — silently, since Clubworx
+ * answered 200 either way.
+ *
+ * `membership_plan_id` is added separately, from the resolved plan rather than
+ * from the request's student object.
+ */
+const MEMBER_FIELDS = ['first_name', 'last_name', 'dob', 'email'];
 
 /** Case- and whitespace-insensitive, for comparing a field against what we sent. */
 const same = (a, b) => String(a ?? '').trim().toLowerCase() === String(b ?? '').trim().toLowerCase();
-
-/**
- * A 429, a 5xx and a connection failure are the only retryable outcomes — D8.
- * **Never a 400.** All three known 400s are permanent for that attempt, and the
- * fourth kind is unknown by definition.
- */
-const retryable = res =>
-  res.networkError === true || res.status === 429 || res.status === 0 || res.status >= 500;
-
-const upstreamReason = res =>
-  res.status === 429 ? 'throttled' : res.networkError ? 'network' : 'upstream-error';
-
-/** What a caller may safely print: never a body, never a student field. */
-const upstreamMessage = res => res.message ?? res.bodyText ?? null;
 
 /**
  * Wrap the client so every call it makes is counted.
@@ -220,7 +227,8 @@ async function findCreatedContact({ client, student }) {
  * happen once a read has proved the previous attempt did not land.
  */
 async function createContactWithPass({ client, student, membershipPlanId, sleep }) {
-  const payload = { ...student, membership_plan_id: membershipPlanId };
+  const payload = { membership_plan_id: membershipPlanId };
+  for (const field of MEMBER_FIELDS) payload[field] = student[field];
   let last = null;
 
   for (let attempt = 1; attempt <= MAX_ATTEMPTS; attempt += 1) {
@@ -239,7 +247,7 @@ async function createContactWithPass({ client, student, membershipPlanId, sleep 
       };
     }
 
-    if (!retryable(last)) break;
+    if (!isRetryable(last)) break;
     if (attempt < MAX_ATTEMPTS) await sleep(RETRY_BACKOFF_MS);
   }
 
@@ -251,7 +259,7 @@ async function createContactWithPass({ client, student, membershipPlanId, sleep 
         'book against or to create again'
       : upstreamMessage(last),
     upstreamStatus: last.status,
-    mayHaveWritten: !last.ok && retryable(last),
+    mayHaveWritten: !last.ok && isRetryable(last),
   };
 }
 
@@ -316,7 +324,7 @@ async function grantPass({ client, contactKey, membershipPlanId, lastSession, to
       };
     }
     // Read cleanly, and the pass still does not cover the term.
-    if (!retryable(last)) {
+    if (!isRetryable(last)) {
       return {
         ok: false,
         reason: 'pass-unverified',
@@ -356,7 +364,7 @@ async function bookWithRetry({ client, contactKey, event, sleep }) {
       eventId: event.event_id,
       spacesAvailable: event.spaces_available ?? null,
     });
-    if (row.state !== 'failed' || !row.retryable) break;
+    if (row.state !== FAILED || !row.retryable) break;
     if (attempt < MAX_ATTEMPTS) await sleep(RETRY_BACKOFF_MS);
   }
   return row;
@@ -508,7 +516,7 @@ export async function runStudentChain({
     const created = await createContactWithPass({ client, student, membershipPlanId, sleep });
     if (!created.ok) {
       return result({
-        outcome: created.reason === 'throttled' ? 'failed' : 'failed',
+        outcome: 'failed',
         reason: created.reason,
         message: created.message,
         written: created.mayHaveWritten === true,
@@ -611,7 +619,7 @@ export async function runStudentChain({
   for (const event of events) {
     const row = await bookWithRetry({ client, contactKey: key, event, sleep });
     rows.push(row);
-    if (row.state !== 'booked' && row.state !== 'already booked') {
+    if (row.state !== BOOKED && row.state !== ALREADY_BOOKED_STATE) {
       failure = row;
       break;
     }

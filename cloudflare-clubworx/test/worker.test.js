@@ -603,6 +603,29 @@ describe('POST /student', () => {
     expect(await res.json()).toMatchObject({ outcome: 'abandoned', stranded: true });
   });
 
+  it('answers 200 on a throttle that already wrote something, so the row survives', async () => {
+    // The body is the record. D10 writes each row to localStorage as it lands,
+    // because a page reload destroying the only record of a creation that cannot
+    // be undone is the specific failure that defends against — and a non-200
+    // invites a client to throw the body away. The page still sees
+    // `reason: "throttled"` and pauses the run on that.
+    const h = handlerWith(accepts(OPERATOR), {
+      runStudent: completes({
+        ok: false,
+        outcome: 'abandoned',
+        reason: 'throttled',
+        written: true,
+        stranded: true,
+        rollback: { cancelled: 1, skipped: 0, failed: [] },
+      }),
+    });
+
+    const res = await h.call('/api/clubworx/student', post());
+
+    expect(res.status).toBe(200);
+    expect(await res.json()).toMatchObject({ reason: 'throttled', stranded: true });
+  });
+
   it('answers 200 for needs-confirmation, which is a row and not a fault', async () => {
     const h = handlerWith(accepts(OPERATOR), {
       runStudent: completes({

@@ -48,6 +48,8 @@
  * silently adjust.
  */
 
+import { isRealDay } from './duration.js';
+
 /**
  * Reduce a `GET /memberships?contact_key=` body to the pass states on one plan.
  *
@@ -121,8 +123,6 @@ export function summariseMemberships(body, planId = null, { on = null } = {}) {
   };
 }
 
-const ISO_DAY = /^\d{4}-\d{2}-\d{2}$/;
-
 /** Unbounded sorts last, so a row with no expiry is the best one held. */
 const UNBOUNDED = '9999-12-31';
 
@@ -146,7 +146,7 @@ const UNBOUNDED = '9999-12-31';
 export function assessPass({ states = [], lastSession, on }) {
   const held = (Array.isArray(states) ? states : []).filter(Boolean);
 
-  if (!ISO_DAY.test(String(lastSession)) || !ISO_DAY.test(String(on))) {
+  if (!isRealDay(lastSession) || !isRealDay(on)) {
     return {
       state: 'unknown',
       grant: false,

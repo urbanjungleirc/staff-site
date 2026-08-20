@@ -186,6 +186,29 @@ describe('a new student', () => {
     expect(create.payload).toMatchObject({ ...STUDENT, membership_plan_id: PLAN });
   });
 
+  it('sends only the four fields Clubworx asked for, never the caller object', async () => {
+    // The body arrives over HTTP from a page this Worker does not control, and
+    // an extra key would be written onto a contact nobody can delete — silently,
+    // since Clubworx answers 200 either way.
+    const client = happy();
+    await run(client, {
+      student: { ...STUDENT, notes: 'allergic to peanuts', admin_flag: true, id: 'injected' },
+    });
+
+    const create = client.calls.find(c => c.method === 'POST' && c.path === 'members');
+    expect(Object.keys(create.payload).sort()).toEqual(
+      ['dob', 'email', 'first_name', 'last_name', 'membership_plan_id'].sort(),
+    );
+  });
+
+  it('takes membership_plan_id from the resolved plan, not from the student object', async () => {
+    const client = happy();
+    await run(client, { student: { ...STUDENT, membership_plan_id: 999 }, membershipPlanId: PLAN });
+
+    const create = client.calls.find(c => c.method === 'POST' && c.path === 'members');
+    expect(create.payload.membership_plan_id).toBe(PLAN);
+  });
+
   it('never reads memberships for a contact it just created — D4', async () => {
     const client = happy();
     await run(client);

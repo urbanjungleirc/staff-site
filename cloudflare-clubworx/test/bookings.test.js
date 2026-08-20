@@ -131,7 +131,10 @@ describe('bookEvent', () => {
     const client = clientReturning(ok({ booking_id: 63510241 }));
     expect(await bookEvent({ client, contactKey: 'ck-1', eventId: 42 })).toMatchObject({
       state: 'booked',
-      bookingId: '63510241',
+      booking_id: '63510241',
+      // The row carries the contact it belongs to, so a later cancel takes the
+      // key from the booking rather than from whoever is asking.
+      contact_key: 'ck-1',
     });
   });
 
@@ -141,14 +144,14 @@ describe('bookEvent', () => {
     expect(await bookEvent({ client, contactKey: 'ck-1', eventId: 42 })).toMatchObject({
       state: 'already booked',
       refusal: 'already-booked',
-      bookingId: null,
+      booking_id: null,
     });
   });
 
   it('carries no booking id on an already-booked row, which is the cancel interlock', async () => {
     const client = clientReturning(refused(ALREADY_BOOKED));
     const row = await bookEvent({ client, contactKey: 'ck-1', eventId: 42 });
-    expect(row.bookingId).toBeNull();
+    expect(row.booking_id).toBeNull();
   });
 
   it('reports the closed-for-bookings refusal as permanent for that event', async () => {
@@ -199,7 +202,7 @@ describe('bookEvent', () => {
     const client = clientReturning(ok({ success: true }));
     expect(await bookEvent({ client, contactKey: 'ck-1', eventId: 42 })).toMatchObject({
       state: 'booked',
-      bookingId: null,
+      booking_id: null,
       unverifiable: true,
     });
   });
@@ -227,10 +230,11 @@ describe('cancelBooking', () => {
 });
 
 describe('cancelRunBookings — the safety interlock', () => {
-  const bookedRow = (eventId, bookingId) => ({
+  const bookedRow = (eventId, bookingId, contactKey = 'ck-1') => ({
     event_id: eventId,
     state: 'booked',
     booking_id: bookingId,
+    contact_key: contactKey,
   });
 
   it('cancels the rows this run booked', async () => {
@@ -253,7 +257,7 @@ describe('cancelRunBookings — the safety interlock', () => {
       client,
       contactKey: 'ck-1',
       rows: [
-        { event_id: 1, state: 'already booked', booking_id: 'b-somebody-elses' },
+        { event_id: 1, state: 'already booked', booking_id: 'b-somebody-elses', contact_key: 'ck-1' },
         bookedRow(2, 'b2'),
       ],
     });
@@ -267,7 +271,7 @@ describe('cancelRunBookings — the safety interlock', () => {
     const out = await cancelRunBookings({
       client,
       contactKey: 'ck-1',
-      rows: [{ event_id: 1, state: 'already booked', booking_id: 'b1' }],
+      rows: [{ event_id: 1, state: 'already booked', booking_id: 'b1', contact_key: 'ck-1' }],
     });
 
     expect(client.calls).toHaveLength(0);
@@ -279,12 +283,44 @@ describe('cancelRunBookings — the safety interlock', () => {
     const out = await cancelRunBookings({
       client,
       contactKey: 'ck-1',
-      rows: [{ event_id: 1, state: 'booked', booking_id: null }],
+      rows: [{ event_id: 1, state: 'booked', booking_id: null, contact_key: 'ck-1' }],
     });
 
     expect(client.calls).toHaveLength(0);
     expect(out.failed).toHaveLength(1);
     expect(out.failed[0].reason).toContain('no booking id');
+  });
+
+  it('sends the contact key off the booking row, not the one the caller passed', async () => {
+    const client = clientReturning(ok({ success: true }));
+    await cancelRunBookings({ client, contactKey: undefined, rows: [bookedRow(1, 'b1', 'ck-row')] });
+
+    expect(client.calls[0].form).toMatchObject({ contact_key: 'ck-row' });
+  });
+
+  it('refuses a row belonging to a different contact than the one being rolled back', async () => {
+    // A DELETE aimed at somebody else's class is the worst outcome on this map.
+    const client = clientReturning(ok({ success: true }));
+    const out = await cancelRunBookings({
+      client,
+      contactKey: 'ck-1',
+      rows: [bookedRow(1, 'b1', 'ck-someone-else')],
+    });
+
+    expect(client.calls).toHaveLength(0);
+    expect(out.failed[0].reason).toContain('different contact');
+  });
+
+  it('refuses a booked row carrying no contact key of its own', async () => {
+    const client = clientReturning(ok({ success: true }));
+    const out = await cancelRunBookings({
+      client,
+      contactKey: 'ck-1',
+      rows: [{ event_id: 1, state: 'booked', booking_id: 'b1', contact_key: null }],
+    });
+
+    expect(client.calls).toHaveLength(0);
+    expect(out.failed).toHaveLength(1);
   });
 
   it('keeps going when one cancel fails, and reports which one', async () => {

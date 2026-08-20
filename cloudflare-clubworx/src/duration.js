@@ -44,11 +44,15 @@
 /**
  * `YYYY-MM-DD`, and a real day.
  *
- * Shared with the route's own validation. `new Date('2009-02-30')` does not
- * throw — it rolls forward to 2 March — so the round-trip is what catches it.
- * A date that rolls is the standing hazard on this map (§7): `03/02/2009` is two
- * different children, and a wrong one is a permanent contact keyed to the wrong
- * birthday.
+ * The one definition in this Worker — `index.js` and `memberships.js` both
+ * import it rather than carrying a second regex, because three copies of a date
+ * rule drift and the drift here is a permanent contact keyed to a wrong
+ * birthday. `new Date('2009-02-30')` does not throw — it rolls forward to
+ * 2 March — so the round-trip is what catches it.
+ *
+ * Date orientation is the standing hazard on this map (§7): `03/02/2009` is two
+ * different children depending on who typed it. The parser resolves orientation
+ * before anything reaches here; this only insists the result is one real day.
  *
  * @param {unknown} value
  * @returns {boolean}
@@ -98,7 +102,7 @@ const AWST_OFFSET_MS = 8 * 60 * 60 * 1000;
  * where it decides a permanent write.
  *
  * @param {string|Date} [now] An instant. Defaults to the real one.
- * @returns {string} `YYYY-MM-DD` at the gym.
+ * @returns {string|null} `YYYY-MM-DD` at the gym, or null if `now` is unreadable.
  */
 export function perthDay(now = new Date()) {
   const at = now instanceof Date ? now : new Date(now);
@@ -150,7 +154,7 @@ export function parsePlanDuration(raw) {
  * @param {string} startDay `YYYY-MM-DD` — the day the pass starts, which for a
  *   pass this tool grants is the day of the run (#63: Clubworx chooses today).
  * @param {ReturnType<typeof parsePlanDuration>} duration
- * @returns {string|null}
+ * @returns {string|null} `YYYY-MM-DD`, or null when it cannot be computed.
  */
 export function passCoverageEnd(startDay, duration) {
   if (!duration?.ok || !isRealDay(startDay)) return null;

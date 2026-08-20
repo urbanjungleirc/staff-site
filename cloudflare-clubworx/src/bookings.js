@@ -53,6 +53,23 @@
  */
 
 import { errorMessageOf } from './errors.js';
+import { isRetryable, upstreamReason, upstreamMessage } from './upstream.js';
+
+/**
+ * The row states, as constants rather than as literals typed twice.
+ *
+ * `BOOKED` and `ALREADY_BOOKED_STATE` differ from the refusal *kind*
+ * `'already-booked'` by one character — a space against a hyphen — and the
+ * consequence of confusing them is not cosmetic: `cancelRunBookings` acts on
+ * `BOOKED` and the chain treats `ALREADY_BOOKED_STATE` as a success, so a slip
+ * either abandons a complete student or points the rollback at a booking this
+ * run did not create. Two near-identical strings compared by hand across three
+ * files is exactly the shape that eventually gets one of them wrong.
+ */
+export const BOOKED = 'booked';
+export const ALREADY_BOOKED_STATE = 'already booked';
+export const REFUSED = 'refused';
+export const FAILED = 'failed';
 
 /** The three measured 400s, verbatim, as the reference points for matching. */
 export const ALREADY_BOOKED = "Woops! You've already booked into this class!";
@@ -176,9 +193,14 @@ export async function bookEvent({ client, contactKey, eventId, spacesAvailable =
 
   const row = {
     event_id: eventId,
-    state: 'failed',
+    state: FAILED,
+    // The contact this row belongs to travels WITH the row, so a later cancel
+    // takes the contact key from the booking rather than from whoever is asking.
+    // `DELETE /bookings/:id` needs it, and #50 spent a week on the 401 that a
+    // missing one produces; taking it from the row is what makes it impossible
+    // to omit or to mismatch against a different student's booking.
+    contact_key: contactKey,
     booking_id: null,
-    bookingId: null,
     refusal: null,
     message: res.message ?? errorMessageOf(res.body) ?? null,
     shown: null,
@@ -190,9 +212,8 @@ export async function bookEvent({ client, contactKey, eventId, spacesAvailable =
     const id = bookingIdOf(res.body);
     return {
       ...row,
-      state: 'booked',
+      state: BOOKED,
       booking_id: id,
-      bookingId: id,
       message: null,
       // A 200 with no id anywhere is a shape nobody here has seen. The booking
       // is reported as made — the status says so — but it is flagged, because a
@@ -207,12 +228,11 @@ export async function bookEvent({ client, contactKey, eventId, spacesAvailable =
     if (kind === 'already-booked') {
       return {
         ...row,
-        state: 'already booked',
+        state: ALREADY_BOOKED_STATE,
         refusal: kind,
         // No id, deliberately. This booking was not made by this run, so
         // nothing here may cancel it.
         booking_id: null,
-        bookingId: null,
         shown: describeRefusal(kind),
       };
     }
@@ -221,7 +241,7 @@ export async function bookEvent({ client, contactKey, eventId, spacesAvailable =
     // attempt, and the fourth kind is unknown by definition.
     return {
       ...row,
-      state: 'refused',
+      state: REFUSED,
       refusal: kind,
       retryable: false,
       shown: describeRefusal(kind, { message: row.message, spacesAvailable }),
@@ -230,13 +250,12 @@ export async function bookEvent({ client, contactKey, eventId, spacesAvailable =
 
   // 429, 5xx and network errors are the only retryable outcomes (D8). A throttle
   // is told apart because it does not pause a row — it pauses the run.
-  const throttled = res.status === 429;
   return {
     ...row,
-    state: 'failed',
-    retryable: throttled || res.networkError || res.status >= 500 || res.status === 0,
-    reason: throttled ? 'throttled' : res.networkError ? 'network' : 'upstream-error',
-    message: row.message ?? res.bodyText ?? null,
+    state: FAILED,
+    retryable: isRetryable(res),
+    reason: upstreamReason(res),
+    message: row.message ?? upstreamMessage(res),
     upstreamStatus: res.status,
   };
 }
@@ -290,16 +309,19 @@ export async function cancelBooking({ client, bookingId, contactKey }) {
  *
  * @param {object} opts
  * @param {{del: Function}} opts.client
- * @param {string} opts.contactKey
- * @param {Array<{event_id: any, state: string, booking_id: string|null}>} opts.rows
+ * @param {string} [opts.contactKey] The student being rolled back. Used only to
+ *   **reject** a row belonging to somebody else; the key actually sent comes
+ *   from the row.
+ * @param {Array<{event_id: any, state: string, booking_id: string|null,
+ *   contact_key: string|null}>} opts.rows
  */
-export async function cancelRunBookings({ client, contactKey, rows = [] }) {
+export async function cancelRunBookings({ client, contactKey = null, rows = [] }) {
   const failed = [];
   let cancelled = 0;
   let skipped = 0;
 
   for (const row of rows) {
-    if (row?.state !== 'booked') {
+    if (row?.state !== BOOKED) {
       // Includes `already booked`, `refused` and anything else. Only a row this
       // run put there may be taken away.
       skipped += 1;
@@ -317,7 +339,37 @@ export async function cancelRunBookings({ client, contactKey, rows = [] }) {
       continue;
     }
 
-    const res = await cancelBooking({ client, bookingId: row.booking_id, contactKey });
+    // The contact comes from the **booking row**, not from the caller — the
+    // property #70 asks for, and the one `probes/lib/booking.mjs` holds by
+    // keeping the contact beside the id it may cancel. A caller-supplied key can
+    // be omitted (the 401 that cost #50 a week) or, worse, be a different
+    // student's, which would point a DELETE at somebody else's class.
+    const rowKey = row.contact_key ?? null;
+    if (!rowKey) {
+      failed.push({
+        event_id: row.event_id,
+        booking_id: row.booking_id,
+        reason:
+          'this booking carries no contact_key of its own, and a cancel will not be sent on a ' +
+          'contact key supplied from outside the row',
+      });
+      continue;
+    }
+    if (contactKey && rowKey !== contactKey) {
+      // A row belonging to a different contact has no business in this student's
+      // rollback. Refusing is the only safe reading of a set that should not
+      // have been mixed.
+      failed.push({
+        event_id: row.event_id,
+        booking_id: row.booking_id,
+        reason:
+          'this booking belongs to a different contact than the one being rolled back, so it ' +
+          'has not been cancelled',
+      });
+      continue;
+    }
+
+    const res = await cancelBooking({ client, bookingId: row.booking_id, contactKey: rowKey });
     if (res.ok) cancelled += 1;
     else failed.push({ event_id: row.event_id, booking_id: row.booking_id, reason: res.reason });
   }
@@ -343,8 +395,8 @@ export async function readBookings({ client, contactKey }) {
   if (!res.ok) {
     return {
       ok: false,
-      reason: res.status === 429 ? 'throttled' : 'upstream-error',
-      message: res.message ?? res.bodyText ?? null,
+      reason: upstreamReason(res),
+      message: upstreamMessage(res),
       upstreamStatus: res.status,
       eventIds: [],
       bookingIds: [],

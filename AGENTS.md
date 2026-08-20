@@ -21,9 +21,16 @@ cloudflare-clubworx/    - uj-clubworx-api, the Worker for the school-group booki
                           comes from and where it lives). Verifies the Access JWT
                           rather than trusting the header, paces at 75 req/min, and
                           stores nothing — no student name or DOB in any store or
-                          log line. GET /api/clubworx/health (#66) and
-                          GET /api/clubworx/contacts (#68) so far; events, plan,
-                          schools, student and unbook arrive with #67/#69/#70.
+                          log line. GET /api/clubworx/health (#66),
+                          GET /api/clubworx/contacts (#68) and
+                          POST /api/clubworx/student (#69) so far; events, plan,
+                          schools and unbook arrive with #67/#70.
+                          src/student.js is the ONLY code here that creates
+                          permanent records — contacts and memberships have no
+                          delete, so every write is verified by re-reading it and
+                          any failure rolls that student's bookings back. Read
+                          §10/§12 of the design spec before touching it.
+                          The full per-file roster is in CLAUDE.md.
 hvt/                    - High-volume Training tool copy
 slideshow/              - Google Drive TV slideshow tool
 sls_tv.html             - Summer Lead Series TV display

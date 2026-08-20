@@ -23,17 +23,18 @@
  * **Auth is Cloudflare Access, verified rather than assumed.** See `access.js`.
  *
  * Routes arrive a ticket at a time. #66 shipped the skeleton, the gate, the
- * pacer and the request layer; #68 added `GET /contacts`. The remaining ones —
- * events, plan, schools, student and unbook — belong to #67, #69 and #70, and
- * answer 404 until then, deliberately: `main` is production on this repo and a
- * page calling a route that does not exist is a broken tool on the live hub
- * (§17).
+ * pacer and the request layer; #68 added `GET /contacts`; #69 added
+ * `POST /student`, the only route here that writes. The remaining ones —
+ * events, plan, schools and unbook — belong to #67 and #70, and answer 404
+ * until then, deliberately: `main` is production on this repo and a page
+ * calling a route that does not exist is a broken tool on the live hub (§17).
  */
 
 import { createAccessVerifier } from './access.js';
 import { createClubworxClient } from './clubworx.js';
 import { searchContacts } from './contacts.js';
 import { runStudentChain } from './student.js';
+import { isRealDay } from './duration.js';
 
 export const PREFIX = '/api/clubworx';
 
@@ -69,25 +70,13 @@ function defaultMakeVerifier(env) {
   return cachedVerifier;
 }
 
-/**
- * `YYYY-MM-DD`, and a real day.
- *
- * Strict on purpose. Date orientation is the standing hazard on this map —
- * `03/02/2009` is two different children depending on who typed it, and the
- * damage from getting it wrong is a permanent contact keyed to the wrong
- * birthday, which then poisons the surname + DOB key for every later term. The
- * parser resolves orientation before anything reaches here; this route accepts
- * one form so an unresolved date cannot slip past as a search that finds nothing.
- */
-const ISO_DAY = /^\d{4}-\d{2}-\d{2}$/;
-
-function isRealDay(value) {
-  if (!ISO_DAY.test(value)) return false;
-  // `new Date('2009-02-30')` does not throw — it rolls forward to 2 March. The
-  // round-trip is what catches it.
-  const parsed = new Date(`${value}T00:00:00Z`);
-  return !Number.isNaN(parsed.getTime()) && parsed.toISOString().slice(0, 10) === value;
-}
+// `isRealDay` is imported rather than restated. It is strict on purpose: date
+// orientation is the standing hazard on this map — `03/02/2009` is two different
+// children depending on who typed it, and the damage is a permanent contact
+// keyed to the wrong birthday, which then poisons the surname + DOB key for
+// every later term. The parser resolves orientation before anything reaches
+// here; the routes accept one form so an unresolved date cannot slip past as a
+// search that finds nothing.
 
 /**
  * The default search: build a paced Clubworx client from `env` and sweep the
@@ -329,8 +318,15 @@ export function createHandler({
       //   - **400** for a refusal that happened before any write — a lead-time
       //     session, a pass that will not cover the term, a malformed request.
       //     Nothing was attempted, so there is no row.
-      const status =
-        result.reason === 'throttled' ? 429 : result.outcome === 'refused' ? 400 : 200;
+      // A throttle leaves as a 429 **only when nothing was written**. Once this
+      // call has created a contact, granted a pass or rolled bookings back,
+      // there is a row to record, and a non-200 invites a client to throw the
+      // body away — which is the body D10 writes to localStorage precisely
+      // because a lost record of an un-deletable creation is unrecoverable. The
+      // page still sees `reason: "throttled"` in the body and pauses the run on
+      // that, which is the signal §11 actually asks for.
+      const throttled = result.reason === 'throttled' && result.written !== true;
+      const status = throttled ? 429 : result.outcome === 'refused' ? 400 : 200;
 
       return done(json(result, status), { email, outcome: result.outcome });
     }

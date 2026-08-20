@@ -29,6 +29,7 @@ src/student.js   the per-student write chain, and D3's rollback   (#69)
 src/bookings.js  book, cancel, and the error vocabulary           (#69)
 src/memberships.js  summariseMemberships + D4's pass verdict (promoted, #69)
 src/duration.js  the plan's duration, and what a pass covers      (#69)
+src/upstream.js  what a Clubworx failure means: retry, report, neither (#69)
 src/pace.js      75 req/min, one in flight — the constant #51 measured
 src/request.js   buildUrl + redact                (promoted from probes/lib)
 src/errors.js    errorMessageOf                   (promoted from probes/lib)
@@ -364,15 +365,18 @@ rows attached.
 
 Only two things are not a `200`, and in both there is nothing to record:
 
-- **`429`** — §11 pauses the *whole run* on a throttle, because the allowance is
-  gym-wide.
+- **`429`** — a throttle **that wrote nothing**. §11 pauses the *whole run* on a
+  throttle, because the allowance is gym-wide.
 - **`400`** — a refusal that happened before any write: a session inside the
   24-hour lead time, a pass that will not cover the term, a malformed request.
 
-Everything else — including an abandoned, rolled-back student — is a `200`
-carrying the full result. A result is not an error, and D10 writes each row to
+Everything else — including an abandoned, rolled-back student, and including a
+throttle that struck *after* something permanent was written — is a `200`
+carrying the full result. **A result is not an error.** D10 writes each row to
 the browser as it lands because a page reload destroying the only record of a
-creation that cannot be undone is the specific failure that defends against.
+creation that cannot be undone is the specific failure that defends against, and
+a non-200 invites a client to throw the body away. `reason: "throttled"` is in
+the body either way, which is what the page should pause on.
 
 ### What a run costs here
 
