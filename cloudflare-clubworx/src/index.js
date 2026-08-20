@@ -33,6 +33,7 @@
 import { createAccessVerifier } from './access.js';
 import { createClubworxClient } from './clubworx.js';
 import { searchContacts } from './contacts.js';
+import { runStudentChain } from './student.js';
 
 export const PREFIX = '/api/clubworx';
 
@@ -102,6 +103,20 @@ const defaultSearch = ({ env, lastName, dob }) =>
   });
 
 /**
+ * The default write chain: one paced client for the whole student, so the
+ * membership read, the writes and the bookings all queue behind each other.
+ *
+ * Injected in tests for the same reason `search` is — the route's own job is
+ * validation, status mapping and the log line, and every one of those fails
+ * silently if a network stub is standing in the way.
+ */
+const defaultRunStudent = ({ env, ...args }) =>
+  runStudentChain({
+    client: createClubworxClient({ accountKey: env.CLUBWORX_ACCOUNT_KEY }),
+    ...args,
+  });
+
+/**
  * Build the request handler. The seams exist so the log line and the gate can be
  * asserted directly — both are things that fail silently in production.
  *
@@ -109,11 +124,13 @@ const defaultSearch = ({ env, lastName, dob }) =>
  * @param {(env: object) => (token: string|null) => Promise<object>} [deps.makeVerifier]
  * @param {(line: string) => void} [deps.log]
  * @param {(args: {env: object, lastName: string, dob: string}) => Promise<object>} [deps.search]
+ * @param {(args: object) => Promise<object>} [deps.runStudent]
  */
 export function createHandler({
   makeVerifier = defaultMakeVerifier,
   log = console.log,
   search = defaultSearch,
+  runStudent = defaultRunStudent,
 } = {}) {
   return async function handle(request, env) {
     const url = new URL(request.url);
@@ -130,7 +147,7 @@ export function createHandler({
     const route = url.pathname;
     const method = request.method;
 
-    const done = (response, { email = null, reason = null } = {}) => {
+    const done = (response, { email = null, reason = null, outcome = null } = {}) => {
       log(
         JSON.stringify({
           worker: WORKER,
@@ -140,6 +157,12 @@ export function createHandler({
           email,
           ms: Date.now() - started,
           ...(reason ? { reason } : {}),
+          // `outcome` is one of a closed set of words — complete, abandoned,
+          // needs-confirmation — and never a value out of the request or the
+          // response. It is here because "did this call create a permanent
+          // record?" is the question an operational log has to be able to
+          // answer, and a 200 alone does not.
+          ...(outcome ? { outcome } : {}),
         }),
       );
       return response;
@@ -252,7 +275,67 @@ export function createHandler({
       );
     }
 
-    // events, plan, schools, student and unbook arrive with #67/#69/#70.
+    if (path === '/student') {
+      if (method !== 'POST') return done(json({ error: 'method not allowed' }, 405), { email });
+
+      // A missing secret is a deploy that was never finished, not a Clubworx
+      // refusal — and on this route the difference matters more than anywhere
+      // else, because the caller is about to be told a student was not created.
+      if (!env.CLUBWORX_ACCOUNT_KEY) {
+        return done(
+          json({ error: 'the Clubworx account key is not configured', reason: 'not-configured' }, 503),
+          { email },
+        );
+      }
+
+      let payload = null;
+      try {
+        payload = await request.json();
+      } catch {
+        payload = null;
+      }
+      if (!payload || typeof payload !== 'object') {
+        return done(
+          json({ error: 'a JSON body describing one student is required', reason: 'bad-request' }, 400),
+          { email },
+        );
+      }
+
+      const result = await runStudent({
+        env,
+        student: payload.student,
+        contactKey: payload.contact_key ?? null,
+        membershipPlanId: payload.membership_plan_id,
+        membershipDuration: payload.membership_duration,
+        events: payload.events,
+      });
+
+      // **A result is not an error, even when the student was abandoned.**
+      //
+      // §12's result table has to show every outcome — created, already booked,
+      // refused, rolled back, stranded — and D10 writes each row to the
+      // browser's localStorage as it lands, because a page reload destroying the
+      // only record of a creation that cannot be undone is the specific failure
+      // that design defends against. A 4xx or 5xx invites a client to throw the
+      // body away, and the body is the record.
+      //
+      // So only two things leave as a non-200, and both are conditions in which
+      // there is nothing to record:
+      //
+      //   - **429**, because §11 pauses the *whole run* on a throttle. The
+      //     allowance is gym-wide, so backing off one row while the rest
+      //     continue just spends the next window failing, and the page needs
+      //     that signal where it cannot be missed.
+      //   - **400** for a refusal that happened before any write — a lead-time
+      //     session, a pass that will not cover the term, a malformed request.
+      //     Nothing was attempted, so there is no row.
+      const status =
+        result.reason === 'throttled' ? 429 : result.outcome === 'refused' ? 400 : 200;
+
+      return done(json(result, status), { email, outcome: result.outcome });
+    }
+
+    // events, plan, schools and unbook arrive with #67/#70.
     return done(json({ error: 'not found' }, 404), { email });
   };
 }

@@ -22,9 +22,13 @@ const accepts = email => async () => ({ ok: true, email, sub: 'sub-1' });
 const rejects = reason => async () => ({ ok: false, reason, email: null, sub: null });
 
 /** A handler with a stubbed verifier and a capturing log. */
-function handlerWith(verify, { env = ENV } = {}) {
+function handlerWith(verify, { env = ENV, ...deps } = {}) {
   const lines = [];
-  const handle = createHandler({ makeVerifier: () => verify, log: line => lines.push(line) });
+  const handle = createHandler({
+    makeVerifier: () => verify,
+    log: line => lines.push(line),
+    ...deps,
+  });
   return {
     lines,
     call: (path, init = {}) => handle(new Request(`https://ujstaff.happyk.au${path}`, init), env),
@@ -150,10 +154,10 @@ describe('GET /health', () => {
 
 describe('routes not built yet', () => {
   it('answers 404 for an authenticated call to a route this ticket does not add', async () => {
-    // #67/#68/#70 add events, contacts, student and unbook. Until then a 404 is
+    // #67 adds events, plan and schools; #70 adds unbook. Until then a 404 is
     // the honest answer — not a 500, and not a silent 200.
     const h = handlerWith(accepts('staff@urbanjungleirc.com'));
-    const res = await h.call('/api/clubworx/student', { ...withJwt, method: 'POST' });
+    const res = await h.call('/api/clubworx/unbook', { ...withJwt, method: 'POST' });
 
     expect(res.status).toBe(404);
     expect((await res.json()).error).toBe('not found');
@@ -453,5 +457,215 @@ describe('GET /contacts', () => {
 
     expect(h.lines[0]).not.toContain('Amelia');
     expect(h.lines[0]).not.toContain('ck-1');
+  });
+});
+
+// ---------------------------------------------------------------------------
+// POST /student — the only route that creates permanent records (#69)
+// ---------------------------------------------------------------------------
+
+describe('POST /student', () => {
+  const OPERATOR = 'staff@urbanjungleirc.com';
+
+  const BODY = {
+    student: {
+      first_name: 'Ada',
+      last_name: 'Wayfinder',
+      dob: '2012-03-04',
+      email: 'noreply+stbedes@urbanjungleirc.com',
+    },
+    contact_key: null,
+    membership_plan_id: 64189,
+    membership_duration: '26 weeks',
+    events: [{ event_id: 101, starts_at: '2026-09-03T02:00:00Z' }],
+  };
+
+  const post = (body = BODY) => ({
+    method: 'POST',
+    headers: { ...withJwt.headers, 'Content-Type': 'application/json' },
+    body: JSON.stringify(body),
+  });
+
+  const completes = over => async () => ({
+    ok: true,
+    outcome: 'complete',
+    written: true,
+    contact: { contact_key: 'ck-1', state: 'created' },
+    pass: { state: 'created-with-contact' },
+    bookings: [{ event_id: 101, state: 'booked', booking_id: 'b1' }],
+    rollback: null,
+    stranded: false,
+    warnings: [],
+    requests: 4,
+    reason: null,
+    message: null,
+    ...over,
+  });
+
+  it('needs POST — a GET must not be able to write anything', async () => {
+    const h = handlerWith(accepts(OPERATOR), { runStudent: completes() });
+    const res = await h.call('/api/clubworx/student', withJwt);
+    expect(res.status).toBe(405);
+  });
+
+  it('runs behind the Access gate like every other route', async () => {
+    let ran = false;
+    const h = handlerWith(rejects('expired'), {
+      runStudent: async () => {
+        ran = true;
+        return {};
+      },
+    });
+
+    const res = await h.call('/api/clubworx/student', post());
+
+    expect(res.status).toBe(401);
+    expect(ran).toBe(false);
+  });
+
+  it('refuses a body that is not JSON, without touching Clubworx', async () => {
+    let ran = false;
+    const h = handlerWith(accepts(OPERATOR), {
+      runStudent: async () => {
+        ran = true;
+        return {};
+      },
+    });
+
+    const res = await h.call('/api/clubworx/student', {
+      method: 'POST',
+      headers: { ...withJwt.headers, 'Content-Type': 'application/json' },
+      body: 'not json',
+    });
+
+    expect(res.status).toBe(400);
+    expect(ran).toBe(false);
+  });
+
+  it('tells a missing secret apart from a Clubworx refusal', async () => {
+    const h = handlerWith(accepts(OPERATOR), {
+      env: { ...ENV, CLUBWORX_ACCOUNT_KEY: '' },
+      runStudent: completes(),
+    });
+
+    const res = await h.call('/api/clubworx/student', post());
+
+    expect(res.status).toBe(503);
+    expect((await res.json()).reason).toBe('not-configured');
+  });
+
+  it('hands the whole result back on a completed student', async () => {
+    const h = handlerWith(accepts(OPERATOR), { runStudent: completes() });
+    const res = await h.call('/api/clubworx/student', post());
+
+    expect(res.status).toBe(200);
+    expect(await res.json()).toMatchObject({ outcome: 'complete', requests: 4 });
+  });
+
+  it('passes the page a 400 for a refusal that happened before any write', async () => {
+    const h = handlerWith(accepts(OPERATOR), {
+      runStudent: completes({ ok: false, outcome: 'refused', reason: 'lead-time', written: false }),
+    });
+
+    const res = await h.call('/api/clubworx/student', post());
+
+    expect(res.status).toBe(400);
+    expect((await res.json()).reason).toBe('lead-time');
+  });
+
+  it('answers 429 on a throttle, so the page pauses the whole run', async () => {
+    // The allowance is gym-wide. Backing off one student while the rest continue
+    // just spends the next window failing.
+    const h = handlerWith(accepts(OPERATOR), {
+      runStudent: completes({ ok: false, outcome: 'failed', reason: 'throttled', written: false }),
+    });
+
+    expect((await h.call('/api/clubworx/student', post())).status).toBe(429);
+  });
+
+  it('answers 200 for an abandoned student, because the rollback is a result', async () => {
+    // Not an error status: a row that was written and rolled back is exactly
+    // what the result table has to show, and it must survive the round trip.
+    const h = handlerWith(accepts(OPERATOR), {
+      runStudent: completes({
+        ok: false,
+        outcome: 'abandoned',
+        reason: 'no-spaces',
+        written: true,
+        stranded: true,
+        rollback: { cancelled: 2, skipped: 0, failed: [] },
+      }),
+    });
+
+    const res = await h.call('/api/clubworx/student', post());
+
+    expect(res.status).toBe(200);
+    expect(await res.json()).toMatchObject({ outcome: 'abandoned', stranded: true });
+  });
+
+  it('answers 200 for needs-confirmation, which is a row and not a fault', async () => {
+    const h = handlerWith(accepts(OPERATOR), {
+      runStudent: completes({
+        ok: false,
+        outcome: 'needs-confirmation',
+        reason: 'pass-not-covering',
+        written: false,
+      }),
+    });
+
+    expect((await h.call('/api/clubworx/student', post())).status).toBe(200);
+  });
+
+  it('gives the chain what the request asked for, and nothing it invented', async () => {
+    let seen = null;
+    const h = handlerWith(accepts(OPERATOR), {
+      runStudent: async args => {
+        seen = args;
+        return (await completes()()) ;
+      },
+    });
+
+    await h.call('/api/clubworx/student', post());
+
+    expect(seen).toMatchObject({
+      contactKey: null,
+      membershipPlanId: 64189,
+      membershipDuration: '26 weeks',
+    });
+    expect(seen.student).toMatchObject(BODY.student);
+    expect(seen.events).toHaveLength(1);
+  });
+
+  it('names the operator on the log line of a write', async () => {
+    // #47: one key per gym, so attribution by key is impossible. The verified
+    // Access email is the only record of who ran it.
+    const h = handlerWith(accepts(OPERATOR), { runStudent: completes() });
+    await h.call('/api/clubworx/student', post());
+
+    expect(JSON.parse(h.lines.at(-1))).toMatchObject({
+      route: '/api/clubworx/student',
+      method: 'POST',
+      status: 200,
+      email: OPERATOR,
+    });
+  });
+
+  it('never logs the student, the body or anything from the response', async () => {
+    // The single rule this Worker is one console.log away from breaking.
+    const h = handlerWith(accepts(OPERATOR), { runStudent: completes() });
+    await h.call('/api/clubworx/student', post());
+
+    const logged = h.lines.join('\n');
+    expect(logged).not.toContain('Wayfinder');
+    expect(logged).not.toContain('2012-03-04');
+    expect(logged).not.toContain('noreply+stbedes');
+    expect(logged).not.toContain('ck-1');
+    expect(logged).not.toContain(ENV.CLUBWORX_ACCOUNT_KEY);
+  });
+
+  it('answers no-store, like every other route on this Worker', async () => {
+    const h = handlerWith(accepts(OPERATOR), { runStudent: completes() });
+    const res = await h.call('/api/clubworx/student', post());
+    expect(res.headers.get('Cache-Control')).toBe('no-store');
   });
 });

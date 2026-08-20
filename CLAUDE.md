@@ -22,16 +22,34 @@ cloudflare-clubworx/    - uj-clubworx-api, the Worker for the school-group booki
                           comes from and where it lives). Verifies the Access JWT
                           rather than trusting the header, paces at 75 req/min, and
                           stores nothing — no student name or DOB in any store or
-                          log line. GET /api/clubworx/health (#66) and
-                          GET /api/clubworx/contacts (#68) so far; events, plan,
-                          schools, student and unbook arrive with #67/#69/#70.
+                          log line. GET /api/clubworx/health (#66),
+                          GET /api/clubworx/contacts (#68) and
+                          POST /api/clubworx/student (#69) so far; events, plan,
+                          schools and unbook arrive with #67/#70.
 cloudflare-clubworx/src/contacts.js - the dedup read. Searches all three disjoint
                           status views and merges, because a contact moves between
                           them (#49). Every uncertain answer is a refusal: an
                           empty candidate set means "new", and "new" writes a
                           contact Clubworx cannot delete.
-cloudflare-clubworx/src/ - the Worker. request.js and errors.js were moved here
-                          from probes/lib/ by #66 and the probes import them back.
+cloudflare-clubworx/src/student.js - the per-student write chain, and the ONLY
+                          code here that creates permanent records. Contacts and
+                          memberships have no delete, so every write is verified
+                          by re-reading it, every retry re-reads first, and any
+                          failure rolls back that student's bookings and names
+                          them stranded. Read §10/§12 of the design spec first.
+cloudflare-clubworx/src/bookings.js - book, cancel, and the error vocabulary.
+                          Three refusals share HTTP 400 and the message string is
+                          the only discriminator; "already booked" is a SUCCESS
+                          and carries no booking id, which is what stops a
+                          rollback reaching a booking this run did not create.
+cloudflare-clubworx/src/memberships.js - is the held School Pass good enough? The
+                          test is "covers the last selected session", never
+                          "active today" (ADR 0005). A live-but-short pass
+                          refuses rather than granting a second one to a live
+                          holder — #90's open question.
+cloudflare-clubworx/src/ - the Worker. request.js, errors.js and
+                          summariseMemberships were moved here from probes/lib/
+                          by #66 and #69, and the probes import them back.
 cloudflare-clubworx/probes/ - read-only probes against the live Clubworx API, and
                           what they found. Start with probes/README.md — it carries
                           the rules (no production data recorded, pace under

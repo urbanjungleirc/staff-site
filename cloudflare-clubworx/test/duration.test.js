@@ -1,5 +1,23 @@
 import { describe, it, expect } from 'vitest';
-import { parsePlanDuration, passCoverageEnd, addDays, isRealDay } from '../src/duration.js';
+import { parsePlanDuration, passCoverageEnd, addDays, isRealDay, perthDay } from '../src/duration.js';
+
+describe('perthDay', () => {
+  it('is the gym day, not the UTC day', () => {
+    // 23:00 UTC on the 20th is 07:00 on the 21st in Perth. A Worker isolate runs
+    // on UTC; the pass starts on the gym's day.
+    expect(perthDay('2026-08-20T23:00:00Z')).toBe('2026-08-21');
+    expect(perthDay('2026-08-20T15:59:00Z')).toBe('2026-08-20');
+    expect(perthDay('2026-08-20T16:00:00Z')).toBe('2026-08-21');
+  });
+
+  it('agrees with an instant already expressed in AWST', () => {
+    expect(perthDay('2026-08-21T07:00:00+08:00')).toBe('2026-08-21');
+  });
+
+  it('answers null for an instant it cannot read', () => {
+    expect(perthDay('not a time')).toBeNull();
+  });
+});
 
 describe('parsePlanDuration', () => {
   it('parses the plan UJ actually runs', () => {

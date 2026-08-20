@@ -79,6 +79,33 @@ export function addDays(day, count) {
   return at.toISOString().slice(0, 10);
 }
 
+/**
+ * Perth is **UTC+8 with no daylight saving**, so the offset is a constant and
+ * not a timezone database lookup. Western Australia last observed DST in 2009.
+ */
+const AWST_OFFSET_MS = 8 * 60 * 60 * 1000;
+
+/**
+ * What day it is at the gym.
+ *
+ * Not what day it is in UTC. A Worker isolate runs on UTC and the gym runs on
+ * AWST, so for the eight hours after Perth midnight the two disagree — and the
+ * day this returns is the day a granted pass starts, the day the coverage window
+ * is measured from, and the `start_date` sent to Clubworx. Getting it wrong
+ * there is one day of pass coverage, which at the end of a term is one session.
+ *
+ * Every UJ and CAWA workflow uses `Australia/Perth`; this is that rule, applied
+ * where it decides a permanent write.
+ *
+ * @param {string|Date} [now] An instant. Defaults to the real one.
+ * @returns {string} `YYYY-MM-DD` at the gym.
+ */
+export function perthDay(now = new Date()) {
+  const at = now instanceof Date ? now : new Date(now);
+  if (Number.isNaN(at.getTime())) return null;
+  return new Date(at.getTime() + AWST_OFFSET_MS).toISOString().slice(0, 10);
+}
+
 /** What a duration may be counted in. Singular; the parser strips the plural. */
 const UNITS = new Set(['day', 'week', 'month', 'year']);
 

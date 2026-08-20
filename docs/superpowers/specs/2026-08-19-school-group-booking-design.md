@@ -137,8 +137,17 @@ which either happened or did not. §12 still handles it for found contacts.
 > `membership_plan_id` works on create, and it does. The encoding is the one
 > claim #63 could not check, because the first shape it tried succeeded.
 >
-> Note the sibling write paths differ: `/memberships` and `/bookings` **are**
-> form-encoded (#60). The encoding is per-endpoint, not per-API.
+> Note the sibling write paths differ: **`/memberships` is form-encoded** (#60).
+> The encoding is per-endpoint, not per-API.
+>
+> **Corrected 2026-08-20, while building #69.** This line previously said
+> `/bookings` was form-encoded too. It is not: `probes/lib/booking.mjs` sent a
+> **JSON** body and that is the call that produced the 200 creating booking
+> `63510241` in #60. The reversal — `DELETE /bookings/:id` — *is* form-encoded,
+> and that is almost certainly where the mistake came from. The Worker
+> implements what was run: JSON to `POST /members` and `POST /bookings`, a form
+> to `POST /memberships` and `DELETE /bookings/:id`. Anyone reconciling the two
+> should trust `probes/lib/` over this table — it is the code that was executed.
 
 **A created member holds no membership until one is granted.** #63 found D
 sitting in `GET /members` with an empty `/memberships` list. This section
