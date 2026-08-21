@@ -878,6 +878,30 @@ describe('describeEventById', () => {
     expect(out.discriminates).toBeNull();
   });
 
+  it('answers for the shipped route from the windowless call, because that is what it sends', () => {
+    // `resolveEvent` calls `client.get('events/<id>')` with no params at all.
+    // A route that resolves only *with* a window is a route the shipped code
+    // does not have — reporting the windowed 200 as success would green-light
+    // a production failure.
+    const out = describeEventById({
+      wantedId,
+      direct: ok(row()),
+      windowless: { status: 422, body: null, error: null },
+    });
+
+    expect(out.verdict).toBe('single-object');
+    expect(out.isRoute).toBe(true);
+    expect(out.resolvesFallback).toBe(false);
+    expect(out.fallbackBasis).toBe('windowless');
+  });
+
+  it('falls back to the windowed call when the windowless one was not made, and says so', () => {
+    const out = describeEventById({ wantedId, direct: ok(row()) });
+
+    expect(out.resolvesFallback).toBe(true);
+    expect(out.fallbackBasis).toBe('windowed');
+  });
+
   it('reports the date window as not required when the windowless call resolves', () => {
     const out = describeEventById({ wantedId, direct: ok(row()), windowless: ok(row()) });
 

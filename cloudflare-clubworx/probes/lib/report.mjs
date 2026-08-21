@@ -848,14 +848,29 @@ export function describeEventById({
   collectionIds = null,
 } = {}) {
   const verdict = shapeOf(direct, wantedId) ?? 'error';
-  const resolvesFallback = RESOLVING.has(verdict);
+  const windowlessShape = shapeOf(windowless, wantedId);
+
+  // `resolveEvent` sends `events/<id>` and **no parameters at all** — no date
+  // window. So the call that answers for the shipped route is the windowless
+  // one, not the windowed one the issue leads with. If `events/:id` resolves
+  // only when a window rides along, the shipped route does not have it, and
+  // reporting the windowed 200 as success would green-light a production
+  // failure. `fallbackBasis` says which call the answer came from, so a
+  // findings document cannot quietly cite the wrong one.
+  const fallbackBasis = windowlessShape === null ? 'windowed' : 'windowless';
+  const resolvesFallback = RESOLVING.has(fallbackBasis === 'windowless' ? windowlessShape : verdict);
 
   // Three states, and the third is the point. `false` is a measured absence;
   // `null` is "this run did not find out", which a refusal or a dropped
   // connection is. Collapsing them would write an unmeasured "no" into the
   // findings.
+  //
+  // Read off the *addressed* call rather than the shipped route's one: "is
+  // `events/:id` a route" and "does #67's code work" are different questions,
+  // and a route that needs a window is a yes to the first and a no to the
+  // second.
   const isRoute =
-    resolvesFallback ? true
+    RESOLVING.has(verdict) ? true
     : verdict === 'refused' || verdict === 'error' || verdict === 'error-status' ? null
     : false;
 
@@ -874,13 +889,13 @@ export function describeEventById({
   const discriminates =
     missingBehaviour === null ? null : !RESOLVING.has(missingBehaviour) && missingBehaviour !== 'collection';
 
-  const windowlessShape = shapeOf(windowless, wantedId);
   const windowRequired = windowlessShape === null ? null : !RESOLVING.has(windowlessShape);
 
   return {
     verdict,
     isRoute,
     resolvesFallback,
+    fallbackBasis,
     status: direct?.status ?? null,
     fields: fieldNamesOf(direct?.body),
     returnedIds,

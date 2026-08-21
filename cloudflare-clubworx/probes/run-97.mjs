@@ -29,6 +29,12 @@
  *   4. `GET /events/<the real id>` with no date window — does the window
  *      requirement (#51) follow the collection to the addressed form?
  *
+ * Call 4 is the one that answers for the **shipped** route, and it is worth
+ * being plain about why: `resolveEvent` sends `events/<id>` with no parameters
+ * at all. If addressing works only with a window riding along, the answer to
+ * the issue's headline question is *yes* and the answer for #67's code is
+ * *no* — two different findings that a single "it returned 200" would merge.
+ *
  * The cheapest probe on this map: 4 reads against a 75/minute gym-wide
  * allowance (#51).
  *
@@ -157,7 +163,10 @@ async function main() {
   console.log('\n── The answer ────────────────────────────────────────────────');
   line('verdict', finding.summary);
   line('events/:id is a route', String(finding.isRoute));
-  line('#67 resolveEvent survives it', String(finding.resolvesFallback));
+  line(
+    '#67 resolveEvent survives it',
+    `${finding.resolvesFallback} (from the ${finding.fallbackBasis} call)`,
+  );
   line('fields returned', finding.fields.length ? finding.fields.join(', ') : '(none)');
   line('rows returned', String(finding.returnedIds.length));
   line('answered with the collection', String(finding.echoesCollection));
