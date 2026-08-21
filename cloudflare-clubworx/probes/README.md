@@ -62,6 +62,7 @@ node probes/run-63.mjs --encoding=form       # force the body shape rather than 
 
 node probes/run-97.mjs --dry-run     # the 4 calls, zero network — and no key needed
 node probes/run-97.mjs               # read-only: is events/:id a route, and what shape
+node probes/run-97.mjs --days=3      # how far ahead to look for one real event (default 14)
 node probes/run-97.mjs --missing-id=<id>     # choose the id that should not exist
 
 npm test                             # the pure logic, no network

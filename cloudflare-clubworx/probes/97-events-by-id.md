@@ -5,9 +5,10 @@ three runs. Answers [#97](https://github.com/urbanjungleirc/staff-site/issues/97
 which asked whether the paste-the-event-id fallback [#67](https://github.com/urbanjungleirc/staff-site/issues/67)
 shipped actually works against production.
 
-**It does not.** `GET /api/v2/events/<id>` answers **HTTP 404** with
-`{"status": 404, "error": "Not Found"}` — for a real event id, for an invented
-one, with the date window and without it. There is no such route.
+**It does not.** `GET /api/v2/events/<id>` answers **HTTP 404**, with a JSON body
+carrying two fields — `status` and `error` — and an error message of
+`"Not Found"`. For a real event id, for an invented one, with the date window
+and without it. There is no such route.
 `resolveEvent` in `../src/events.js` cannot succeed as written, and the paste
 field on [#54](https://github.com/urbanjungleirc/staff-site/issues/54) has no
 Worker-side route behind it.
@@ -37,27 +38,53 @@ GET /events/999999999?event_starts_after=…&event_ends_before=…&page_size=50 
 GET /events/20013052?page_size=50                                            404    283ms
 ```
 
-Body, identical in all three, `content-type: application/json; charset=UTF-8`:
+Body shape, `content-type: application/json; charset=UTF-8` on all three — field
+**names** and the error message, which is all the summariser records:
 
-```json
-{"status": 404, "error": "Not Found"}
+```
+fields: ["status", "error"]     error message: "Not Found"
 ```
 
-Reproduced on three separate runs, including one over a 60-day window whose
-listing came back full at 50. The window makes no difference; nothing about the
-window was ever the problem.
+The `status` field's *value* is not recorded — the summariser reduces a body to
+field names before anything is written — so this document does not quote a
+literal body it cannot show evidence for.
 
-### The 404 is the router's, not the database's
+### What reproduced, and what did not
 
-The two calls that follow a warmed connection answer in **~285ms**, against
-**~1,950ms** for the `/events` collection read beside them. Clubworx is not
-looking anything up and failing to find it — it is declining to route the
-request at all. The identical answer for id `999999999` and for a real,
-currently-listed event id says the same thing from the other direction: nothing
-here is reading the id.
+The **network behaviour** reproduced on all three runs: 404 on every addressed
+call, every time, including one run over a 60-day window whose listing came back
+full at 50. The window makes no difference; nothing about the window was ever
+the problem.
 
-That is why the write-up says *there is no route* rather than *the event could
-not be found*. The distinction is the whole finding.
+The **derived findings did not**, and the records say so.
+`probes/lib/report.mjs` was still being fixed between runs — three of its fields
+reported confident values about an absent route before the gates went in. Run 1
+has no `refusal` key at all and `windowRequired: true`; run 2 still has
+`discriminates: true`. **Only run 3 corresponds to the shipped classifier.**
+Runs 2 and 3 used `--days=3`; the default is 14.
+
+The finding stands on the network facts, which are identical across all three.
+
+### The 404 does not look like a lookup failing
+
+Two lines of evidence, and they are not equally strong.
+
+**The strong one.** A real, currently-listed event id and `999999999` come back
+identical — same status, same body shape, same message. Whatever answers is not
+reading the id, so it cannot be looking something up and failing to find it.
+This carries the finding on its own.
+
+**The weak one, recorded for completeness.** Calls 3 and 4 answer in ~225–300ms
+against ~1,850–1,965ms for the `/events` collection read. That looks like a
+router rejection — but the *first* addressed call took **1,222 / 1,332 /
+1,311ms** across the three runs, never ~285ms, and the fast pair always follows
+it on a warmed connection. The comparison is confounded by payload size too:
+44–50 rows against a two-field error envelope. The timings are **consistent
+with** a routing refusal; they are not evidence for it, and nothing here rests
+on them.
+
+So the finding is *there is no route* rather than *the event could not be
+found* — resting on the identical answers, not on the clock.
 
 ## Path addressing exists in this API — just not here
 
@@ -74,22 +101,32 @@ resource is not evidence about this one.
 ## What a staff member sees today
 
 The route is deployed. `GET /api/clubworx/events?event_id=<anything>` currently
-returns:
+returns **HTTP 502**:
 
 ```json
-{"error": "Not Found", "reason": "upstream-error", "upstreamStatus": 404}
+{"error": "Not Found", "reason": "upstream-error", "upstreamStatus": 404, "view": null}
 ```
 
-`errorMessageOf` reads Clubworx's `error` field, `upstreamMessage` passes it
-through verbatim per D6 — and the result is that a staff member who pastes a
-perfectly valid event id is told **"Not Found"**. That reads as *"the event
-doesn't exist"*, not *"this feature has never worked"*, which is the more
-expensive of the two misreadings: it sends someone to check the id they already
-know is right.
+Traced rather than assumed: `resolveEvent` fails at `!res.ok`, so the reason is
+`upstreamReason(res)` → `'upstream-error'`, which is not in `index.js`'s
+`REFUSALS` set, so `readStatus` maps it to **502**. `readFailure` adds
+`view: null` unconditionally.
+
+Two things follow. The **502 is honest** — it says the upstream failed, which is
+true, and a page treating 5xx as "something is broken" will do the right thing.
+But the **`error` string is not**: `upstreamMessage` passes Clubworx's own
+`"Not Found"` through verbatim per D6, so any surface that shows the message
+rather than the status tells a staff member who pasted a perfectly valid id that
+it was **not found**. That is the more expensive misreading — it sends someone
+to re-check an id that was correct.
+
+Worth noting: `resolveEvent`'s own `'event-not-found'` reason — the one that
+would map to a 400 — is **unreachable in production**. It is only returned after
+a successful upstream read, and there are none.
 
 Nothing here is a fault in the error handling. Every layer reported honestly
-what it received; the request underneath it was addressed to a route that does
-not exist.
+what it received; the request underneath was addressed to a route that does not
+exist.
 
 ## What this leaves open
 
@@ -98,8 +135,8 @@ to make. The issue states both options:
 
 - **Resolve the pasted id page-side**, from the window the picker already holds.
   The listing is already on screen, and #67 rejected the Worker re-walking that
-  window — up to `MAX_PAGES` requests of a gym-wide 75/min allowance to find an
-  id the page can already see. Nothing in this measurement changes that
+  window — up to **10** requests (`MAX_PAGES`) of a gym-wide 75/min allowance to
+  find an id the page can already see. Nothing in this measurement changes that
   reasoning; it removes the alternative.
 - **Drop the field.**
 
@@ -119,7 +156,8 @@ documentation (#51), and `resolveEvent`'s header already says so.
 ```bash
 cd cloudflare-clubworx
 node probes/run-97.mjs --dry-run    # the 4 calls, no network, no key needed
-node probes/run-97.mjs              # ~4 reads
+node probes/run-97.mjs              # 4 reads, 14-day window
+node probes/run-97.mjs --days=3     # the window these runs used
 node probes/run-97.mjs --days=30 --missing-id=123456789
 ```
 

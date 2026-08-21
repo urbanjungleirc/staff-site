@@ -960,6 +960,10 @@ export function describeEventById({
 
   return {
     verdict,
+    // Did the addressed call come back with the event at all? Every gate below
+    // hangs off this, and it is exported so a caller does not have to restate
+    // the rule in its own terms and get it subtly different.
+    resolved: RESOLVING.has(verdict),
     isRoute,
     resolvesFallback,
     fallbackBasis,

@@ -2,7 +2,8 @@
 /**
  * staff-site#97 — does `GET /api/v2/events/:id` resolve a single event?
  *
- *   node probes/run-97.mjs [--dry-run] [--missing-id=<id>] [--dev-vars=<path>]
+ *   node probes/run-97.mjs [--dry-run] [--days=<n>] [--missing-id=<id>]
+ *                          [--dev-vars=<path>]
  *
  * Read-only throughout, and read-only *by construction*: the only module here
  * that reaches Clubworx is `lib/http.mjs`, which issues GET and nothing else.
@@ -51,6 +52,7 @@ import { writeFileSync, mkdirSync } from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
+import { redact } from '../src/request.js';
 import { createGetter } from './lib/http.mjs';
 import { loadAccountKey } from './lib/key.mjs';
 import { describeEventById, summariseEvents } from './lib/report.mjs';
@@ -211,6 +213,14 @@ async function main() {
     collectionIds: seed.collectionIds,
   });
 
+  // `refusal` is the one free-text field in the finding, and free text is where
+  // a key travels — some Clubworx complaints interpolate the parameters they
+  // are complaining about. `report.mjs` is the keyless layer and cannot redact,
+  // so it belongs here: the same split `run-60.mjs` and `run-63.mjs` make, and
+  // `errors.js` states the contract — "the caller redacts before it is printed
+  // or written".
+  if (finding.refusal) finding.refusal = redact(finding.refusal, accountKey);
+
   console.log('\n── The answer ────────────────────────────────────────────────');
   line('verdict', finding.summary);
   line('what it said', finding.refusal ?? '(no message)');
@@ -226,7 +236,11 @@ async function main() {
   // The corroboration questions only mean anything if something resolved. On a
   // flat 404 they would each print a confident-looking value about a route that
   // is not there — which is the shape of mistake this whole probe is against.
-  if (finding.isRoute === false && finding.verdict === 'not-found') {
+  // `resolved` comes from the finding rather than being re-derived here: an
+  // earlier draft tested `verdict === 'not-found'`, which sent a 401 and a
+  // dropped connection down the other branch to be described as a one-row
+  // collection read.
+  if (!finding.resolved) {
     line('corroboration', 'n/a — nothing resolved, so there is nothing to corroborate');
   } else {
     line('answered with the collection', String(finding.echoesCollection));

@@ -817,6 +817,27 @@ describe('describeEventById', () => {
     expect(out.isRoute).toBe(false);
   });
 
+  it('says plainly whether anything resolved, so callers need not restate the rule', () => {
+    expect(describeEventById({ wantedId, direct: ok(row()) }).resolved).toBe(true);
+    expect(describeEventById({ wantedId, direct: ok([row(), row(999)]) }).resolved).toBe(false);
+    expect(
+      describeEventById({ wantedId, direct: { status: 401, body: null, error: null } }).resolved,
+    ).toBe(false);
+  });
+
+  it('leaves the corroboration question open whenever nothing resolved', () => {
+    // The gate `confounded` shares with `discriminates` and `windowRequired`.
+    for (const direct of [
+      { status: 404, body: null, error: null },
+      { status: 401, body: null, error: null },
+      { status: null, body: null, error: 'ECONNRESET' },
+      ok([row(), row(999)]),
+      ok([]),
+    ]) {
+      expect(describeEventById({ wantedId, direct }).confounded).toBeNull();
+    }
+  });
+
   it('reads a 2xx body it cannot interpret as unmeasured, not as an absent route', () => {
     // A single event naming its key `id` rather than `event_id` would land
     // here. That is a shape nobody has read yet, not a missing route.

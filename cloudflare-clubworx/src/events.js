@@ -328,18 +328,21 @@ export async function listEvents({ client, from, to, q = '', now = new Date().to
  * MEASURED, AND IT DOES NOT WORK — `GET /events/:id` is not a route
  * ---------------------------------------------------------------------------
  * #97 probed it against production on **2026-08-21**: `GET /api/v2/events/<id>`
- * answers **HTTP 404** `{"status": 404, "error": "Not Found"}` — for a real
- * event id, for an invented one, with the date window and without it. The 404
- * arrives in ~285ms against ~1,950ms for the collection read beside it, and is
- * identical for a real id and a made-up one: Clubworx is declining to route the
- * request, not failing to find the record. See
- * `../probes/97-events-by-id.md`.
+ * answers **HTTP 404**, body fields `status` and `error`, message `"Not Found"`
+ * — for a real event id, for an invented one, with the date window and without
+ * it. A real currently-listed id and `999999999` come back identical, so
+ * nothing there is reading the id at all. See `../probes/97-events-by-id.md`,
+ * which also records why the response *timings* do not support that conclusion
+ * as cleanly as a first draft claimed.
  *
  * So **nothing below this line can succeed.** The function is correct — it
  * refuses, and it refuses for the right reason — but there is no request it can
- * make that Clubworx will answer. Every call returns `upstream-error` with
- * Clubworx's own `"Not Found"`, which a staff member reads as *"that event does
- * not exist"* rather than *"this has never worked"*.
+ * make that Clubworx will answer. Every call returns `upstream-error`, which
+ * `index.js` maps to **HTTP 502**, carrying Clubworx's own `"Not Found"` as the
+ * message. The status is honest; the message is not, and any surface showing
+ * the message rather than the status tells staff a valid id was *not found*.
+ * (`resolveEvent`'s own `'event-not-found'` reason, the one that would map to a
+ * 400, is unreachable in production — it needs a successful upstream read.)
  *
  * Path addressing does exist here — `DELETE /bookings/:id` was measured in #60
  * — which is why `events/:id` was the guess. The API is simply inconsistent
