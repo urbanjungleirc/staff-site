@@ -1576,6 +1576,19 @@ function schoolBooking() {
 
       this.plan = await this.lookupPlan();
 
+      // The plan first, and nothing else if it did not resolve. §11 hard-stops
+      // the *run* on an unresolved or ambiguous plan, and the dedup reads are
+      // three requests a student out of an allowance the whole gym shares —
+      // spent on answers nothing caches, for a run that cannot proceed, before
+      // an operator who has to go and fix a Clubworx plan either way. The
+      // preview is still built, so the refusal has a screen to be read on.
+      if (!this.plan.ok) {
+        this.checkState = 'done';
+        this.checkProgress = '';
+        this.refreshPreview();
+        return;
+      }
+
       const students = (this.reviewed?.rows ?? []).filter((r) => r.bucket === 'record' && !r.needsHuman);
       const found = {};
       for (let i = 0; i < students.length; i += 1) {

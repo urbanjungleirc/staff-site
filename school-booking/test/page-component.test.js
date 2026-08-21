@@ -871,3 +871,28 @@ describe('the check does not leave stale answers on screen', () => {
     expect(app.preview.totals.bookings).toBe(6);
   });
 });
+
+describe('an unresolvable plan stops the run before it spends the allowance', () => {
+  test('no student is read when the School Pass plan did not resolve', async () => {
+    // §11 hard-stops the *run* on an unresolved plan, and the reads are not
+    // free: 6 students is 18 requests of an allowance the whole gym shares,
+    // and nothing caches them — so a run that cannot proceed would spend them
+    // again on the next attempt. The plan is a Clubworx configuration fix, so
+    // there is nothing the operator can do with the answers meanwhile.
+    const app = await upToSessions(component({
+      plan: { ok: false, reason: 'plan-not-found', message: 'no membership plan is named "School Pass"' },
+    }));
+    app.pickSeries('e1');
+    await app.toPreview();
+
+    const reads = globalThis.fetch.mock.calls.map(([url]) => String(url));
+    expect(reads.filter((u) => u.includes('/api/clubworx/contacts'))).toHaveLength(0);
+
+    // And it still lands on step 5 saying why, rather than refusing in place
+    // with no screen to read: the blocker is the answer.
+    expect(app.stepIndex).toBe(4);
+    expect(app.preview.blockers.some((b) => b.kind === 'plan' && b.severity === 'block')).toBe(true);
+    expect(app.preview.ready).toBe(false);
+    expect(app.checkState).toBe('done');
+  });
+});
