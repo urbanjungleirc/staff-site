@@ -22,11 +22,12 @@ cloudflare-clubworx/    - uj-clubworx-api, the Worker for the school-group booki
                           comes from and where it lives). Verifies the Access JWT
                           rather than trusting the header, paces at 75 req/min, and
                           stores nothing — no student name or DOB in any store or
-                          log line. GET /api/clubworx/health (#66),
+                          log line. Every route the design names is built:
+                          GET /api/clubworx/health (#66),
                           GET /api/clubworx/contacts (#68),
-                          POST /api/clubworx/student (#69) and the three reads
-                          GET /api/clubworx/{events,plan,schools} (#67) so far;
-                          unbook arrives with #70.
+                          POST /api/clubworx/student (#69), the three reads
+                          GET /api/clubworx/{events,plan,schools} (#67) and
+                          POST /api/clubworx/unbook (#70).
 cloudflare-clubworx/src/contacts.js - the dedup read. Searches all three disjoint
                           status views and merges, because a contact moves between
                           them (#49). Every uncertain answer is a refusal: an
@@ -66,6 +67,21 @@ cloudflare-clubworx/src/bookings.js - book, cancel, and the error vocabulary.
                           the only discriminator; "already booked" is a SUCCESS
                           and carries no booking id, which is what stops a
                           rollback reaching a booking this run did not create.
+                          cancelRunBookings owns ALL FOUR cancel guarantees —
+                          the interlock, contact_key-from-the-row, the halt on a
+                          throttle, and confirming by re-read — because D3's
+                          rollback needs every one of them and is not a route.
+                          The re-read matches on the EVENT as well as the id: an
+                          id-only check passes vacuously when a list row carries
+                          a shape bookingIdOf does not know.
+cloudflare-clubworx/src/unbook.js - the cancel route, and only the route's own
+                          job: validate the body, refuse a set spanning two
+                          students (one call cancels one student — a whole run
+                          in one request is minutes long and loses its log), and
+                          turn the tally into an outcome. Bookings are the ONLY
+                          thing this system can take back; contacts and passes
+                          have no delete at all, so a caller gets its bookings
+                          back and nothing else and the UI must not imply more.
 cloudflare-clubworx/src/memberships.js - is the held School Pass good enough? The
                           test is "covers the last selected session", never
                           "active today" (ADR 0005). A live-but-short pass

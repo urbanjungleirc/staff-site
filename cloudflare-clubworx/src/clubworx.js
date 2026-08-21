@@ -93,6 +93,36 @@ const outcome = ({
 });
 
 /**
+ * Wrap a client so every call it makes is counted.
+ *
+ * The allowance is **gym-wide** — one key per gym (#47), shared with the roster
+ * Worker and n8n — and a school import is already a four-minute slowdown for
+ * everyone else, so what a call costs is worth reporting rather than estimating.
+ * `requests` is on every response this Worker sends.
+ *
+ * Wraps whatever the client exposes rather than a fixed list, so a caller that
+ * uses `postForm` counts it without this function having to be told.
+ *
+ * @param {Record<string, Function>} client
+ * @returns {{state: {requests: number}, client: Record<string, Function>}}
+ */
+export function countedClient(client) {
+  const state = { requests: 0 };
+  const tick = fn => (...args) => {
+    state.requests += 1;
+    return fn(...args);
+  };
+  return {
+    state,
+    client: Object.fromEntries(
+      Object.entries(client)
+        .filter(([, value]) => typeof value === 'function')
+        .map(([name, fn]) => [name, tick(fn.bind(client))]),
+    ),
+  };
+}
+
+/**
  * @param {object} opts
  * @param {string} opts.accountKey
  * @param {typeof fetch} [opts.fetchImpl]

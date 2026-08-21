@@ -152,12 +152,12 @@ describe('GET /health', () => {
   });
 });
 
-describe('routes not built yet', () => {
-  it('answers 404 for an authenticated call to a route this ticket does not add', async () => {
-    // #67 added events, plan and schools; #70 adds unbook. Until then a 404 is
-    // the honest answer — not a 500, and not a silent 200.
+describe('routes that do not exist', () => {
+  it('answers 404 for an authenticated call to a route this Worker does not have', async () => {
+    // Every route the design names is built. A 404 here is the honest answer
+    // for anything else — not a 500, and not a silent 200.
     const h = handlerWith(accepts('staff@urbanjungleirc.com'));
-    const res = await h.call('/api/clubworx/unbook', { ...withJwt, method: 'POST' });
+    const res = await h.call('/api/clubworx/refund', { ...withJwt, method: 'POST' });
 
     expect(res.status).toBe(404);
     expect((await res.json()).error).toBe('not found');
@@ -967,6 +967,239 @@ describe('the #67 read routes', () => {
   it('answers no-store, like every other route on this Worker', async () => {
     const h = handlerWith(accepts(OPERATOR), { readSchools: stub({ ok: true, schools: [], requests: 3 }) });
     const res = await h.call('/api/clubworx/schools', withJwt);
+    expect(res.headers.get('Cache-Control')).toBe('no-store');
+  });
+});
+
+describe('POST /unbook', () => {
+  const OPERATOR = 'staff@urbanjungleirc.com';
+
+  const ROWS = [
+    { event_id: 101, state: 'booked', booking_id: 'b1', contact_key: 'ck-1' },
+    { event_id: 102, state: 'already booked', booking_id: null, contact_key: 'ck-1' },
+  ];
+
+  const post = (body = { contact_key: 'ck-1', bookings: ROWS }) => ({
+    method: 'POST',
+    headers: { ...withJwt.headers, 'Content-Type': 'application/json' },
+    body: JSON.stringify(body),
+  });
+
+  const cancels = over => async () => ({
+    ok: true,
+    outcome: 'cancelled',
+    reason: null,
+    message: '1 booking(s) cancelled, confirmed by re-reading this contact’s bookings.',
+    contact_key: 'ck-1',
+    cancelled: 1,
+    cancelledIds: ['b1'],
+    skipped: 1,
+    failed: [],
+    stillBooked: [],
+    verified: true,
+    requests: 2,
+    ...over,
+  });
+
+  it('needs POST — a GET must not be able to cancel anything', async () => {
+    const h = handlerWith(accepts(OPERATOR), { unbook: cancels() });
+    expect((await h.call('/api/clubworx/unbook', withJwt)).status).toBe(405);
+  });
+
+  it('runs behind the Access gate like every other route', async () => {
+    let ran = false;
+    const h = handlerWith(rejects('expired'), {
+      unbook: async () => {
+        ran = true;
+        return {};
+      },
+    });
+
+    const res = await h.call('/api/clubworx/unbook', post());
+
+    expect(res.status).toBe(401);
+    expect(ran).toBe(false);
+  });
+
+  it('refuses a body that is not JSON, without touching Clubworx', async () => {
+    let ran = false;
+    const h = handlerWith(accepts(OPERATOR), {
+      unbook: async () => {
+        ran = true;
+        return {};
+      },
+    });
+
+    const res = await h.call('/api/clubworx/unbook', {
+      method: 'POST',
+      headers: { ...withJwt.headers, 'Content-Type': 'application/json' },
+      body: 'not json',
+    });
+
+    expect(res.status).toBe(400);
+    expect(ran).toBe(false);
+  });
+
+  it('tells a missing secret apart from a Clubworx refusal', async () => {
+    const h = handlerWith(accepts(OPERATOR), {
+      env: { ...ENV, CLUBWORX_ACCOUNT_KEY: '' },
+      unbook: cancels(),
+    });
+
+    const res = await h.call('/api/clubworx/unbook', post());
+
+    expect(res.status).toBe(503);
+    expect((await res.json()).reason).toBe('not-configured');
+  });
+
+  it('passes the rows and the contact through as the page sent them', async () => {
+    let seen = null;
+    const h = handlerWith(accepts(OPERATOR), {
+      unbook: async args => {
+        seen = args;
+        return cancels()();
+      },
+    });
+
+    await h.call('/api/clubworx/unbook', post());
+
+    expect(seen.rows).toEqual(ROWS);
+    expect(seen.contactKey).toBe('ck-1');
+  });
+
+  it('accepts a call with no contact_key, because the rows carry their own', async () => {
+    let seen = null;
+    const h = handlerWith(accepts(OPERATOR), {
+      unbook: async args => {
+        seen = args;
+        return cancels()();
+      },
+    });
+
+    const res = await h.call('/api/clubworx/unbook', post({ bookings: ROWS }));
+
+    expect(res.status).toBe(200);
+    expect(seen.contactKey).toBe(null);
+  });
+
+  it('refuses a body with no bookings list before anything is sent', async () => {
+    let ran = false;
+    const h = handlerWith(accepts(OPERATOR), {
+      unbook: async () => {
+        ran = true;
+        return {};
+      },
+    });
+
+    const res = await h.call('/api/clubworx/unbook', post({ contact_key: 'ck-1' }));
+
+    expect(res.status).toBe(400);
+    const body = await res.json();
+    expect(body.reason).toBe('bad-request');
+    // The documented `outcome` vocabulary holds on every answer, including this
+    // one. A field present only sometimes is one a client stops checking.
+    expect(body.outcome).toBe('refused');
+    expect(ran).toBe(false);
+  });
+
+  it('hands the whole result back on a clean cancel', async () => {
+    const h = handlerWith(accepts(OPERATOR), { unbook: cancels() });
+    const res = await h.call('/api/clubworx/unbook', post());
+
+    expect(res.status).toBe(200);
+    const body = await res.json();
+    expect(body.outcome).toBe('cancelled');
+    expect(body.cancelled).toBe(1);
+    expect(body.verified).toBe(true);
+  });
+
+  it('answers 200 for a partial cancel — the leftover list IS the record', async () => {
+    // A student half-rolled-back needs finishing by hand, and the rows naming
+    // which bookings are left are the only record of that. A 4xx invites a
+    // client to throw the body away.
+    const h = handlerWith(accepts(OPERATOR), {
+      unbook: cancels({
+        ok: false,
+        outcome: 'partial',
+        reason: 'cancel-failed',
+        cancelled: 1,
+        failed: [{ event_id: 103, booking_id: 'b3', reason: 'HTTP 500', upstreamStatus: 500 }],
+      }),
+    });
+
+    const res = await h.call('/api/clubworx/unbook', post());
+
+    expect(res.status).toBe(200);
+    expect((await res.json()).failed).toHaveLength(1);
+  });
+
+  it('answers 200 with the leftovers when a cancel was accepted but did not apply', async () => {
+    const h = handlerWith(accepts(OPERATOR), {
+      unbook: cancels({
+        ok: false,
+        outcome: 'still-booked',
+        reason: 'cancel-not-applied',
+        stillBooked: ['b1'],
+        verified: false,
+      }),
+    });
+
+    const res = await h.call('/api/clubworx/unbook', post());
+
+    expect(res.status).toBe(200);
+    expect((await res.json()).stillBooked).toEqual(['b1']);
+  });
+
+  it('answers 400 for a refusal that happened before any cancel', async () => {
+    const h = handlerWith(accepts(OPERATOR), {
+      unbook: cancels({ ok: false, outcome: 'refused', reason: 'mixed-contacts', cancelled: 0 }),
+    });
+
+    const res = await h.call('/api/clubworx/unbook', post());
+
+    expect(res.status).toBe(400);
+    expect((await res.json()).reason).toBe('mixed-contacts');
+  });
+
+  it('answers 429 for a throttle that cancelled nothing, so the run pauses', async () => {
+    // §11 — the allowance is gym-wide, so a throttle pauses the whole run
+    // rather than one row, and the page needs it where it cannot be missed.
+    const h = handlerWith(accepts(OPERATOR), {
+      unbook: cancels({ ok: false, outcome: 'failed', reason: 'throttled', cancelled: 0, cancelledIds: [] }),
+    });
+
+    expect((await h.call('/api/clubworx/unbook', post())).status).toBe(429);
+  });
+
+  it('answers 200 for a throttle that had already cancelled something', async () => {
+    // Once a cancel has landed there is a row to record, and a non-200 invites
+    // a client to throw the body away. `reason: "throttled"` is still in it.
+    const h = handlerWith(accepts(OPERATOR), {
+      unbook: cancels({ ok: false, outcome: 'partial', reason: 'throttled', cancelled: 1, cancelledIds: ['b1'] }),
+    });
+
+    const res = await h.call('/api/clubworx/unbook', post());
+
+    expect(res.status).toBe(200);
+    expect((await res.json()).reason).toBe('throttled');
+  });
+
+  it('logs the operator and the outcome, and never a contact key or a body', async () => {
+    const h = handlerWith(accepts(OPERATOR), { unbook: cancels() });
+    await h.call('/api/clubworx/unbook', post());
+
+    const line = JSON.parse(h.lines[0]);
+    expect(line.route).toBe('/api/clubworx/unbook');
+    expect(line.method).toBe('POST');
+    expect(line.email).toBe(OPERATOR);
+    expect(line.outcome).toBe('cancelled');
+    expect(h.lines.join('\n')).not.toContain('ck-1');
+    expect(h.lines.join('\n')).not.toContain(ENV.CLUBWORX_ACCOUNT_KEY);
+  });
+
+  it('answers no-store, like every other route on this Worker', async () => {
+    const h = handlerWith(accepts(OPERATOR), { unbook: cancels() });
+    const res = await h.call('/api/clubworx/unbook', post());
     expect(res.headers.get('Cache-Control')).toBe('no-store');
   });
 });

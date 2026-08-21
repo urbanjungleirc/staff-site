@@ -633,6 +633,24 @@ a session a real member booked themselves.
 
 *Avoid*: styling `already booked` as a failure, and collapsing it into `booked`.
 
+### Call outcome
+
+The controlled vocabulary of whole-**call** results, distinct from the per-row
+[row outcome](#row-outcome) above. `POST /student` answers `complete`,
+`abandoned`, `unverified` or `refused`; `POST /unbook` answers `cancelled`,
+`partial`, `nothing-to-cancel`, `still-booked`, `unverified`, `failed` or
+`refused`.
+
+**`unverified` is not a synonym for `failed`.** It means the write or the cancel
+was accepted and could not be confirmed by re-reading — a throttled or truncated
+verifying read. The two send an operator to different places: `failed` means do
+it again, `unverified` means go and look in Clubworx first.
+
+*Avoid*: mapping a call outcome onto an HTTP status alone. Only a throttle that
+changed nothing and a refusal before any write leave as a non-200 — everything
+else is a `200` carrying the record, because the record is the thing that cannot
+be recreated.
+
 ### Restart-safe re-run
 
 The recovery mechanism: re-paste the same list, pick the same sessions, run

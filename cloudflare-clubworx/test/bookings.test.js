@@ -246,7 +246,74 @@ describe('cancelRunBookings — the safety interlock', () => {
     });
 
     expect(out.cancelled).toBe(2);
-    expect(client.calls.map(c => c.path)).toEqual(['bookings/b1', 'bookings/b2']);
+    expect(client.calls.filter(c => c.method === 'DELETE').map(c => c.path)).toEqual([
+      'bookings/b1',
+      'bookings/b2',
+    ]);
+  });
+
+  it('confirms the cancellation by re-reading, never by the DELETE 200', async () => {
+    // #60 established the reversal by re-count — 1 before, 0 after — because a
+    // status code cannot show a DELETE that was accepted and changed nothing.
+    const client = clientReturning(ok({ success: true }), ok([]));
+    const out = await cancelRunBookings({ client, contactKey: 'ck-1', rows: [bookedRow(1, 'b1')] });
+
+    const read = client.calls.find(c => c.method === 'GET');
+    expect(read.path).toBe('bookings');
+    expect(read.params).toMatchObject({ contact_key: 'ck-1' });
+    expect(out.verified).toBe(true);
+    expect(out.stillBooked).toEqual([]);
+  });
+
+  it('catches a booking still held by its EVENT, when the list carries no id it knows', async () => {
+    // The load-bearing half. `bookingIdOf` tolerates several shapes because the
+    // create response was never documented; if a list row carries none of them,
+    // an id-only check passes having proved nothing.
+    const client = clientReturning(ok({ success: true }), ok([{ some_other_id: 'x', event_id: 1 }]));
+    const out = await cancelRunBookings({ client, contactKey: 'ck-1', rows: [bookedRow(1, 'b1')] });
+
+    expect(out.verified).toBe(false);
+    expect(out.stillBooked).toEqual(['b1']);
+  });
+
+  it('will not call a cancel verified off a list it did not finish reading', async () => {
+    // A full page is an unfinished list, never an answer — and absence from an
+    // unfinished list proves nothing.
+    const full = Array.from({ length: 200 }, (_, i) => ({ booking_id: `x${i}`, event_id: i }));
+    const client = clientReturning(ok({ success: true }), ok(full));
+    const out = await cancelRunBookings({ client, contactKey: 'ck-1', rows: [bookedRow(1, 'b1')] });
+
+    expect(out.cancelled).toBe(1);
+    expect(out.verified).toBe(false);
+    expect(out.verifyReason).toBe('bookings-truncated');
+  });
+
+  it('does not spend a request verifying when nothing was cancelled', async () => {
+    const client = clientReturning(ok({ success: true }));
+    const out = await cancelRunBookings({
+      client,
+      contactKey: 'ck-1',
+      rows: [{ event_id: 1, state: 'already booked', booking_id: 'b1', contact_key: 'ck-1' }],
+    });
+
+    expect(client.calls).toHaveLength(0);
+    expect(out.verifyReason).toBe('nothing-cancelled');
+  });
+
+  it('stops on a throttle instead of spending the rest of a gym-wide allowance', async () => {
+    // §11 — a 429 pauses the whole run, not one row. The rows after it are
+    // reported un-attempted, because they are still cancellable.
+    const client = clientReturning(reply({ ok: false, status: 429 }));
+    const out = await cancelRunBookings({
+      client,
+      contactKey: 'ck-1',
+      rows: [bookedRow(1, 'b1'), bookedRow(2, 'b2'), bookedRow(3, 'b3')],
+    });
+
+    expect(client.calls.filter(c => c.method === 'DELETE')).toHaveLength(1);
+    expect(out.throttled).toBe(true);
+    expect(out.failed).toHaveLength(3);
+    expect(out.failed.filter(f => f.attempted === false)).toHaveLength(2);
   });
 
   it('NEVER cancels a row marked already booked', async () => {
@@ -262,7 +329,7 @@ describe('cancelRunBookings — the safety interlock', () => {
       ],
     });
 
-    expect(client.calls.map(c => c.path)).toEqual(['bookings/b2']);
+    expect(client.calls.filter(c => c.method === 'DELETE').map(c => c.path)).toEqual(['bookings/b2']);
     expect(out.skipped).toBe(1);
   });
 
@@ -332,6 +399,9 @@ describe('cancelRunBookings — the safety interlock', () => {
         n += 1;
         return n === 1 ? reply({ status: 500 }) : ok({ success: true });
       },
+      // The verifying re-read is part of the contract now: a cancel is confirmed
+      // by re-reading the contact's bookings, never by the DELETE's 200.
+      get: async () => ok([]),
     };
 
     const out = await cancelRunBookings({

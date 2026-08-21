@@ -22,13 +22,12 @@
  *
  * **Auth is Cloudflare Access, verified rather than assumed.** See `access.js`.
  *
- * Routes arrive a ticket at a time. #66 shipped the skeleton, the gate, the
+ * Routes arrived a ticket at a time. #66 shipped the skeleton, the gate, the
  * pacer and the request layer; #68 added `GET /contacts`; #69 added
- * `POST /student`, the only route here that writes; #67 added the three reads
- * the page opens with — `GET /events`, `GET /plan` and `GET /schools`. The
- * remaining one, `POST /unbook`, belongs to #70 and answers 404 until then,
- * deliberately: `main` is production on this repo and a page calling a route
- * that does not exist is a broken tool on the live hub (§17).
+ * `POST /student`, the route that creates the records nothing here can delete;
+ * #67 added the three reads the page opens with — `GET /events`, `GET /plan`
+ * and `GET /schools`; #70 added `POST /unbook`, the only reversal this system
+ * has. Every route §6 names is now here.
  */
 
 import { createAccessVerifier } from './access.js';
@@ -38,6 +37,7 @@ import { listEvents, resolveEvent } from './events.js';
 import { lookupPlan } from './plans.js';
 import { listSchools } from './schools.js';
 import { runStudentChain } from './student.js';
+import { unbookRun } from './unbook.js';
 import { isRealDay } from './duration.js';
 
 export const PREFIX = '/api/clubworx';
@@ -129,6 +129,13 @@ const defaultReadSchools = ({ env }) =>
   listSchools({ client: createClubworxClient({ accountKey: env.CLUBWORX_ACCOUNT_KEY }) });
 
 /**
+ * The cancel (#70). One paced client for the whole call, so the deletes and the
+ * verifying re-read queue behind each other like every other chain here.
+ */
+const defaultUnbook = ({ env, ...args }) =>
+  unbookRun({ client: createClubworxClient({ accountKey: env.CLUBWORX_ACCOUNT_KEY }), ...args });
+
+/**
  * What HTTP status a failed read leaves as.
  *
  * Three groups, and the grouping is the design rather than the convention:
@@ -176,6 +183,37 @@ const readStatus = reason => (reason === 'throttled' ? 429 : REFUSALS.has(reason
  * tale: a truthful-sounding paraphrase pointed at the wrong mechanism and cost
  * an architectural route.
  */
+/**
+ * What HTTP status a **write** route leaves as — `POST /student` and
+ * `POST /unbook`, the two routes that change something.
+ *
+ * **A result is not an error.** §12's result table has to show every outcome,
+ * and D10 writes each row to the browser's `localStorage` as it lands, because a
+ * page reload destroying the only record of a creation that cannot be undone is
+ * the specific failure that design defends against. A 4xx or 5xx invites a
+ * client to throw the body away, and the body IS the record.
+ *
+ * So only two things leave as a non-200, and in both there is nothing to record:
+ *
+ *   - **429** — a throttle that changed nothing. §11 pauses the *whole run* on
+ *     one, because the allowance is gym-wide (one key per gym, #47), and the
+ *     page needs that where it cannot be missed. Once the call HAS written or
+ *     cancelled something there is a row, so it leaves as a 200 still carrying
+ *     `reason: "throttled"` — the field the page actually pauses on.
+ *   - **400** — a refusal before anything was attempted: a lead-time session, a
+ *     pass that will not cover the term, a set spanning two students, a
+ *     malformed request.
+ *
+ * `changed` is what "nothing happened yet" means on each route, and it is the
+ * only part that differs between them: on `/student` a permanent record was
+ * written, on `/unbook` a booking was cancelled.
+ *
+ * @param {{reason?: string|null, outcome?: string}} result
+ * @param {boolean} changed
+ */
+const writeStatus = (result, changed) =>
+  result.reason === 'throttled' && !changed ? 429 : result.outcome === 'refused' ? 400 : 200;
+
 const readFailure = result =>
   json(
     {
@@ -206,6 +244,7 @@ const readFailure = result =>
  * @param {(args: object) => Promise<object>} [deps.readEvents]
  * @param {(args: object) => Promise<object>} [deps.readPlan]
  * @param {(args: object) => Promise<object>} [deps.readSchools]
+ * @param {(args: object) => Promise<object>} [deps.unbook]
  */
 export function createHandler({
   makeVerifier = defaultMakeVerifier,
@@ -215,6 +254,7 @@ export function createHandler({
   readEvents = defaultReadEvents,
   readPlan = defaultReadPlan,
   readSchools = defaultReadSchools,
+  unbook = defaultUnbook,
 } = {}) {
   return async function handle(request, env) {
     const url = new URL(request.url);
@@ -422,39 +462,67 @@ export function createHandler({
         events: payload.events,
       });
 
-      // **A result is not an error, even when the student was abandoned.**
-      //
-      // §12's result table has to show every outcome — created, already booked,
-      // refused, rolled back, stranded — and D10 writes each row to the
-      // browser's localStorage as it lands, because a page reload destroying the
-      // only record of a creation that cannot be undone is the specific failure
-      // that design defends against. A 4xx or 5xx invites a client to throw the
-      // body away, and the body is the record.
-      //
-      // So only two things leave as a non-200, and both are conditions in which
-      // there is nothing to record:
-      //
-      //   - **429**, because §11 pauses the *whole run* on a throttle. The
-      //     allowance is gym-wide, so backing off one row while the rest
-      //     continue just spends the next window failing, and the page needs
-      //     that signal where it cannot be missed.
-      //   - **400** for a refusal that happened before any write — a lead-time
-      //     session, a pass that will not cover the term, a malformed request.
-      //     Nothing was attempted, so there is no row.
-      // A throttle leaves as a 429 **only when nothing was written**. Once this
-      // call has created a contact, granted a pass or rolled bookings back,
-      // there is a row to record, and a non-200 invites a client to throw the
-      // body away — which is the body D10 writes to localStorage precisely
-      // because a lost record of an un-deletable creation is unrecoverable. The
-      // page still sees `reason: "throttled"` in the body and pauses the run on
-      // that, which is the signal §11 actually asks for.
-      const throttled = result.reason === 'throttled' && result.written !== true;
-      const status = throttled ? 429 : result.outcome === 'refused' ? 400 : 200;
-
-      return done(json(result, status), { email, outcome: result.outcome });
+      // A result is not an error, even when the student was abandoned — the
+      // whole rule is on `writeStatus`. Here, "something happened" means a
+      // permanent record was written: a contact created, a pass granted, or
+      // bookings rolled back.
+      return done(json(result, writeStatus(result, result.written === true)), {
+        email,
+        outcome: result.outcome,
+      });
     }
 
-    // unbook arrives with #70.
+    if (path === '/unbook') {
+      if (method !== 'POST') return done(json({ error: 'method not allowed' }, 405), { email });
+
+      // A missing secret is a deploy that was never finished, not a Clubworx
+      // refusal — and here the caller is about to be told a rollback did not
+      // happen, which sends an operator into Clubworx by hand.
+      if (!env.CLUBWORX_ACCOUNT_KEY) return notConfigured();
+
+      let payload = null;
+      try {
+        payload = await request.json();
+      } catch {
+        payload = null;
+      }
+      if (!payload || typeof payload !== 'object' || !Array.isArray(payload.bookings)) {
+        return done(
+          json(
+            {
+              error: 'a JSON body carrying this run\u2019s booking rows is required',
+              reason: 'bad-request',
+              // Named, so the documented `outcome` vocabulary holds on every
+              // answer this route gives. A field that is absent on some replies
+              // is a field a client learns to stop checking.
+              outcome: 'refused',
+            },
+            400,
+          ),
+          { email, outcome: 'refused' },
+        );
+      }
+
+      const result = await unbook({
+        env,
+        // Only ever used to REJECT a row belonging to somebody else. The key
+        // actually sent to Clubworx comes from the booking row — omitting it
+        // answers 401 "Authorization failed", and a caller-supplied one can be
+        // a different student's (§12, #50).
+        contactKey: payload.contact_key ?? null,
+        rows: payload.bookings,
+      });
+
+      // The same rule `POST /student` follows, on the same helper. Here,
+      // "something happened" means a booking was actually cancelled — and the
+      // `failed` and `stillBooked` lists are then the only record of which ones
+      // a human still has to remove by hand.
+      return done(json(result, writeStatus(result, result.cancelled > 0)), {
+        email,
+        outcome: result.outcome,
+      });
+    }
+
     return done(json({ error: 'not found' }, 404), { email });
   };
 }
