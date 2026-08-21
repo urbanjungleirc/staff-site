@@ -34,16 +34,23 @@ cloudflare-clubworx/src/contacts.js - the dedup read. Searches all three disjoin
                           contact Clubworx cannot delete.
 cloudflare-clubworx/src/events.js - the event picker's read, the 24-hour lead
                           time (defined here, imported by student.js) and the
-                          paste-an-id fallback. It ANNOTATES and never filters:
+                          paste-an-id lookup. It ANNOTATES and never filters:
                           a session missing from the picker is invisible, where
                           one greyed out with its reason is a human decision.
+                          GET /events/:id is UNMEASURED — see the resolveEvent
+                          header before assuming the paste field works.
+cloudflare-clubworx/src/paging.js - walking a Clubworx list when the response
+                          carries no total, no next-page link and no header. A
+                          full page is unfinished, never an answer; what the
+                          ceiling MEANS is the caller's to decide, because on
+                          /plan it is a refusal and on /events it is a flag.
 cloudflare-clubworx/src/plans.js - name -> membership_plan_id, and the plan's
                           membership_duration. #60 saw 50 of 57 plans come back
                           with School Pass among the missing, so a full page is
                           "truncated", never "no such plan"; a duplicate name is
                           refused rather than guessed. The number 26 lives in
                           Clubworx, not here (ADR 0005).
-cloudflare-clubworx/src/schools.js - the distinct noreply+<tag>@ slugs, across
+cloudflare-clubworx/src/schools.js - the distinct School marker tags, across
                           all three status views. Returns tags and counts, never
                           contacts. A tag missing here is a staff member typing
                           a second spelling of a school onto records that cannot

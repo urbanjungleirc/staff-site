@@ -312,7 +312,7 @@ describe('resolveEvent', () => {
 
     expect(client.calls[0].path).toBe('events/a%2Fb');
     expect(result.ok).toBe(true);
-    expect(result.via).toBe('direct');
+    expect(result.requests).toBe(1);
   });
 
   it('accepts a single-event array as well as a bare object', async () => {
@@ -351,24 +351,20 @@ describe('resolveEvent', () => {
     expect((await resolve(client)).ok).toBe(false);
   });
 
-  it('falls back to the window when the direct lookup does not resolve', async () => {
-    const client = {
-      calls: [],
-      get: async (path, params = {}) => {
-        client.calls.push({ path, params });
-        const base = { ok: true, status: 200, ms: 1, body: [], message: null, bodyText: null, networkError: false };
-        if (path !== 'events') return { ...base, ok: false, status: 404, body: null };
-        return { ...base, body: params.page === 1 ? [event({ event_id: 42 })] : [] };
-      },
-    };
-    const result = await resolve(client, { eventId: '42', from: '2026-08-21', to: '2026-09-30' });
+  it('spends exactly one request and never re-walks the window', async () => {
+    // An earlier draft fell back to walking `from`/`to`, which spends up to
+    // MAX_PAGES requests of a gym-wide allowance to find an id the page already
+    // has on screen from the listing it just made. #67 asks for it resolved
+    // directly.
+    const client = clientWith({});
+    const result = await resolve(client, { eventId: '42' });
 
-    expect(result.ok).toBe(true);
-    expect(result.via).toBe('window');
-    expect(result.event.event_id).toBe(42);
+    expect(client.calls).toHaveLength(1);
+    expect(client.calls[0].path).toBe('events/42');
+    expect(result.requests).toBe(1);
   });
 
-  it('refuses when neither path resolves, naming the id it was given', async () => {
+  it('refuses when nothing resolved, naming the id it was given', async () => {
     const client = clientWith({});
     const result = await resolve(client, { eventId: '404' });
 

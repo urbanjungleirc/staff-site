@@ -199,6 +199,28 @@ describe('listSchools', () => {
     expect(result.reason).toBe('upstream-error');
   });
 
+  it('counts every row a view returned, not just the tagged ones', async () => {
+    // `rows` means the same thing here as it does in contacts.js. A count that
+    // silently excluded untagged rows would make a view look emptier than it is.
+    const client = inOneView('members', [
+      contact({ contact_key: 'a' }),
+      contact({ contact_key: 'b', email: 'someone@example.com' }),
+    ]);
+    const result = await listSchools({ client });
+
+    expect(result.views.find(v => v.view === 'members').rows).toBe(2);
+  });
+
+  it('counts two keyless contacts on one tag as two, not one', async () => {
+    const client = inOneView('members', [
+      contact({ contact_key: null }),
+      contact({ contact_key: null }),
+    ]);
+    const result = await listSchools({ client });
+
+    expect(result.schools[0].contacts).toBe(2);
+  });
+
   it('counts every request it made', async () => {
     const client = clientWith({});
     const result = await listSchools({ client });

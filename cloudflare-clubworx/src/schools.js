@@ -1,8 +1,11 @@
 /**
- * The school picker's read: which `noreply+<tag>@` slugs Clubworx already holds.
+ * The school picker's read: which **School markers** Clubworx already holds.
  *
  * staff-site#67. Design: `docs/superpowers/specs/2026-08-19-school-group-booking-design.md`
- * §4 (school marking) and §6 (the route table).
+ * §4 (school marking) and §6 (the route table). Glossary: `CONTEXT.md` §School
+ * marker — the whole address is the *marker*, and `<school>` inside it is the
+ * *tag*. Both terms are used here in exactly those senses; "slug" is a synonym
+ * this module deliberately does not use.
  *
  * ---------------------------------------------------------------------------
  * Why this list matters more than a picker usually would
@@ -23,7 +26,7 @@
  * So the cost of a tag missing from this list is not a thin picker. It is a
  * staff member typing `newmanjhs` beside an existing `newman` — permanently, on
  * contacts Clubworx cannot delete (ACCESS.md §4), splitting one school's history
- * into two slugs that nothing will ever reconcile. That is why this searches all
+ * into two tags that nothing will ever reconcile. That is why this searches all
  * three status views and pages, rather than reading the default page of one.
  *
  * ---------------------------------------------------------------------------
@@ -35,17 +38,22 @@
  * not a database (§6, D10), and a picker needs a list of schools, not a list of
  * students.
  *
+ * The **count earns its place** rather than being a diagnostic: a near-duplicate
+ * tag is what this list exists to prevent, and `newman 63` beside `newmanjhs 2`
+ * is how an operator recognises the second as somebody's typo. Without it the two
+ * read as equally real schools.
+ *
  * ---------------------------------------------------------------------------
- * The slug is chosen by staff, never derived here
+ * The tag is chosen by staff, never derived here
  * ---------------------------------------------------------------------------
- * This route surfaces what exists so staff can *reuse* a slug rather than invent
- * a second spelling of one. Picking a new slug is still a human decision (§4);
+ * This route surfaces what exists so staff can *reuse* a tag rather than invent
+ * a second spelling of one. Picking a new tag is still a human decision (§4);
  * deriving one from the least reliable line in a pasted document is the trade
  * that was rejected.
  */
 
 import { CONTACT_VIEWS } from './contacts.js';
-import { upstreamMessage, upstreamReason } from './upstream.js';
+import { PAGE_SIZE, pageThrough } from './paging.js';
 
 /**
  * The partial that matches every contact this tool has created.
@@ -57,8 +65,8 @@ import { upstreamMessage, upstreamReason } from './upstream.js';
  */
 export const SCHOOL_EMAIL_PREFIX = 'noreply+';
 
-/** Never the default 50 — see `contacts.js`. 200 is verified (#51). */
-export const PAGE_SIZE = 200;
+/** Re-exported so this route's page size is assertable beside the trap it guards. */
+export { PAGE_SIZE };
 
 /**
  * How far one view may be walked before the tag list is called incomplete.
@@ -122,69 +130,41 @@ export async function listSchools({ client }) {
   let truncated = false;
 
   for (const view of CONTACT_VIEWS) {
-    let pages = 0;
-    let rowsSeen = 0;
+    const walk = await pageThrough({
+      client,
+      path: view,
+      params: { email: SCHOOL_EMAIL_PREFIX },
+      maxPages: MAX_PAGES,
+      what: 'contacts',
+      requests,
+    });
 
-    for (let page = 1; page <= MAX_PAGES; page += 1) {
-      const res = await client.get(view, {
-        email: SCHOOL_EMAIL_PREFIX,
-        page,
-        page_size: PAGE_SIZE,
-      });
-      requests += 1;
-      pages += 1;
-
-      if (!res.ok) {
-        // A throttle travels as itself — §11 pauses the whole run on one,
-        // because the allowance is gym-wide (#47). Everything else is reported
-        // with the view that failed, because "which schools am I missing" is the
-        // question an operator will have.
-        return failure({
-          reason: upstreamReason(res),
-          message: upstreamMessage(res),
-          view,
-          upstreamStatus: res.status,
-          requests,
-        });
-      }
-
-      // Measured: these endpoints answer with a bare array (#49, #60). Reading
-      // anything else as "no contacts" would show an empty picker and invite a
-      // staff member to invent a slug that already exists.
-      if (!Array.isArray(res.body)) {
-        return failure({
-          reason: 'upstream-error',
-          message: `${view} answered ${res.status} with a body that is not a list of contacts`,
-          view,
-          upstreamStatus: res.status,
-          requests,
-        });
-      }
-
-      for (const row of res.body) {
-        const tag = schoolTagOf(row?.email);
-        if (!tag) continue;
-
-        if (!byTag.has(tag)) {
-          // The address exactly as Clubworx holds it, so the write reuses the
-          // domain already in use rather than the page guessing at one.
-          byTag.set(tag, { tag, email: String(row.email).trim(), keys: new Set() });
-        }
-        // A contact with no key still evidences the tag, but cannot be deduped
-        // against — count it under its own identity rather than merging every
-        // keyless row into one.
-        byTag.get(tag).keys.add(row?.contact_key ?? `row-${view}-${page}-${rowsSeen}`);
-        rowsSeen += 1;
-      }
-
-      // A short page is the end of the list — the only end-of-list signal
-      // Clubworx offers (#51). A page that is exactly full is ambiguous, so it
-      // costs one more request to find out.
-      if (res.body.length < PAGE_SIZE) break;
-      if (page === MAX_PAGES) truncated = true;
+    if (!walk.ok) {
+      // The view that failed travels with the refusal, because "which schools am
+      // I missing" is the question an operator will have — and a throttle is
+      // told apart from everything else, since §11 pauses the whole run on one.
+      return failure({ ...walk, view });
     }
 
-    views.push({ view, pages, rows: rowsSeen });
+    requests = walk.requests;
+    if (walk.truncated) truncated = true;
+
+    walk.rows.forEach((row, position) => {
+      const tag = schoolTagOf(row?.email);
+      if (!tag) return;
+
+      if (!byTag.has(tag)) {
+        // The address exactly as Clubworx holds it, so the write reuses the
+        // domain already in use rather than the page guessing at one.
+        byTag.set(tag, { tag, email: String(row.email).trim(), keys: new Set() });
+      }
+      // A contact with no key still evidences the tag but cannot be deduped
+      // against — count it under its own identity rather than merging every
+      // keyless row into one.
+      byTag.get(tag).keys.add(row?.contact_key ?? `row-${view}-${position}`);
+    });
+
+    views.push({ view, pages: walk.pages, rows: walk.rows.length });
   }
 
   const schools = [...byTag.values()]
@@ -194,7 +174,7 @@ export async function listSchools({ client }) {
   return {
     ok: true,
     schools,
-    // Not a refusal. Staff can always type a slug by hand, and a picker that
+    // Not a refusal. Staff can always type a tag by hand, and a picker that
     // refused outright would block a school that is simply further down the
     // list — but the page must be able to say the list is partial rather than
     // presenting it as every school there is.

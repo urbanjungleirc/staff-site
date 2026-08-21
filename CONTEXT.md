@@ -278,6 +278,11 @@ The plus-addressed email a school-created contact carries —
 system has: Clubworx issues one API key per gym, so a contact cannot be
 attributed to the tool that made it, and the address is the substitute.
 
+The **tag** is the `<school>` part inside it. The marker is the whole address;
+the tag is what distinguishes one school from another, and it is what
+`GET /api/clubworx/schools` returns (#67). *Slug* is a synonym in circulation —
+the design spec §4 uses it — but `tag` is the term here and in the code.
+
 Verified against writes in #49, not inferred: Clubworx accepts the `+`, stores
 the tag unchanged, partial-matches `noreply%2B` to find every marked contact, and
 returns exactly one school's contacts for a full tag. See

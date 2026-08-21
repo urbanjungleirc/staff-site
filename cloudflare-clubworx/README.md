@@ -15,7 +15,7 @@ answers `404` until then.
 | `GET /api/clubworx/contacts?last_name=&dob=` | #68 | Searches all three status views and merges — see below |
 | `GET /api/clubworx/events?from=&to=&q=` | #67 | Lists a date window, paged to exhaustion; `?event_id=` resolves a pasted id |
 | `GET /api/clubworx/plan?name=School+Pass` | #67 | Resolves the plan name to an id **and its `membership_duration`** — see below |
-| `GET /api/clubworx/schools` | #67 | Distinct `noreply+<tag>@` slugs, for the school picker |
+| `GET /api/clubworx/schools` | #67 | Distinct School marker tags, for the school picker |
 | `POST /api/clubworx/student` | #69 | **The only route that writes.** One student, all their sessions — see below |
 
 `ACCESS.md` in this directory is the answer to #47: where the key comes from,
@@ -30,7 +30,7 @@ src/clubworx.js  the only path to Clubworx: paced, redacted, measured shapes
 src/contacts.js  the dedup read: all three status views, merged  (#68)
 src/events.js    the event picker's read, the lead-time rule, the id fallback (#67)
 src/plans.js     name -> membership_plan_id + membership_duration (#67)
-src/schools.js   the distinct noreply+<tag>@ slugs                (#67)
+src/schools.js   the distinct School marker tags                  (#67)
 src/student.js   the per-student write chain, and D3's rollback   (#69)
 src/bookings.js  book, cancel, and the error vocabulary           (#69)
 src/memberships.js  summariseMemberships + D4's pass verdict (promoted, #69)
@@ -38,6 +38,7 @@ src/duration.js  the plan's duration, and what a pass covers      (#69)
 src/upstream.js  what a Clubworx failure means: retry, report, neither (#69)
 src/pace.js      75 req/min, one in flight — the constant #51 measured
 src/request.js   buildUrl + redact                (promoted from probes/lib)
+src/paging.js    walking a list with no total and no next-page link  (#67)
 src/errors.js    errorMessageOf                   (promoted from probes/lib)
 test/            vitest, run by hand — this repo runs no tests in CI
 probes/          the read-only probes, and what they found
@@ -266,6 +267,7 @@ response so a run can be held to that budget.
 [#50]: https://github.com/urbanjungleirc/staff-site/issues/50
 [#51]: https://github.com/urbanjungleirc/staff-site/issues/51
 [#60]: https://github.com/urbanjungleirc/staff-site/issues/60
+[#67]: https://github.com/urbanjungleirc/staff-site/issues/67
 [#92]: https://github.com/urbanjungleirc/staff-site/issues/92
 
 ## The #67 read routes — `events`, `plan`, `schools`
@@ -286,7 +288,11 @@ paste-the-id fallback below is a hard requirement rather than a nicety.
 
 - **The date window is required.** Omitting both dates is a `422` with an empty
   body, not "everything". The route validates `from`/`to` as real days and
-  refuses `400` rather than spending a request to be told that.
+  refuses `400` rather than spending a request to be told that. They are passed
+  through untouched as `event_starts_after`/`event_ends_before`; **whether the
+  boundary day itself is in range is unmeasured** — #51 exercised the window's
+  presence, not its edges — so a caller wanting the last day of term certainly
+  included should ask for the day after it.
 - **`q` is matched here, not upstream.** No name filter is measured on this
   endpoint, so sending an invented one risks a filter Clubworx quietly honours
   differently — which returns less than the window holds and looks exactly like
@@ -297,16 +303,19 @@ paste-the-id fallback below is a hard requirement rather than a nicety.
   picker is invisible, where one greyed out with its reason beside it is a
   decision a human can make. `spaces_available` travels for the same reason and
   is a **warning, never a block** — [#50] measured it wrong in both directions.
-- **`?event_id=` switches on the fallback.** The pasted id is resolved and
-  returned with its name, date and `spaces_available` so a human can confirm it —
-  a shortcut past the *search*, never past the *confirmation*.
+- **`?event_id=` resolves a pasted id.** One request to `events/:id`, returning
+  its name, date and `spaces_available` so a human can confirm it — a shortcut
+  past the *search*, never past the *confirmation*. Anything that is not exactly
+  one event with the id that was asked for is `event-not-found`, because if
+  `events/:id` is not a route Clubworx may answer with the collection, and taking
+  row one out of that confirms the wrong class to an operator.
 
-  Two paths, in order, because **`GET /events/:id` is unmeasured**: path
-  addressing exists in this API (`DELETE /bookings/:id`, [#60]) but has never
-  been exercised here. A non-retryable refusal from the direct call is read as
-  "that is not a route" and falls back to walking `from`/`to`, which is measured.
-  A throttle or a `5xx` travels as itself instead. If a probe ever settles
-  whether `events/:id` is real, the loser of that pair can go.
+  **`GET /events/:id` is unmeasured.** Path addressing exists in this API
+  (`DELETE /bookings/:id`, [#60]) but has never been exercised here, so whether
+  this works against production is an open question a probe should close — noted
+  on [#67]. It also does **not** survive Clubworx enforcing the `contact_key` its
+  reference documents: that takes `/events` down as a whole, and this route is on
+  the same endpoint.
 
 ### `GET /plan?name=School+Pass` — where a run dies if it is wrong
 
@@ -330,11 +339,12 @@ reports "no such plan" and the whole run stops, for a plan that plainly exists.
 **The number 26 is in no source file.** Applying ADR 0005 in Clubworx needed no
 code change, and that is the property to keep.
 
-### `GET /schools` — the picker's slugs
+### `GET /schools` — the picker's tags
 
-Distinct `noreply+<tag>@` values across all three status views. Clubworx's email
-filter partial-matches, so a bare `noreply+` finds every contact this tool has
-ever created ([#49]).
+The distinct **School marker** tags across all three status views — the marker is
+the whole `noreply+<school>@` address, the tag is the `<school>` inside it
+(`CONTEXT.md` §School marker). Clubworx's email filter partial-matches, so a bare
+`noreply+` finds every contact this tool has ever created ([#49]).
 
 **It returns tags, not contacts** — the rows behind the answer are hundreds of
 real children, and only the tag, the address to write and a count leave the
@@ -346,11 +356,24 @@ Clubworx cannot delete. That is why it sweeps all three views rather than
 reading the default page of one, and why a walk that hits the ceiling comes back
 `truncated: true` rather than presenting a partial list as every school there is.
 
+The per-tag `contacts` count is there for the same reason: `newman 63` beside
+`newmanjhs 2` is how an operator recognises the second as somebody's typo.
+
+### None of them retries
+
+Deliberately, and the same way `GET /contacts` has not since #68. §11's D8
+retries `429`, `5xx` and network errors — but **a `429` pauses the whole run, not
+one row**, because the allowance is gym-wide ([#47]) and backing off a single
+read while the rest continue just spends the next window failing. Retrying inside
+the Worker hides the throttle from the only layer that can act on it. These are
+reads: they create nothing, so a caller re-asking is cheap and safe, and failing
+fast puts the decision where it belongs. `src/paging.js` carries the same note.
+
 ### What these cost
 
-`schools` is the expensive one — 3 views, ~200 contacts a page. `plan` and a
-one-term `events` window are 1–2 requests each. All three report `requests`, and
-the whole gym shares 75 a minute.
+`schools` is the expensive one — 3 views, ~200 contacts a page. `plan`, a
+one-term `events` window, and a pasted event id are 1–2 requests each. All three
+report `requests`, and the whole gym shares 75 a minute.
 
 ## `POST /student` — the per-student write chain
 

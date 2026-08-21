@@ -47,14 +47,14 @@
  */
 
 import { parsePlanDuration } from './duration.js';
-import { upstreamMessage, upstreamReason } from './upstream.js';
+import { PAGE_SIZE, pageThrough } from './paging.js';
 
 /**
- * Never the default 50 — that default is the whole failure this module exists
- * for. 200 is the ceiling #51 verified on `/events`, and the same cap applies
- * across this API.
+ * Re-exported so a caller reading this module does not have to know the walk
+ * lives elsewhere — and so the page-size guarantee this route depends on is
+ * assertable here, where the trap it guards is documented.
  */
-export const PAGE_SIZE = 200;
+export { PAGE_SIZE };
 
 /**
  * How far the plan list may be walked before the answer is called truncated
@@ -135,50 +135,15 @@ export async function lookupPlan({ client, name }) {
     });
   }
 
-  const rows = [];
-  let requests = 0;
-  let pages = 0;
-  let stillFullAtCeiling = false;
+  const walk = await pageThrough({
+    client,
+    path: 'membership_plans',
+    maxPages: MAX_PAGES,
+    what: 'plans',
+  });
+  if (!walk.ok) return failure(walk);
 
-  for (let page = 1; page <= MAX_PAGES; page += 1) {
-    const res = await client.get('membership_plans', { page, page_size: PAGE_SIZE });
-    requests += 1;
-    pages += 1;
-
-    if (!res.ok) {
-      // A throttle travels as itself. §11 pauses the *whole run* on one, because
-      // the allowance is gym-wide (one key per gym, #47) and backing off a
-      // single lookup while the rest continue just spends the next window
-      // failing. Everything else is an upstream error the page reports.
-      return failure({
-        reason: upstreamReason(res),
-        message: upstreamMessage(res),
-        upstreamStatus: res.status,
-        requests,
-      });
-    }
-
-    // Measured: this endpoint answers with a bare array (#60). Anything else is
-    // a response nobody here has seen, and reading it as "no plans" would report
-    // School Pass missing — the exact conclusion that stops a run for a plan
-    // that exists.
-    if (!Array.isArray(res.body)) {
-      return failure({
-        reason: 'upstream-error',
-        message: `membership_plans answered ${res.status} with a body that is not a list of plans`,
-        upstreamStatus: res.status,
-        requests,
-      });
-    }
-
-    rows.push(...res.body);
-
-    // A short page is the end of the list — the only end-of-list signal there
-    // is. A page that is exactly full is ambiguous, so it costs one more request
-    // to find out; that is the price of not silently truncating.
-    if (res.body.length < PAGE_SIZE) break;
-    if (page === MAX_PAGES) stillFullAtCeiling = true;
-  }
+  const { rows, pages, requests } = walk;
 
   // The accumulated list, so `requestedPageSize` describes the walk rather than
   // one page: only a walk that ended at the ceiling still full is truncated.
@@ -196,7 +161,7 @@ export async function lookupPlan({ client, name }) {
   }
 
   if (!found.plan) {
-    if (stillFullAtCeiling) {
+    if (walk.truncated) {
       // Not "no such plan". The list was never read to the end, and #60 is the
       // cautionary tale: 50 of 57 came back and School Pass was among the seven
       // missing, which reads exactly like a plan that does not exist.

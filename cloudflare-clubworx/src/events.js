@@ -15,8 +15,8 @@
  *
  * It is also **undocumented and contradicts the published reference**, so
  * nothing stops Clubworx from enforcing what its own docs say — and the day it
- * does, the picker returns 422 for every staff member at once. `resolveEvent`
- * below is why that would be an inconvenience rather than an outage.
+ * does, the picker returns 422 for every staff member at once. Nothing in this
+ * module survives that: `resolveEvent` reads the same endpoint. See its header.
  *
  * ---------------------------------------------------------------------------
  * Three measured traps
@@ -54,7 +54,8 @@
  */
 
 import { isRealDay } from './duration.js';
-import { isRetryable, upstreamMessage, upstreamReason } from './upstream.js';
+import { PAGE_SIZE, pageThrough } from './paging.js';
+import { upstreamMessage, upstreamReason } from './upstream.js';
 
 /**
  * UJ's School Sessions refuse a booking made inside a day of the start. The rule
@@ -71,10 +72,10 @@ import { isRetryable, upstreamMessage, upstreamReason } from './upstream.js';
 export const MIN_LEAD_HOURS = 24;
 
 /**
- * Never the default 50 — #51 measured that default as exactly the trap this
- * module guards. 200 is verified to work on this endpoint.
+ * Re-exported so the page-size guarantee this route depends on is assertable
+ * here, beside the #51 measurement that makes it load-bearing.
  */
-export const PAGE_SIZE = 200;
+export { PAGE_SIZE };
 
 /**
  * How far a window may be walked before the listing is called truncated.
@@ -117,6 +118,9 @@ export function describeLeadTime(
     unreadable: false,
   };
 }
+
+/** Timetable order. Clubworx timestamps are ISO with an offset, so they sort as strings. */
+const byStart = (a, b) => String(a.event_start_at).localeCompare(String(b.event_start_at));
 
 /**
  * Which events a **probe** may safely be booked into.
@@ -164,7 +168,6 @@ export function pickBookableEvents(body, { now = new Date().toISOString() } = {}
     (event.free_class ? free : paid).push(event);
   }
 
-  const byStart = (a, b) => String(a.event_start_at).localeCompare(String(b.event_start_at));
   return { free: free.sort(byStart), paid: paid.sort(byStart), skipped };
 }
 
@@ -201,8 +204,6 @@ function projectEvent(row, now) {
   };
 }
 
-const byStart = (a, b) => String(a.event_start_at).localeCompare(String(b.event_start_at));
-
 const failure = ({ reason, message, upstreamStatus = null, requests }) => ({
   ok: false,
   reason,
@@ -212,63 +213,15 @@ const failure = ({ reason, message, upstreamStatus = null, requests }) => ({
   requests,
 });
 
-/**
- * Walk one date window to exhaustion, collecting raw rows.
- *
- * @returns {Promise<{ok: true, rows: object[], pages: number, requests: number, truncated: boolean}
- *                 | {ok: false, reason: string, message: string|null, upstreamStatus: number|null,
- *                    events: [], requests: number}>}
- */
-async function walkWindow({ client, from, to, startedRequests = 0 }) {
-  const rows = [];
-  let requests = startedRequests;
-  let pages = 0;
-  let truncated = false;
-
-  for (let page = 1; page <= MAX_PAGES; page += 1) {
-    const res = await client.get('events', {
-      event_starts_after: from,
-      event_ends_before: to,
-      page,
-      page_size: PAGE_SIZE,
-    });
-    requests += 1;
-    pages += 1;
-
-    if (!res.ok) {
-      // A throttle travels as itself: §11 pauses the *whole run* on one, because
-      // the allowance is gym-wide (#47) and backing off one read while the rest
-      // continue just spends the next window failing.
-      return failure({
-        reason: upstreamReason(res),
-        message: upstreamMessage(res),
-        upstreamStatus: res.status,
-        requests,
-      });
-    }
-
-    // Measured: this endpoint answers with a bare array (#51). Reading anything
-    // else as "no events" would show an empty picker for a term that is full.
-    if (!Array.isArray(res.body)) {
-      return failure({
-        reason: 'upstream-error',
-        message: `events answered ${res.status} with a body that is not a list of events`,
-        upstreamStatus: res.status,
-        requests,
-      });
-    }
-
-    rows.push(...res.body);
-
-    // A short page is the end of the list — the only end-of-list signal there
-    // is. A page that is exactly full is ambiguous, so it costs one more request
-    // to find out; that is the price of not silently truncating.
-    if (res.body.length < PAGE_SIZE) break;
-    if (page === MAX_PAGES) truncated = true;
-  }
-
-  return { ok: true, rows, pages, requests, truncated };
-}
+/** Walk one date window to exhaustion. The window parameters are the measured ones (#51). */
+const walkWindow = ({ client, from, to }) =>
+  pageThrough({
+    client,
+    path: 'events',
+    params: { event_starts_after: from, event_ends_before: to },
+    maxPages: MAX_PAGES,
+    what: 'events',
+  });
 
 /**
  * Validate the window before spending a request on it.
@@ -293,8 +246,13 @@ function windowProblem(from, to) {
  * @param {object} opts
  * @param {{get: (path: string, params: object) => Promise<object>}} opts.client
  *   A `createClubworxClient` instance. Everything it sends is paced.
- * @param {string} opts.from `YYYY-MM-DD`, inclusive — `event_starts_after`.
- * @param {string} opts.to `YYYY-MM-DD`, inclusive — `event_ends_before`.
+ * @param {string} opts.from `YYYY-MM-DD` — sent as `event_starts_after`.
+ * @param {string} opts.to `YYYY-MM-DD` — sent as `event_ends_before`. Whether the
+ *   boundary day itself is included is Clubworx's to decide and is **unmeasured**
+ *   — #51 exercised the window's presence, not its edges. Both dates are passed
+ *   through untouched rather than nudged a day to compensate for a rule nobody
+ *   has checked: a caller wanting the last day of term certainly in range should
+ *   ask for the day after it.
  * @param {string} [opts.q] A name fragment, matched **here** rather than upstream.
  * @param {string} [opts.now] The instant of the run. Injected so tests are not clock-dependent.
  */
@@ -342,34 +300,45 @@ export async function listEvents({ client, from, to, q = '', now = new Date().to
 /**
  * Resolve one pasted Clubworx event id.
  *
- * **This is the path that cannot break** (#51, recorded as a hard requirement on
- * #54). The picker is built entirely on an undocumented behaviour that
- * contradicts Clubworx's own reference; this fallback survives the listing being
- * wrong, the window being wrong, the event falling outside whatever range the
- * picker offers, and Clubworx deciding to enforce what its docs say. It is a
- * shortcut past the *search*, never past the *confirmation* — the name, the date
- * and `spaces_available` come back so a human agrees it is the right class.
+ * The paste field is a hard requirement on #54, and #51 is why: the picker is
+ * built entirely on an **undocumented** behaviour that contradicts Clubworx's
+ * own reference. A pasted id is a shortcut past the *search*, never past the
+ * *confirmation* — the name, the date and `spaces_available` come back so a
+ * human agrees it is the right class before it can be selected.
  *
- * Two paths, in order, because **`GET /events/:id` is unmeasured**. Every probe
- * so far has read the collection; path-addressing exists in this API
- * (`DELETE /bookings/:id`, measured in #60) but has never been exercised here.
- * So the direct call is tried, and a **non-retryable** refusal is read as "that
- * is not a route" and falls back to walking the window — which is measured, and
- * is what makes this useful today whichever way the direct call turns out.
+ * ---------------------------------------------------------------------------
+ * What this does and does not survive — stated precisely, because the loose
+ * version of this sentence was wrong
+ * ---------------------------------------------------------------------------
+ * It survives the **search** being unhelpful: a name `?q=` filtered out, a
+ * window that truncated, a timetable too long to scan.
  *
- * A retryable failure — a throttle, a 5xx, a dropped connection — travels as
- * itself instead. Those are upstream trouble, not a missing route, and spending
- * a second walk on one would only deepen a throttle §11 wants the page to pause
- * the whole run on.
+ * It does **not** survive Clubworx enforcing the `contact_key` its reference
+ * documents. That would take `/events` down as a whole, and this route is on the
+ * same endpoint — there is no path here that outlives its own API. Claiming
+ * otherwise (an earlier draft of this header did) would have made a real outage
+ * look like a covered case.
+ *
+ * ---------------------------------------------------------------------------
+ * One request, and `GET /events/:id` is unmeasured
+ * ---------------------------------------------------------------------------
+ * Every probe so far has read the collection. Path addressing exists in this API
+ * — `DELETE /bookings/:id` was measured in #60 — but `events/:id` has never been
+ * exercised, so **whether this route works at all against production is an open
+ * question a probe should close** (noted on #67).
+ *
+ * An earlier draft fell back to re-walking `from`/`to` when the direct call
+ * failed. That was dropped: it spends up to `MAX_PAGES` requests of a gym-wide
+ * 75/min allowance to find an id that, being inside the window, the page already
+ * has on screen from the listing it just made. #67 asks for the id resolved
+ * *directly*; the window is the page's own to search.
  *
  * @param {object} opts
  * @param {{get: (path: string, params: object) => Promise<object>}} opts.client
  * @param {string} opts.eventId The id exactly as it was pasted.
- * @param {string} [opts.from] `YYYY-MM-DD` — the window to fall back to, if any.
- * @param {string} [opts.to] `YYYY-MM-DD`.
  * @param {string} [opts.now]
  */
-export async function resolveEvent({ client, eventId, from = '', to = '', now = new Date().toISOString() }) {
+export async function resolveEvent({ client, eventId, now = new Date().toISOString() }) {
   const wanted = String(eventId ?? '').trim();
   if (!wanted) {
     return failure({ reason: 'bad-request', message: 'event_id is required', requests: 0 });
@@ -377,14 +346,14 @@ export async function resolveEvent({ client, eventId, from = '', to = '', now = 
 
   // Encoded into the path, because `buildUrl` interpolates `path` verbatim — an
   // id carrying a `/` or a `?` would otherwise rewrite the request.
-  const direct = await client.get(`events/${encodeURIComponent(wanted)}`);
-  let requests = 1;
+  const res = await client.get(`events/${encodeURIComponent(wanted)}`);
+  const requests = 1;
 
-  if (!direct.ok && isRetryable(direct)) {
+  if (!res.ok) {
     return failure({
-      reason: upstreamReason(direct),
-      message: upstreamMessage(direct),
-      upstreamStatus: direct.status,
+      reason: upstreamReason(res),
+      message: upstreamMessage(res),
+      upstreamStatus: res.status,
       requests,
     });
   }
@@ -392,31 +361,20 @@ export async function resolveEvent({ client, eventId, from = '', to = '', now = 
   // One event, and it has to be the one that was asked for. If `events/:id` is
   // not a route, Clubworx may well answer with the collection instead — taking
   // row one out of that would put the wrong class in front of an operator to
-  // confirm, which is the single failure this fallback exists to prevent.
-  const candidates = Array.isArray(direct.body)
-    ? direct.body
-    : direct.body && typeof direct.body === 'object'
-      ? [direct.body]
+  // confirm, which is the single failure this route exists to prevent.
+  const candidates = Array.isArray(res.body)
+    ? res.body
+    : res.body && typeof res.body === 'object'
+      ? [res.body]
       : [];
   const hit = candidates.length === 1 && String(candidates[0]?.event_id) === wanted ? candidates[0] : null;
 
-  if (hit) {
-    return { ok: true, event: projectEvent(hit, now), via: 'direct', requests };
-  }
-
-  if (isRealDay(from) && isRealDay(to) && from <= to) {
-    const walk = await walkWindow({ client, from, to, startedRequests: requests });
-    if (!walk.ok) return walk;
-    requests = walk.requests;
-
-    const found = walk.rows.find(row => String(row?.event_id) === wanted);
-    if (found) return { ok: true, event: projectEvent(found, now), via: 'window', requests };
-  }
+  if (hit) return { ok: true, event: projectEvent(hit, now), requests };
 
   return failure({
     reason: 'event-not-found',
     message: `Clubworx did not resolve event id "${wanted}"`,
-    upstreamStatus: direct.status ?? null,
+    upstreamStatus: res.status ?? null,
     requests,
   });
 }

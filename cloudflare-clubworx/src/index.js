@@ -117,7 +117,9 @@ const defaultRunStudent = ({ env, ...args }) =>
  */
 const defaultReadEvents = ({ env, eventId, ...args }) => {
   const client = createClubworxClient({ accountKey: env.CLUBWORX_ACCOUNT_KEY });
-  return eventId ? resolveEvent({ client, eventId, ...args }) : listEvents({ client, ...args });
+  // A pasted id and a window listing are two different questions, and the id
+  // answers on its own — `resolveEvent` does not take a window (see its header).
+  return eventId ? resolveEvent({ client, eventId }) : listEvents({ client, ...args });
 };
 
 const defaultReadPlan = ({ env, ...args }) =>
@@ -183,8 +185,10 @@ const readFailure = result =>
           : (result.message ?? 'the Clubworx read failed'),
       reason: result.reason,
       upstreamStatus: result.upstreamStatus ?? null,
-      requests: result.requests ?? 0,
-      ...(result.view ? { view: result.view } : {}),
+      // Always present rather than conditional: `GET /contacts` has answered
+      // with `view: null` since #68, and a field that appears only sometimes is
+      // a field a client learns to stop checking.
+      view: result.view ?? null,
       ...(result.matches ? { matches: result.matches } : {}),
     },
     readStatus(result.reason),
@@ -309,42 +313,15 @@ export function createHandler({
 
       const result = await search({ env, lastName, dob });
 
+      // The same mapping every read on this Worker uses. This route carried its
+      // own copy from #68 until #67 added three more; four copies of the 429-vs-502
+      // rule and of §11's throttle sentence is how the wording drifts on the
+      // first fix that only lands in one of them. `readFailure` defaults its
+      // message to the generic read text, so the more specific sentence stays
+      // here where the search is.
       if (!result.ok) {
-        // A throttle is the one upstream status that travels as itself: §11 has
-        // the page pause the *whole run* on a 429, because the allowance is
-        // gym-wide and backing off one student while the rest continue just
-        // spends the next window failing.
-        //
-        // Everything else becomes 502. Passing Clubworx's own code through would
-        // put a 401 from Clubworx beside the 401 this Worker's Access gate
-        // returns, and send an operator to re-authenticate against a problem
-        // that is not theirs.
-        const status = result.reason === 'throttled' ? 429 : 502;
         return done(
-          json(
-            {
-              // A throttle gets §11's wording and never the upstream text. It is
-              // the one case where there IS no upstream message to be faithful
-              // to: a throttle answers in HTML, so `errorMessageOf` finds
-              // nothing and the client falls back to `bodyText` — up to 500
-              // characters of scrubbed markup. Letting that win would put a WAF
-              // page in front of the operator instead of the sentence that says
-              // the cause may be another system on the same gym-wide key.
-              //
-              // Everything else is verbatim, never re-worded — D6. #50 is the
-              // cautionary tale: a truthful-sounding paraphrase pointed at the
-              // wrong mechanism and cost an architectural route.
-              error:
-                result.reason === 'throttled'
-                  ? 'Clubworx is busy — this can be caused by another system, not this page. Try again shortly.'
-                  : (result.message ?? 'the Clubworx contact search failed'),
-              reason: result.reason,
-              view: result.view ?? null,
-              upstreamStatus: result.upstreamStatus ?? null,
-              requests: result.requests ?? 0,
-            },
-            status,
-          ),
+          readFailure({ ...result, message: result.message ?? 'the Clubworx contact search failed' }),
           { email },
         );
       }
