@@ -1,4 +1,5 @@
 import { describe, it, expect } from 'vitest';
+import { ALREADY_BOOKED_STATE, BOOKED } from '../src/bookings.js';
 import { unbookRun } from '../src/unbook.js';
 
 /** A stub with the shape `createClubworxClient` hands back. */
@@ -44,16 +45,19 @@ const clientWith = ({ deletes = [ok({ success: true })], remaining = [] } = {}) 
   };
 };
 
+// The constants, never the literals. `BOOKED` and `ALREADY_BOOKED_STATE` differ
+// by one character, and a test that types them by hand is the one place a slip
+// would assert the interlock while exercising the wrong state.
 const bookedRow = (eventId, bookingId, contactKey = 'ck-1') => ({
   event_id: eventId,
-  state: 'booked',
+  state: BOOKED,
   booking_id: bookingId,
   contact_key: contactKey,
 });
 
 const alreadyBookedRow = (eventId, contactKey = 'ck-1') => ({
   event_id: eventId,
-  state: 'already booked',
+  state: ALREADY_BOOKED_STATE,
   booking_id: null,
   contact_key: contactKey,
 });
@@ -102,7 +106,7 @@ describe('unbookRun — what it refuses before touching anything', () => {
     const out = await unbookRun({
       client,
       contactKey: 'ck-1',
-      rows: [{ event_id: 1, state: 'booked', booking_id: 'b1', contact_key: null }],
+      rows: [{ event_id: 1, state: BOOKED, booking_id: 'b1', contact_key: null }],
     });
 
     expect(out.cancelled).toBe(0);
@@ -175,7 +179,7 @@ describe('unbookRun — verification is a re-read, never the 200', () => {
 
     const read = client.calls.find(c => c.method === 'GET');
     expect(read.path).toBe('bookings');
-    expect(read.params).toEqual({ contact_key: 'ck-1' });
+    expect(read.params).toMatchObject({ contact_key: 'ck-1' });
     expect(out.verified).toBe(true);
     expect(out.outcome).toBe('cancelled');
     expect(out.ok).toBe(true);
@@ -239,12 +243,41 @@ describe('unbookRun — partial and failed cancels', () => {
     const client = clientWith();
     const out = await unbookRun({
       client,
-      rows: [{ event_id: 7, state: 'booked', booking_id: null, contact_key: 'ck-1' }],
+      rows: [{ event_id: 7, state: BOOKED, booking_id: null, contact_key: 'ck-1' }],
     });
 
     expect(out.cancelled).toBe(0);
     expect(out.failed[0].reason).toMatch(/by hand/);
     expect(out.ok).toBe(false);
+  });
+
+  it('stops on a throttle rather than spending the rest of a gym-wide allowance', async () => {
+    // §11 — the allowance is shared with the roster Worker and n8n, so firing
+    // the remaining rows into a window that is already refusing both wastes it
+    // and reports cancellable bookings as needing a human.
+    const client = clientWith({ deletes: [reply({ ok: false, status: 429 })] });
+    const out = await unbookRun({
+      client,
+      rows: [bookedRow(1, 'b1'), bookedRow(2, 'b2'), bookedRow(3, 'b3')],
+    });
+
+    expect(client.calls.filter(c => c.method === 'DELETE')).toHaveLength(1);
+    expect(out.failed.filter(f => f.attempted === false)).toHaveLength(2);
+    expect(out.reason).toBe('throttled');
+  });
+
+  it('will not report a cancel confirmed off a re-read it could not finish', async () => {
+    // A full page is an unfinished list, and absence from an unfinished list
+    // proves nothing. "Cancelled" and "probably cancelled" send an operator to
+    // different places.
+    const full = Array.from({ length: 200 }, (_, i) => ({ booking_id: `x${i}`, event_id: i }));
+    const client = clientWith({ remaining: full });
+    const out = await unbookRun({ client, rows: [bookedRow(1, 'b1')] });
+
+    expect(out.cancelled).toBe(1);
+    expect(out.verified).toBe(false);
+    expect(out.outcome).toBe('unverified');
+    expect(out.reason).toBe('bookings-truncated');
   });
 
   it('reports a throttle as throttled, so the page pauses the whole run', async () => {

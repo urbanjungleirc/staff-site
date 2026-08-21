@@ -50,55 +50,39 @@
  * ---------------------------------------------------------------------------
  * One contact per call
  * ---------------------------------------------------------------------------
- * A mixed set is refused before anything is sent. Two reasons, and the first is
- * the load-bearing one:
+ * A set spanning two contacts is refused before anything is sent. The reason is
+ * the request budget of a single invocation, not tidiness.
  *
- *   - **Verification is a re-read of one contact's bookings.** A mixed set could
- *     only be half-verified, and a half-verified cancel reported as done is the
- *     failure this route exists to prevent.
- *   - **D1 — the browser drives, one Worker call per student.** The human
- *     "Cancel bookings from this run" control spans a run, but it loops the same
- *     way the run itself does. A whole-run cancel in one invocation is the
- *     multi-minute one-shot response D1 rejected, with the same unrecoverable
- *     failure mode: writes landed, log lost.
+ * §6 sizes a run at **25 students × 6 sessions**. Cancelling one is therefore up
+ * to 150 `DELETE`s plus a verifying re-read per student, and this Worker paces
+ * at ~800 ms — well over two minutes in one request, before the Workers
+ * per-invocation subrequest ceiling is even considered. That is the same shape
+ * D1 rejected for the run itself, with the same unrecoverable failure mode:
+ * **the writes land and the log is lost.** The page already loops per student to
+ * apply, holds each student's rows in `localStorage` as they land (D10), and
+ * cancels by looping the same way.
+ *
+ * This is a different check from the one `cancelRunBookings` already makes, not
+ * a second copy of it: that one rejects a **stray row** inside one student's
+ * rollback, this one rejects a **set spanning students** before any of it runs.
+ * Both refuse; neither cancels the wrong thing.
  *
  * ---------------------------------------------------------------------------
- * A 200 proves nothing. The re-read does
+ * What this module does NOT do
  * ---------------------------------------------------------------------------
- * #60 confirmed the reversal by re-count — 1 booking before, 0 after —
- * precisely because a status code cannot show a `DELETE` that was accepted and
- * changed nothing. So every cancel this module reports is checked against
- * `GET /bookings?contact_key=`, and an id still present comes back as
- * `still-booked` rather than as cancelled.
+ * The interlock, the `contact_key`-from-the-row rule, the throttle halt and the
+ * verifying re-read all live in `cancelRunBookings`, because **D3's automatic
+ * rollback needs every one of them and it is not a route.** This module is the
+ * route's own job and nothing else: validate the body, refuse a set it cannot
+ * verify, and turn the tally into an outcome and an HTTP status.
  *
- * The re-read is skipped only when nothing was cancelled: it costs a request
- * against a gym-wide allowance and there is no claim to check.
+ * Putting the verification here instead would have left the caller with no human
+ * present — the rollback — trusting a `200`, which is the exact thing #60 proved
+ * cannot be trusted.
  */
 
-import { BOOKED, cancelRunBookings, readBookings } from './bookings.js';
-import { upstreamMessage } from './upstream.js';
-
-/**
- * Wrap the client so every call it makes is counted.
- *
- * The same wrapper `student.js` uses, and for the same reason: the allowance is
- * gym-wide (one key per gym, #47), so what a cancel costs is worth reporting
- * rather than estimating.
- */
-function counted(client) {
-  const state = { requests: 0 };
-  const tick = fn => (...args) => {
-    state.requests += 1;
-    return fn(...args);
-  };
-  return {
-    state,
-    client: {
-      get: tick(client.get.bind(client)),
-      del: tick(client.del.bind(client)),
-    },
-  };
-}
+import { BOOKED, cancelRunBookings } from './bookings.js';
+import { countedClient } from './clubworx.js';
 
 /** Refused before anything was sent, so there is nothing to report but the reason. */
 const refusal = ({ reason, message }) => ({
@@ -117,7 +101,7 @@ const refusal = ({ reason, message }) => ({
 });
 
 /**
- * Cancel the bookings one run made for one student, and confirm they are gone.
+ * Cancel the bookings one run made for one student, and report what is known.
  *
  * @param {object} opts
  * @param {{get: Function, del: Function}} opts.client
@@ -141,28 +125,34 @@ export async function unbookRun({ client, contactKey = null, rows = null }) {
     });
   }
 
-  // Only rows this run put in `booked` are ever acted on. Everything else —
-  // `already booked` above all — is counted and left where it is.
-  const actionable = rows.filter(row => row?.state === BOOKED);
-
-  // The contacts this call would touch, from the rows themselves plus whatever
-  // the caller claims. More than one and nothing is sent: see the header.
-  const keys = new Set(actionable.map(row => row?.contact_key).filter(Boolean));
+  // The contacts this call would touch — from the rows this run actually booked,
+  // plus whatever the caller claims. More than one and nothing is sent; see the
+  // header for why the boundary is one student.
+  const keys = new Set(
+    rows.filter(row => row?.state === BOOKED).map(row => row?.contact_key).filter(Boolean),
+  );
   if (contactKey) keys.add(contactKey);
 
   if (keys.size > 1) {
     return refusal({
       reason: 'mixed-contacts',
       message:
-        'these booking rows belong to more than one contact. One call cancels one student, ' +
-        'because the cancellation is confirmed by re-reading that one contact’s bookings',
+        'these booking rows belong to more than one contact. One call cancels one student — ' +
+        'a whole run in one request is the multi-minute response whose failure mode is writes ' +
+        'landed and log lost',
     });
   }
 
   const key = keys.size === 1 ? [...keys][0] : null;
-  const { state, client: tracked } = counted(client);
+  const { state, client: tracked } = countedClient(client);
 
+  // The interlock, the contact-from-the-row rule, the throttle halt and the
+  // verifying re-read are all in here. This module does not repeat any of them.
   const run = await cancelRunBookings({ client: tracked, contactKey: key, rows });
+
+  // Rows this run booked, derived from the tally rather than re-filtered — the
+  // interlock's own count of what it passed over is the authority on that.
+  const actionable = rows.length - run.skipped;
 
   const base = {
     contact_key: key,
@@ -170,10 +160,12 @@ export async function unbookRun({ client, contactKey = null, rows = null }) {
     cancelledIds: run.cancelledIds,
     skipped: run.skipped,
     failed: run.failed,
-    stillBooked: [],
+    stillBooked: run.stillBooked,
+    verified: run.verified,
+    requests: state.requests,
   };
 
-  if (actionable.length === 0) {
+  if (actionable === 0) {
     // Nothing this run booked, so nothing to take away. Not an error: a re-run
     // marks every row `already booked`, and cancelling that set is the one thing
     // the interlock exists to stop.
@@ -186,66 +178,54 @@ export async function unbookRun({ client, contactKey = null, rows = null }) {
         run.skipped > 0
           ? `${run.skipped} booking(s) were not made by this run, so none has been cancelled`
           : 'there were no bookings from this run to cancel',
-      verified: false,
-      requests: state.requests,
     };
   }
 
   // §11 — a throttle pauses the whole run, not one row, because the allowance is
   // gym-wide. It outranks every other reason for that reason alone.
-  const throttled = run.failed.some(f => f.upstreamStatus === 429);
+  const reason = run.throttled ? 'throttled' : null;
+  const throttleMessage =
+    'Clubworx is busy — this can be caused by another system, not this page. Try again shortly.';
 
-  if (run.cancelledIds.length === 0) {
+  if (run.cancelled === 0) {
     return {
       ...base,
       ok: false,
       outcome: 'failed',
-      reason: throttled ? 'throttled' : 'cancel-failed',
-      message: throttled
-        ? 'Clubworx is busy — this can be caused by another system, not this page. Try again shortly.'
-        : `none of the ${actionable.length} booking(s) could be cancelled — they are still there`,
-      verified: false,
-      requests: state.requests,
+      reason: reason ?? 'cancel-failed',
+      message: run.throttled
+        ? throttleMessage
+        : `none of the ${actionable} booking(s) could be cancelled — they are still there`,
     };
   }
 
-  // -------------------------------------------------------------------------
-  // Verify by re-reading, never by the status code (§12, #60).
-  // -------------------------------------------------------------------------
-  const held = await readBookings({ client: tracked, contactKey: key });
-
-  if (!held.ok) {
-    return {
-      ...base,
-      ok: false,
-      outcome: 'unverified',
-      reason: 'bookings-unread',
-      message:
-        `${run.cancelledIds.length} cancellation(s) were accepted but could not be confirmed by ` +
-        're-reading this contact’s bookings: ' +
-        (upstreamMessage(held) ?? `HTTP ${held.upstreamStatus}`) +
-        '. A DELETE that answers 200 and changes nothing looks identical from here, so this is ' +
-        'reported as unconfirmed rather than as done — check the student in Clubworx.',
-      verified: false,
-      requests: state.requests,
-    };
-  }
-
-  const stillHeld = new Set(held.bookingIds.map(String));
-  const stillBooked = run.cancelledIds.filter(id => stillHeld.has(String(id)));
-
-  if (stillBooked.length > 0) {
+  if (run.stillBooked.length > 0) {
     return {
       ...base,
       ok: false,
       outcome: 'still-booked',
-      reason: 'cancel-not-applied',
-      stillBooked,
+      reason: reason ?? run.verifyReason,
       message:
-        `${stillBooked.length} booking(s) Clubworx accepted a cancellation for are still there on ` +
-        'a re-read. The 200 was not the truth; these have to be removed by hand.',
-      verified: false,
-      requests: state.requests,
+        `${run.stillBooked.length} booking(s) Clubworx accepted a cancellation for are still ` +
+        'there on a re-read. The 200 was not the truth; these have to be removed by hand.',
+    };
+  }
+
+  if (!run.verified) {
+    // Cancels were accepted, and nothing here knows whether they took. Reported
+    // as unconfirmed rather than as done, because the two send an operator to
+    // different places.
+    return {
+      ...base,
+      ok: false,
+      outcome: 'unverified',
+      reason: reason ?? run.verifyReason,
+      message:
+        `${run.cancelled} cancellation(s) were accepted but could not be confirmed by re-reading ` +
+        'this contact’s bookings' +
+        (run.verifyMessage ? `: ${run.verifyMessage}` : '') +
+        '. A DELETE that answers 200 and changes nothing looks identical from here, so this is ' +
+        'reported as unconfirmed rather than as done — check the student in Clubworx.',
     };
   }
 
@@ -254,12 +234,11 @@ export async function unbookRun({ client, contactKey = null, rows = null }) {
       ...base,
       ok: false,
       outcome: 'partial',
-      reason: throttled ? 'throttled' : 'cancel-failed',
+      reason: reason ?? 'cancel-failed',
       message:
         `${run.cancelled} booking(s) cancelled and confirmed gone; ${run.failed.length} could not ` +
-        'be cancelled and need removing by hand.',
-      verified: true,
-      requests: state.requests,
+        'be cancelled and need removing by hand.' +
+        (run.throttled ? ` ${throttleMessage}` : ''),
     };
   }
 
@@ -269,7 +248,5 @@ export async function unbookRun({ client, contactKey = null, rows = null }) {
     outcome: 'cancelled',
     reason: null,
     message: `${run.cancelled} booking(s) cancelled, confirmed by re-reading this contact’s bookings.`,
-    verified: true,
-    requests: state.requests,
   };
 }

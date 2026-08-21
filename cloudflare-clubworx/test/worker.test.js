@@ -1094,7 +1094,11 @@ describe('POST /unbook', () => {
     const res = await h.call('/api/clubworx/unbook', post({ contact_key: 'ck-1' }));
 
     expect(res.status).toBe(400);
-    expect((await res.json()).reason).toBe('bad-request');
+    const body = await res.json();
+    expect(body.reason).toBe('bad-request');
+    // The documented `outcome` vocabulary holds on every answer, including this
+    // one. A field present only sometimes is one a client stops checking.
+    expect(body.outcome).toBe('refused');
     expect(ran).toBe(false);
   });
 

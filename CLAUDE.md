@@ -67,15 +67,21 @@ cloudflare-clubworx/src/bookings.js - book, cancel, and the error vocabulary.
                           the only discriminator; "already booked" is a SUCCESS
                           and carries no booking id, which is what stops a
                           rollback reaching a booking this run did not create.
-cloudflare-clubworx/src/unbook.js - the cancel route. Bookings are the ONLY
-                          thing this system can take back — contacts and passes
-                          have no delete at all — so a caller gets its bookings
-                          back and nothing else. Never touches a row marked
-                          "already booked" (a re-run marks them, and cancelling
-                          one would delete a booking this run did not make). The
-                          contact_key it sends comes from the booking row, never
-                          from the caller. A 200 is not proof: every cancel is
-                          confirmed by re-reading the contact's bookings.
+                          cancelRunBookings owns ALL FOUR cancel guarantees —
+                          the interlock, contact_key-from-the-row, the halt on a
+                          throttle, and confirming by re-read — because D3's
+                          rollback needs every one of them and is not a route.
+                          The re-read matches on the EVENT as well as the id: an
+                          id-only check passes vacuously when a list row carries
+                          a shape bookingIdOf does not know.
+cloudflare-clubworx/src/unbook.js - the cancel route, and only the route's own
+                          job: validate the body, refuse a set spanning two
+                          students (one call cancels one student — a whole run
+                          in one request is minutes long and loses its log), and
+                          turn the tally into an outcome. Bookings are the ONLY
+                          thing this system can take back; contacts and passes
+                          have no delete at all, so a caller gets its bookings
+                          back and nothing else and the UI must not imply more.
 cloudflare-clubworx/src/memberships.js - is the held School Pass good enough? The
                           test is "covers the last selected session", never
                           "active today" (ADR 0005). A live-but-short pass

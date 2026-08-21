@@ -183,6 +183,37 @@ const readStatus = reason => (reason === 'throttled' ? 429 : REFUSALS.has(reason
  * tale: a truthful-sounding paraphrase pointed at the wrong mechanism and cost
  * an architectural route.
  */
+/**
+ * What HTTP status a **write** route leaves as — `POST /student` and
+ * `POST /unbook`, the two routes that change something.
+ *
+ * **A result is not an error.** §12's result table has to show every outcome,
+ * and D10 writes each row to the browser's `localStorage` as it lands, because a
+ * page reload destroying the only record of a creation that cannot be undone is
+ * the specific failure that design defends against. A 4xx or 5xx invites a
+ * client to throw the body away, and the body IS the record.
+ *
+ * So only two things leave as a non-200, and in both there is nothing to record:
+ *
+ *   - **429** — a throttle that changed nothing. §11 pauses the *whole run* on
+ *     one, because the allowance is gym-wide (one key per gym, #47), and the
+ *     page needs that where it cannot be missed. Once the call HAS written or
+ *     cancelled something there is a row, so it leaves as a 200 still carrying
+ *     `reason: "throttled"` — the field the page actually pauses on.
+ *   - **400** — a refusal before anything was attempted: a lead-time session, a
+ *     pass that will not cover the term, a set spanning two students, a
+ *     malformed request.
+ *
+ * `changed` is what "nothing happened yet" means on each route, and it is the
+ * only part that differs between them: on `/student` a permanent record was
+ * written, on `/unbook` a booking was cancelled.
+ *
+ * @param {{reason?: string|null, outcome?: string}} result
+ * @param {boolean} changed
+ */
+const writeStatus = (result, changed) =>
+  result.reason === 'throttled' && !changed ? 429 : result.outcome === 'refused' ? 400 : 200;
+
 const readFailure = result =>
   json(
     {
@@ -431,36 +462,14 @@ export function createHandler({
         events: payload.events,
       });
 
-      // **A result is not an error, even when the student was abandoned.**
-      //
-      // §12's result table has to show every outcome — created, already booked,
-      // refused, rolled back, stranded — and D10 writes each row to the
-      // browser's localStorage as it lands, because a page reload destroying the
-      // only record of a creation that cannot be undone is the specific failure
-      // that design defends against. A 4xx or 5xx invites a client to throw the
-      // body away, and the body is the record.
-      //
-      // So only two things leave as a non-200, and both are conditions in which
-      // there is nothing to record:
-      //
-      //   - **429**, because §11 pauses the *whole run* on a throttle. The
-      //     allowance is gym-wide, so backing off one row while the rest
-      //     continue just spends the next window failing, and the page needs
-      //     that signal where it cannot be missed.
-      //   - **400** for a refusal that happened before any write — a lead-time
-      //     session, a pass that will not cover the term, a malformed request.
-      //     Nothing was attempted, so there is no row.
-      // A throttle leaves as a 429 **only when nothing was written**. Once this
-      // call has created a contact, granted a pass or rolled bookings back,
-      // there is a row to record, and a non-200 invites a client to throw the
-      // body away — which is the body D10 writes to localStorage precisely
-      // because a lost record of an un-deletable creation is unrecoverable. The
-      // page still sees `reason: "throttled"` in the body and pauses the run on
-      // that, which is the signal §11 actually asks for.
-      const throttled = result.reason === 'throttled' && result.written !== true;
-      const status = throttled ? 429 : result.outcome === 'refused' ? 400 : 200;
-
-      return done(json(result, status), { email, outcome: result.outcome });
+      // A result is not an error, even when the student was abandoned — the
+      // whole rule is on `writeStatus`. Here, "something happened" means a
+      // permanent record was written: a contact created, a pass granted, or
+      // bookings rolled back.
+      return done(json(result, writeStatus(result, result.written === true)), {
+        email,
+        outcome: result.outcome,
+      });
     }
 
     if (path === '/unbook') {
@@ -483,10 +492,14 @@ export function createHandler({
             {
               error: 'a JSON body carrying this run\u2019s booking rows is required',
               reason: 'bad-request',
+              // Named, so the documented `outcome` vocabulary holds on every
+              // answer this route gives. A field that is absent on some replies
+              // is a field a client learns to stop checking.
+              outcome: 'refused',
             },
             400,
           ),
-          { email },
+          { email, outcome: 'refused' },
         );
       }
 
@@ -500,25 +513,14 @@ export function createHandler({
         rows: payload.bookings,
       });
 
-      // The same rule `POST /student` follows, and for the same reason: **a
-      // result is not an error.** A partial rollback's leftover list is the only
-      // record of which bookings a human still has to remove, and D10 writes it
-      // to the browser's localStorage as it lands. A 4xx or 5xx invites a client
-      // to throw the body away, and the body is the record.
-      //
-      // So only two things leave as a non-200:
-      //
-      //   - **429**, when the throttle cancelled nothing. §11 pauses the whole
-      //     run on one, because the allowance is gym-wide. Once a cancel HAS
-      //     landed there is a row to record, so it leaves as a 200 carrying
-      //     `reason: "throttled"` — the signal the page actually pauses on.
-      //   - **400** for a refusal that happened before anything was sent: no
-      //     rows, or a set mixing two contacts. Nothing was attempted, so there
-      //     is no row.
-      const throttled = result.reason === 'throttled' && result.cancelled === 0;
-      const status = throttled ? 429 : result.outcome === 'refused' ? 400 : 200;
-
-      return done(json(result, status), { email, outcome: result.outcome });
+      // The same rule `POST /student` follows, on the same helper. Here,
+      // "something happened" means a booking was actually cancelled — and the
+      // `failed` and `stillBooked` lists are then the only record of which ones
+      // a human still has to remove by hand.
+      return done(json(result, writeStatus(result, result.cancelled > 0)), {
+        email,
+        outcome: result.outcome,
+      });
     }
 
     return done(json({ error: 'not found' }, 404), { email });

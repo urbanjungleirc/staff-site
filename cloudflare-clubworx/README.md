@@ -507,7 +507,10 @@ response.
 ## `POST /unbook` — the only reversal there is
 
 Body: `{"contact_key": "...", "bookings": [ ...the rows `POST /student` returned ]}`.
-`contact_key` is optional; the rows carry their own.
+
+The body's `contact_key` may be omitted — it is only ever used to **reject** a
+row belonging to somebody else. The key actually sent to Clubworx is never taken
+from the body; it comes from the booking row, and it is not optional there.
 
 ### What it can and cannot take back
 
@@ -537,7 +540,7 @@ The rule lives in `cancelRunBookings`, shared with D3's automatic rollback insid
 `POST /student`. There is **no flag to relax it**: a rollback path with no human
 present is exactly the caller that would set one.
 
-### `contact_key` comes from the booking, never from the caller
+### `contact_key` on the DELETE is not optional
 
 `DELETE /api/v2/bookings/:id` requires `contact_key` **as well as** `account_key`,
 form-encoded in the body. Without it the answer is `401 "Authorization failed"` —
@@ -566,15 +569,38 @@ A set mixing two contacts is refused before anything is sent:
 
 #60 confirmed the reversal **by re-count** — 1 booking before, 0 after —
 precisely because a status code cannot show a `DELETE` that was accepted and
-changed nothing. So every cancel is checked against
-`GET /bookings?contact_key=`, and an id still present comes back as
-`still-booked`, never as cancelled. The re-read is skipped only when nothing was
-cancelled: it costs a request against a gym-wide allowance and there is no claim
-to check.
+changed nothing. So every cancel is checked against `GET /bookings?contact_key=`,
+and an id still present comes back as `still-booked`, never as cancelled.
+
+Three things about that check:
+
+- **It lives in `cancelRunBookings`, not in this route**, because D3's automatic
+  rollback needs it too and is not a route. Putting it here would have left the
+  caller with *no human present* trusting a `200`.
+- **It matches on the event as well as the booking id**, and the event is the
+  load-bearing half. `bookingIdOf` tolerates several shapes because the create
+  response's shape was never documented; if a list row carries an id under none
+  of them, an id-only check passes having proved nothing. `student.js` verifies
+  bookings *landed* by event id for the same reason.
+- **A truncated re-read confirms nothing.** The list is walked with `paging.js`,
+  and a list that was not read to the end cannot prove a booking is absent from
+  it — that comes back `unverified`, never `cancelled`.
+
+The re-read is skipped only when nothing was cancelled: it costs a request
+against a gym-wide allowance and there is no claim to check.
 
 `outcome` is one of `cancelled`, `partial`, `nothing-to-cancel`, `still-booked`,
-`unverified`, `failed` or `refused`, and `verified` says whether the re-read
-actually confirmed it.
+`unverified`, `failed` or `refused` — on every answer, including a rejected body
+— and `verified` says whether the re-read actually confirmed it.
+
+### A throttle stops the cancel, it does not push through it
+
+§11 pauses the **whole run** on a `429`, so `cancelRunBookings` stops at the
+first one and reports the remaining rows `attempted: false`. Firing them into a
+window that is already refusing spends a gym-wide allowance to be told the same
+thing again — and comes back reporting bookings as needing a human when they are
+still perfectly cancellable. Nothing is retried inside the Worker; the page
+re-asks.
 
 ### Which statuses leave
 
