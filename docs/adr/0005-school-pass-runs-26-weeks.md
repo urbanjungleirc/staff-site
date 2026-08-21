@@ -1,7 +1,7 @@
 # ADR 0005 — the School Pass runs 26 weeks, not a term
 
-- **Status**: Accepted
-- **Date**: 2026-08-20
+- **Status**: Accepted — **applied in Clubworx 2026-08-21**
+- **Date**: 2026-08-20 (decided); 2026-08-21 (plan changed, and the checking model confirmed)
 - **Context**: school group booking ([#46](https://github.com/urbanjungleirc/staff-site/issues/46), [#90](https://github.com/urbanjungleirc/staff-site/issues/90)); design spec [`2026-08-19-school-group-booking-design.md`](../superpowers/specs/2026-08-19-school-group-booking-design.md) §3
 
 > Companion: [ADR 0002](0002-uj-term-weeks-are-snapped.md), on why a UJ term
@@ -35,15 +35,25 @@ safe while    L ≤ 20 days
 two.** And nothing in the tool would notice: every booking is written on the day
 of the run, when the pass is unambiguously active.
 
-Whether an expiring pass actually costs anything is **unmeasured** — Clubworx
-may check the pass only at booking time, in which case the expiry never bites, or
-against the session date, in which case the tail bookings are refused, or both,
-in which case a future `start_date` cannot help because the pass would not be
-active when the booking is written.
+Whether an expiring pass actually costs anything was **unmeasured** when this
+was decided — Clubworx might check the pass only at booking time, in which case
+the expiry never bites, or against the session date, in which case the tail
+bookings are refused, or both, in which case a future `start_date` cannot help
+because the pass would not be active when the booking is written.
+
+> **Answered 2026-08-21 — it is both.** Confirmed by Jiri from Clubworx's own
+> behaviour, not by an API probe (#90): a booking is refused when the session
+> falls **past the pass's expiry** *and* when it falls **before the pass is
+> active**. So the tail sessions of a far-ahead term genuinely would have been
+> refused, and a future `start_date` was never available as a fix. That moves
+> this ADR from *a change that holds whichever way Clubworx behaves* to **the
+> only lever there was**.
 
 ## Decision
 
-**The School Pass plan is configured for 26 weeks.**
+**The School Pass plan is configured for 26 weeks.** Applied in the Clubworx UI
+on **2026-08-21**; the plan now returns `membership_duration` of 26 weeks and
+this ADR is live rather than pending.
 
 26 weeks is 182 days of access, so a 63-day term stays covered with **up to 118
 days — just under 17 weeks — of lead time**. That is past any plausible school
@@ -75,6 +85,17 @@ to Clubworx member counts, retention and revenue reporting is the open question
 already carried on #46 — this decision makes it larger, not smaller, and does not
 resolve it.
 
+**The coverage guard is now mandatory rather than belt-and-braces.** Because
+the session date *is* checked, a pass that does not cover the last selected
+session produces a real refusal at write time. The pre-write hard-stop and the
+found-student `expiration_date` comparison are what turn that into a stop
+before anything permanent is written, rather than a student created and passed
+and then half-booked. **What the refusal looks like is still unrecorded** — §11
+discriminates Clubworx's 400s by their message string, and this is a fourth
+refusal whose text nobody has captured. It fails safe (an unmatched 400 is
+`unknown`, shown verbatim, and three consecutive failures halt the run), but it
+will read as `unknown` until someone records it.
+
 **The `found` branch gets harder, not easier.** Under a 12-week pass a returning
 student's old School Pass had usually expired, so the branch simply granted a new
 one. At 26 weeks the tool will far more often find a pass that is **active today
@@ -95,8 +116,10 @@ charge, no billing schedule (#60) — so the duration is free in money.
 
 ## Alternatives considered
 
-- **Start the pass at the first selected session.** Rejected. It rests on two
-  unmeasured things at once: that Clubworx honours a *future* `start_date` (#63
+- **Start the pass at the first selected session.** Rejected, and **now
+  positively ruled out** — a booking before the pass is active is refused
+  (#90, 2026-08-21), so a future `start_date` could not have worked. At the time
+  it was rejected for resting on two unmeasured things at once: that Clubworx honours a *future* `start_date` (#63
   flagged this as unproven — every probe so far sent today's date, which is also
   what Clubworx defaults to, so an honoured request is indistinguishable from an
   ignored one), and that the pass is checked against the session date at all. It

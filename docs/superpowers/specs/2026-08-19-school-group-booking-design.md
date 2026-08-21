@@ -220,10 +220,9 @@ A run made **three weeks ahead loses the last session; four weeks ahead loses
 the last two.** Nothing in the tool would notice: every booking is written on
 the day of the run, when the pass is unambiguously active.
 
-**Whether that actually costs anything is unmeasured** — and the fix adopted
-below deliberately does not wait to find out, because it holds either way. The
-three possibilities are worth stating, because they are what makes the *other*
-two fixes conditional and this one not:
+**Whether that actually costs anything was unmeasured when the fix below was
+adopted** — and the fix deliberately did not wait to find out, because it holds
+either way. Three possibilities were on the table:
 
 - If Clubworx checks the pass **only at booking time**, a pass expiring before
   session ten is irrelevant — the booking already exists, and attendance is a
@@ -234,12 +233,29 @@ two fixes conditional and this one not:
   would not be active when the booking is written — and the only lever left is
   the plan's **duration**.
 
+> **Settled 2026-08-21: it is both.** Confirmed by Jiri from Clubworx's own
+> behaviour rather than by an API probe ([#90](https://github.com/urbanjungleirc/staff-site/issues/90)) —
+> a booking is refused when the session falls **past the pass's expiry**, and
+> refused again when it falls **before the pass is active**.
+>
+> Three things follow. **The 26 weeks were necessary, not merely safe** — the
+> tail sessions of a far-ahead term really would have been refused. **A future
+> `start_date` is positively ruled out**, not just unproven. And **the coverage
+> checks below are load-bearing**: they are what stops a run part-way instead of
+> stranding a student who has been created, passed, and half-booked.
+>
+> One thing is still unrecorded: **the refusal's message string.** §11's error
+> vocabulary discriminates Clubworx's 400s by their text, and this is a fourth
+> refusal nobody has captured. It fails safe — an unmatched 400 is `unknown`,
+> shown verbatim, and three consecutive failures halt the run — but it will read
+> as `unknown` on screen until someone records it.
+
 Three fixes were considered. **The plan is lengthened to 26 weeks** — decided
 2026-08-20, recorded in [ADR 0005](../../adr/0005-school-pass-runs-26-weeks.md).
 
 | Fix | Verdict |
 |---|---|
-| **Lengthen the plan** in Clubworx to **26 weeks** | **Adopted.** Config only — no code, no date arithmetic, and it holds under all three checking models above, so it does not wait on #90 |
+| **Lengthen the plan** in Clubworx to **26 weeks** | **Adopted, and applied in Clubworx 2026-08-21.** Config only — no code, no date arithmetic, and it holds under all three checking models above, so it did not wait on #90. Now known to have been the *only* available lever |
 | **Start the pass at the first selected session** | Rejected. Gives up the one-call create for any far-ahead run, since `POST /members` starts the pass *today* (#63); the write chain would need session dates it does not receive; and it rests on a future `start_date` being honoured, which is **unproven** — flagged in #63 — *and* on session-date checking, which is unmeasured. Two unknowns to buy what a config change buys outright |
 | **Refuse the run** when the last selected session falls outside the pass | **Kept, but as a guard rather than a fix.** It solves nothing alone — it makes the failure visible instead of silent — and it is the thing that stops this hole reopening quietly. See below |
 
@@ -279,11 +295,16 @@ often find a pass that is **active today but expires mid-term** — the band whe
 the old pass covers session one and not session ten.
 
 `ensure School Pass` therefore cannot mean *active today*. It means **covers the
-last selected session**. That is what makes the never-probed question — whether a
-second School Pass on an active holder duplicates it — start to matter, where D4
-previously closed it for free. It stays open, and it is now the sharper of the
-two: [#90](https://github.com/urbanjungleirc/staff-site/issues/90) is re-scoped
-to this branch, and no longer blocks #69.
+last selected session** — and since 2026-08-21 that is a measured requirement
+rather than a precaution, because the session date is checked. That is what
+makes the never-probed question — whether a second School Pass on an active
+holder duplicates it — start to matter, where D4 previously closed it for free.
+
+**It is now the only open question left on the pass.** #90's first question is
+answered; its second — the irreversible one, which spends a permanent membership
+on a permanent contact to learn the answer — is deliberately not run. Until it
+is, a returning student holding a live-but-not-covering pass is a
+`needs-confirmation` row, resolved by a human, never a silent second grant.
 
 ### Why there is no event-naming convention
 
@@ -1085,17 +1106,14 @@ removed through the API. Use a marker slug that makes them findable
 
 Carried forward deliberately. None blocks the build.
 
-- **Whether a School Pass is checked against the session date, or only at
-  booking time.** Raised 2026-08-20, when a term booked three or four weeks
-  ahead was found to put its last sessions past the pass's 84 days. **Answered
-  by configuration rather than by measurement** — the plan now runs 26 weeks
-  (§3, ADR 0005), which holds whichever way Clubworx behaves. The question
-  survives in one place: §2's `found` branch, where a returning student may hold
-  a pass that is active today and expires mid-term. It is cheaply answerable and
-  fully reversible — book a pass-holder into an event beyond their
-  `expiration_date` and see whether Clubworx refuses; bookings are the one write
-  that can be undone. [#90](https://github.com/urbanjungleirc/staff-site/issues/90). Filed as
-  [#90](https://github.com/urbanjungleirc/staff-site/issues/90).
+- ~~**Whether a School Pass is checked against the session date, or only at
+  booking time.**~~ **Closed 2026-08-21 — it is checked both ways.** A booking is
+  refused past the pass's expiry *and* before the pass is active (confirmed from
+  Clubworx's behaviour, [#90](https://github.com/urbanjungleirc/staff-site/issues/90)).
+  The 26-week plan (§3, ADR 0005) was therefore necessary rather than merely
+  safe, and the coverage checks are load-bearing. **What replaces it:** the
+  refusal's message string is unrecorded, so §11's vocabulary will classify it
+  `unknown` — safe, but uninformative — until a run captures it.
 
 - **Whether `POST /api/v2/members` works, and whether it can carry
   `membership_plan_id`.** The one write in the chain that has never been run —
@@ -1107,9 +1125,10 @@ Carried forward deliberately. None blocks the build.
   misleading. The design only *warns* on it, so nothing here depends on it, but
   the warning's wording should not be trusted further until probed. Filed as its
   own issue.
-- **Whether a second School Pass on an active holder duplicates it.** Not
-  probed, on purpose — memberships have no delete, so the probe would leave the
-  permanent record it was testing for. D4's read-then-write guard closed it for
+- **Whether a second School Pass on an active holder duplicates it.** **The only
+  open question left on the pass**, and the sharper half of #90. Not probed, on
+  purpose — memberships have no delete, so the probe would leave the permanent
+  record it was testing for. D4's read-then-write guard closed it for
   free while *active* meant "active today". **The 26-week pass reopens it**: a
   returning student will now often hold a pass that is active today and expires
   mid-term, and granting the pass that covers the term means granting a second
