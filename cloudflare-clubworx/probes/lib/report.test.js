@@ -17,6 +17,7 @@ import {
   describeCancellation,
   describeMemberCreation,
   describeCreatedPass,
+  describeEventById,
 } from './report.mjs';
 
 // What a probe is allowed to write down. Everything here is counts, ids, status
@@ -736,5 +737,355 @@ describe('describeCreatedPass', () => {
     expect(r.granted).toBe(true);
     expect(r.spanDays).toBeNull();
     expect(r.startsOnCreationDay).toBe(false);
+  });
+});
+
+describe('describeEventById', () => {
+  const wantedId = 12345;
+  const ok = body => ({ status: 200, body, error: null });
+
+  const row = (event_id = wantedId) => ({
+    event_id,
+    event_name: 'a class',
+    event_start_at: '2026-09-01T10:00:00+08:00',
+    spaces_available: 4,
+  });
+
+  it('reads a bare object carrying the asked-for id as a resolving route', () => {
+    const out = describeEventById({ wantedId, direct: ok(row()) });
+
+    expect(out.verdict).toBe('single-object');
+    expect(out.isRoute).toBe(true);
+    expect(out.resolvesFallback).toBe(true);
+  });
+
+  it('reads a corroborated one-element array as a resolving route', () => {
+    const out = describeEventById({
+      wantedId,
+      direct: ok([row()]),
+      // The window held more than the one row that came back, so the path
+      // segment narrowed it — the collection cannot be what answered.
+      collectionIds: [wantedId, 999, 1000],
+    });
+
+    expect(out.verdict).toBe('one-element-array');
+    expect(out.isRoute).toBe(true);
+    expect(out.confounded).toBe(false);
+    expect(out.resolvesFallback).toBe(true);
+  });
+
+  it('will not call an uncorroborated one-element array a route', () => {
+    // A window holding exactly one event answers a path-ignoring collection
+    // read and a genuine resolution identically. Nothing here can tell them
+    // apart, so nothing here may claim to.
+    const out = describeEventById({ wantedId, direct: ok([row()]) });
+
+    expect(out.verdict).toBe('one-element-array');
+    expect(out.confounded).toBeNull();
+    expect(out.isRoute).toBeNull();
+  });
+
+  it('takes a bare object as evidence in itself — the collection never sends one', () => {
+    const out = describeEventById({ wantedId, direct: ok(row()) });
+
+    expect(out.confounded).toBe(false);
+    expect(out.isRoute).toBe(true);
+  });
+
+  it('refuses to call it a route when a made-up id answers the same way', () => {
+    const out = describeEventById({
+      wantedId,
+      missingId: 999999999,
+      direct: ok([row()]),
+      collectionIds: [wantedId, 999, 1000],
+      missing: ok([row(999999999)]),
+    });
+
+    expect(out.confounded).toBe(true);
+    expect(out.isRoute).toBe(false);
+  });
+
+  it('refuses to call it a route when the rows returned are the whole collection', () => {
+    const out = describeEventById({
+      wantedId,
+      direct: ok([row()]),
+      collectionIds: [wantedId],
+    });
+
+    expect(out.echoesCollection).toBe(true);
+    expect(out.confounded).toBe(true);
+    expect(out.isRoute).toBe(false);
+  });
+
+  it('says plainly whether anything resolved, so callers need not restate the rule', () => {
+    expect(describeEventById({ wantedId, direct: ok(row()) }).resolved).toBe(true);
+    expect(describeEventById({ wantedId, direct: ok([row(), row(999)]) }).resolved).toBe(false);
+    expect(
+      describeEventById({ wantedId, direct: { status: 401, body: null, error: null } }).resolved,
+    ).toBe(false);
+  });
+
+  it('leaves the corroboration question open whenever nothing resolved', () => {
+    // The gate `confounded` shares with `discriminates` and `windowRequired`.
+    for (const direct of [
+      { status: 404, body: null, error: null },
+      { status: 401, body: null, error: null },
+      { status: null, body: null, error: 'ECONNRESET' },
+      ok([row(), row(999)]),
+      ok([]),
+    ]) {
+      expect(describeEventById({ wantedId, direct }).confounded).toBeNull();
+    }
+  });
+
+  it('reads a 2xx body it cannot interpret as unmeasured, not as an absent route', () => {
+    // A single event naming its key `id` rather than `event_id` would land
+    // here. That is a shape nobody has read yet, not a missing route.
+    const out = describeEventById({ wantedId, direct: ok({ id: wantedId, name: 'x' }) });
+
+    expect(out.verdict).toBe('unrecognised');
+    expect(out.isRoute).toBeNull();
+    expect(out.resolvesFallback).toBe(false);
+  });
+
+  it('matches the id as text, because a pasted id is a string and Clubworx sends a number', () => {
+    const out = describeEventById({ wantedId: '12345', direct: ok(row(12345)) });
+
+    expect(out.verdict).toBe('single-object');
+    expect(out.resolvesFallback).toBe(true);
+  });
+
+  it('calls a multi-row answer the collection, not a resolution', () => {
+    const out = describeEventById({ wantedId, direct: ok([row(), row(999)]) });
+
+    expect(out.verdict).toBe('collection');
+    expect(out.isRoute).toBe(false);
+    expect(out.resolvesFallback).toBe(false);
+  });
+
+  it('calls a single row that is not the asked-for event the collection', () => {
+    // The path segment was ignored and the gym happened to have one event in
+    // the window. Taking row one would put the wrong class in front of staff.
+    const out = describeEventById({ wantedId, direct: ok([row(999)]) });
+
+    expect(out.verdict).toBe('collection');
+    expect(out.resolvesFallback).toBe(false);
+  });
+
+  it('names the collection when the ids returned are the ids the listing held', () => {
+    const out = describeEventById({
+      wantedId,
+      direct: ok([row(), row(999)]),
+      collectionIds: [wantedId, 999],
+    });
+
+    expect(out.verdict).toBe('collection');
+    expect(out.echoesCollection).toBe(true);
+  });
+
+  it('reports an empty array as a filter that matched nothing, not as a route', () => {
+    const out = describeEventById({ wantedId, direct: ok([]) });
+
+    expect(out.verdict).toBe('empty');
+    expect(out.isRoute).toBe(false);
+    expect(out.resolvesFallback).toBe(false);
+  });
+
+  it('reads a 404 on a real id as no such route', () => {
+    const out = describeEventById({ wantedId, direct: { status: 404, body: null, error: null } });
+
+    expect(out.verdict).toBe('not-found');
+    expect(out.isRoute).toBe(false);
+  });
+
+  it('refuses to conclude anything from a 401 — #50 is what that costs', () => {
+    const out = describeEventById({ wantedId, direct: { status: 401, body: null, error: null } });
+
+    expect(out.verdict).toBe('refused');
+    expect(out.isRoute).toBeNull();
+    expect(out.resolvesFallback).toBe(false);
+    expect(out.summary).toMatch(/parameters/i);
+  });
+
+  it('reports a network failure as unmeasured rather than as an absent route', () => {
+    const out = describeEventById({
+      wantedId,
+      direct: { status: null, body: null, error: 'ECONNRESET' },
+    });
+
+    expect(out.verdict).toBe('error');
+    expect(out.isRoute).toBeNull();
+  });
+
+  it('records field names, never values', () => {
+    const out = describeEventById({ wantedId, direct: ok(row()) });
+
+    expect(out.fields).toEqual(['event_id', 'event_name', 'event_start_at', 'spaces_available']);
+    expect(JSON.stringify(out)).not.toContain('a class');
+  });
+
+  it('counts the row a bare object carries — one row, not none', () => {
+    const out = describeEventById({ wantedId, direct: ok(row()) });
+
+    expect(out.returnedIds).toEqual([wantedId]);
+  });
+
+  it('describes what a made-up id answered', () => {
+    const out = describeEventById({
+      wantedId,
+      direct: ok(row()),
+      missing: { status: 404, body: null, error: null },
+    });
+
+    expect(out.missingBehaviour).toBe('not-found');
+    expect(out.discriminates).toBe(true);
+  });
+
+  it('flags a made-up id that answers with rows anyway — the route would confirm any paste', () => {
+    const out = describeEventById({
+      wantedId,
+      direct: ok(row()),
+      missing: ok([row(999), row(1000)]),
+    });
+
+    expect(out.missingBehaviour).toBe('collection');
+    expect(out.discriminates).toBe(false);
+  });
+
+  it('flags a made-up id that resolves as an event — read against the id actually asked for', () => {
+    // The made-up call asked for `missingId`, not `wantedId`. Reading it
+    // against the real id would score a resolved fake as "unrecognised" and
+    // report the route as discriminating on precisely the case that proves it
+    // does not.
+    const out = describeEventById({
+      wantedId,
+      missingId: 999999999,
+      direct: ok(row()),
+      missing: ok(row(999999999)),
+    });
+
+    expect(out.missingBehaviour).toBe('single-object');
+    expect(out.discriminates).toBe(false);
+  });
+
+  it('leaves the made-up id unknown when the answer was a refusal, not an absence', () => {
+    const out = describeEventById({
+      wantedId,
+      missingId: 999999999,
+      direct: ok(row()),
+      missing: { status: 401, body: null, error: null },
+    });
+
+    expect(out.missingBehaviour).toBe('refused');
+    expect(out.discriminates).toBeNull();
+  });
+
+  it('counts an empty answer to a made-up id as discriminating', () => {
+    const out = describeEventById({
+      wantedId,
+      missingId: 999999999,
+      direct: ok(row()),
+      missing: ok([]),
+    });
+
+    expect(out.discriminates).toBe(true);
+  });
+
+  it('leaves the made-up id unknown when that call was not made', () => {
+    const out = describeEventById({ wantedId, direct: ok(row()) });
+
+    expect(out.missingBehaviour).toBeNull();
+    expect(out.discriminates).toBeNull();
+  });
+
+  it('answers for the shipped route from the windowless call, because that is what it sends', () => {
+    // `resolveEvent` calls `client.get('events/<id>')` with no params at all.
+    // A route that resolves only *with* a window is a route the shipped code
+    // does not have — reporting the windowed 200 as success would green-light
+    // a production failure.
+    const out = describeEventById({
+      wantedId,
+      direct: ok(row()),
+      windowless: { status: 422, body: null, error: null },
+    });
+
+    expect(out.verdict).toBe('single-object');
+    expect(out.isRoute).toBe(true);
+    expect(out.resolvesFallback).toBe(false);
+    expect(out.fallbackBasis).toBe('windowless');
+  });
+
+  it('falls back to the windowed call when the windowless one was not made, and says so', () => {
+    const out = describeEventById({ wantedId, direct: ok(row()) });
+
+    expect(out.resolvesFallback).toBe(true);
+    expect(out.fallbackBasis).toBe('windowed');
+  });
+
+  it('reports the date window as not required when the windowless call resolves', () => {
+    const out = describeEventById({ wantedId, direct: ok(row()), windowless: ok(row()) });
+
+    expect(out.windowRequired).toBe(false);
+  });
+
+  it('reports the date window as required when the windowless call is refused', () => {
+    const out = describeEventById({
+      wantedId,
+      direct: ok(row()),
+      windowless: { status: 422, body: null, error: null },
+    });
+
+    expect(out.windowRequired).toBe(true);
+  });
+
+  it('leaves the window question open when that call was not made', () => {
+    const out = describeEventById({ wantedId, direct: ok(row()) });
+
+    expect(out.windowRequired).toBeNull();
+  });
+
+  it('leaves the window question open when nothing resolved at all', () => {
+    // Measured 2026-08-21: every addressed call 404s. "Is the window required?"
+    // only means something if addressing works *with* one — against a route
+    // that does not exist, both calls fail for the same reason and reporting
+    // `true` would invent a requirement out of an absence.
+    const notFound = { status: 404, body: { status: 404, error: 'Not Found' }, error: null };
+    const out = describeEventById({ wantedId, direct: notFound, windowless: notFound });
+
+    expect(out.verdict).toBe('not-found');
+    expect(out.windowRequired).toBeNull();
+  });
+
+  it('will not claim a made-up id was told apart when the real one 404d too', () => {
+    // Measured 2026-08-21: both ids answered 404. "It distinguished them" is
+    // not a thing that can be true when neither resolved — they got the same
+    // answer, and that answer was the absence of a route.
+    const notFound = { status: 404, body: { status: 404, error: 'Not Found' }, error: null };
+    const out = describeEventById({
+      wantedId,
+      missingId: 999999999,
+      direct: notFound,
+      missing: notFound,
+    });
+
+    expect(out.missingBehaviour).toBe('not-found');
+    expect(out.discriminates).toBeNull();
+  });
+
+  it('reads the refusal message, which is the answer when the route is absent', () => {
+    const out = describeEventById({
+      wantedId,
+      direct: { status: 404, body: { status: 404, error: 'Not Found' }, error: null },
+    });
+
+    expect(out.refusal).toBe('Not Found');
+  });
+
+  it('reads no message out of a body that carries an event', () => {
+    // `errorMessageOf` is bounded to error-shaped fields; a row must not leak
+    // through it.
+    const out = describeEventById({ wantedId, direct: ok(row()) });
+
+    expect(out.refusal).toBeNull();
   });
 });

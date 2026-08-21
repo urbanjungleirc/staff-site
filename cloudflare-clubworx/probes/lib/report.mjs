@@ -9,6 +9,8 @@
  * gitignore rule somebody has to remember.
  */
 
+import { errorMessageOf } from '../../src/errors.js';
+
 /** Nearest-rank percentile. Null for an empty set, so it never prints as NaN. */
 export function percentile(values, p) {
   if (!values.length) return null;
@@ -739,5 +741,247 @@ export function describeCreatedPass({ states = [], on, requested = null } = {}) 
       `start ${startDate ?? 'n/a'} · expires ${expirationDate ?? 'n/a'}` +
       (spanDays === null ? '' : ` · ${spanDays}d`) +
       ` · active ${Boolean(state.active)}`,
+  };
+}
+
+/** A bare object and a one-element array are the same one row, read the same way. */
+const rowsOf = body => (Array.isArray(body) ? body : body && typeof body === 'object' ? [body] : []);
+
+/** Field names of whatever came back, in first-seen order. Names only, never values. */
+const fieldNamesOf = body => {
+  const names = new Set();
+  for (const row of rowsOf(body)) for (const name of Object.keys(row ?? {})) names.add(name);
+  return [...names];
+};
+
+/** A pasted id is a string and Clubworx sends a number. Compare as text or nothing matches. */
+const sameEventId = (row, wanted) => String(row?.event_id) === String(wanted);
+
+/**
+ * What a `GET /events/:id` response *is* — a resolved event, or the collection
+ * wearing its clothes.
+ *
+ * Shared by the direct call, the made-up id and the windowless call, so all
+ * three are read by one set of rules rather than three sets that drift.
+ */
+function shapeOf(res, wanted) {
+  if (!res) return null;
+  if (res.error) return 'error';
+
+  const { status, body } = res;
+
+  // #50 is the standing reminder of what reading a 401 as a wall costs: a
+  // malformed request answered "Authorization failed", it was written up as a
+  // permissions problem, and an architectural route was lost for a week.
+  if (status === 401 || status === 403) return 'refused';
+  if (status === 404) return 'not-found';
+  if (status === 422) return 'rejected';
+  if (typeof status !== 'number' || status < 200 || status >= 300) return 'error-status';
+
+  if (Array.isArray(body)) {
+    if (body.length === 0) return 'empty';
+    // One row that is not the row asked for means the path segment was ignored
+    // and the window happened to hold a single event — the collection, not a
+    // resolution.
+    if (body.length === 1 && sameEventId(body[0], wanted)) return 'one-element-array';
+    return 'collection';
+  }
+
+  if (body && typeof body === 'object') {
+    return sameEventId(body, wanted) ? 'single-object' : 'unrecognised';
+  }
+
+  return 'unrecognised';
+}
+
+/** The shapes `resolveEvent` in `../src/events.js` accepts as one confirmed event. */
+const RESOLVING = new Set(['single-object', 'one-element-array']);
+
+/**
+ * What a made-up id's answer proves about the route.
+ *
+ * `true` — it told a real id from an invented one, which is what addressing
+ * means. `false` — it answered content for an id that does not exist, so it is
+ * answering *something else* and a paste field on it would confirm anything
+ * typed in. `null` — a refusal or a dropped request, which proves neither.
+ */
+const DISCRIMINATION = {
+  'not-found': true,
+  rejected: true,
+  empty: true,
+  'single-object': false,
+  'one-element-array': false,
+  collection: false,
+  unrecognised: false,
+  refused: null,
+  error: null,
+  'error-status': null,
+};
+
+const SHAPE_SUMMARY = {
+  'single-object': 'a bare object carrying the id asked for — events/:id resolves',
+  'one-element-array': 'a one-element array carrying the id asked for — events/:id resolves',
+  collection: 'the /events collection — the path segment is ignored, not addressed',
+  empty: 'an empty array — read as a filter that matched nothing, not as an address',
+  'not-found': '404 — there is no events/:id route',
+  rejected: '422 — the request was refused, not the id',
+  refused:
+    'a 401/403. Nothing follows from it: read the endpoint\'s parameters before ' +
+    'concluding a route is absent (#50)',
+  error: 'the request never completed — unmeasured, not absent',
+  'error-status': 'an unexpected status',
+  unrecognised: 'a 2xx body that is neither an event nor a list of them',
+};
+
+/**
+ * staff-site#97 — is `GET /api/v2/events/:id` a route, and does the shipped
+ * paste-the-id fallback survive whatever it is?
+ *
+ * `resolveEvent` was written against both plausible shapes and shipped on #67
+ * without ever being called: every probe up to here read the `/events`
+ * collection. Path addressing does exist in this API (`DELETE /bookings/:id`,
+ * #60), which is why `events/:id` was the guess — but a guess is what #50 cost a
+ * week on, so it gets measured.
+ *
+ * `isRoute` and `resolvesFallback` are separate answers on purpose.
+ * `resolvesFallback` is the one #54 depends on: it is true only for the two
+ * shapes `resolveEvent` accepts *and* only when the row carries the id that was
+ * asked for. A route that answers with the collection is still "a 200", and
+ * reading it as success is exactly how the wrong class would reach an operator
+ * to confirm.
+ *
+ * Nothing here records a row: field **names**, ids and statuses only.
+ *
+ * `confounded` is the one to read before quoting any of the others. A window
+ * holding exactly one event makes a path-ignoring collection read and a genuine
+ * resolution byte-identical, so "it came back with the right event" is not on
+ * its own an answer — it needs either a made-up id that answers differently, or
+ * a collection wider than what came back.
+ *
+ * @param {object} opts
+ * @param {string|number} opts.wantedId The real event id the direct call asked for.
+ * @param {string|number} [opts.missingId] The id the made-up call asked for. Read
+ *   `missing` against this, never against `wantedId`.
+ * @param {{status: number|null, body: unknown, error: string|null}} opts.direct
+ *   `GET events/<real id>`, inside the date window.
+ * @param {{status: number|null, body: unknown, error: string|null}} [opts.missing]
+ *   `GET events/<an id that does not exist>`. Omitted when that call was not made.
+ * @param {{status: number|null, body: unknown, error: string|null}} [opts.windowless]
+ *   `GET events/<real id>` with no date window. Omitted when that call was not made.
+ * @param {Array<string|number>} [opts.collectionIds] Ids the listing walk held, to
+ *   tell "answered with the collection" from "answered with an event".
+ */
+export function describeEventById({
+  wantedId,
+  missingId = null,
+  direct = null,
+  missing = null,
+  windowless = null,
+  collectionIds = null,
+} = {}) {
+  const verdict = shapeOf(direct, wantedId) ?? 'error';
+  const windowlessShape = shapeOf(windowless, wantedId);
+
+  // `resolveEvent` sends `events/<id>` and **no parameters at all** — no date
+  // window. So the call that answers for the shipped route is the windowless
+  // one, not the windowed one the issue leads with. If `events/:id` resolves
+  // only when a window rides along, the shipped route does not have it, and
+  // reporting the windowed 200 as success would green-light a production
+  // failure. `fallbackBasis` says which call the answer came from, so a
+  // findings document cannot quietly cite the wrong one.
+  const fallbackBasis = windowlessShape === null ? 'windowed' : 'windowless';
+  const resolvesFallback = RESOLVING.has(fallbackBasis === 'windowless' ? windowlessShape : verdict);
+
+  const returnedIds = rowsOf(direct?.body)
+    .map(r => r?.event_id)
+    .filter(id => id !== null && id !== undefined);
+  const echoesCollection =
+    Array.isArray(collectionIds) && collectionIds.length > 0 && returnedIds.length > 0
+      ? sameIds(returnedIds, collectionIds)
+      : false;
+
+  // Read against the id the made-up call actually asked for. Scoring it against
+  // `wantedId` would make a *resolved* fake id look unrecognisable, and report
+  // the route as discriminating on exactly the case that proves it does not.
+  const missingBehaviour = shapeOf(missing, missingId);
+  // Only askable if the real id resolved. When neither did, the two calls got
+  // the *same* answer and it was the absence of a route — which is not the
+  // route distinguishing them, however much a `404` on a fake id looks like it.
+  const discriminates =
+    missingBehaviour === null || !RESOLVING.has(verdict)
+      ? null
+      : DISCRIMINATION[missingBehaviour] ?? null;
+
+  // Is the answer to a real id distinguishable from the collection, or from the
+  // answer to an id that does not exist?
+  //
+  // This is the trap the whole probe turns on. A window holding exactly one
+  // event makes a path-ignoring collection read and a genuine resolution
+  // *byte-identical* — both are a one-element array carrying the id asked for.
+  // A bare object is different: `/events` returns a list, so an object is
+  // evidence in itself.
+  const narrowerThanCollection =
+    Array.isArray(collectionIds) && collectionIds.length > 1 && returnedIds.length < collectionIds.length;
+
+  // Gated on the direct call having resolved at all, like `discriminates` and
+  // `windowRequired` below it. Nothing came back to be told apart from the
+  // collection when nothing came back — and an empty 404 body is trivially
+  // "narrower than the collection", which would otherwise print as corroboration.
+  const confounded = !RESOLVING.has(verdict)
+    ? null
+    : discriminates === false || echoesCollection === true ? true
+      : discriminates === true || narrowerThanCollection || verdict === 'single-object' ? false
+        : null;
+
+  // Three states, and the third is the point. `false` is a measured absence;
+  // `null` is "this run did not find out" — a refusal, a dropped connection, a
+  // 2xx body in a shape nobody has read, or an answer that cannot be told from
+  // the collection. Collapsing any of them into `false` would write an
+  // unmeasured "no" into the findings.
+  //
+  // Read off the *addressed* call rather than the shipped route's one: "is
+  // `events/:id` a route" and "does #67's code work" are different questions,
+  // and a route that needs a window is a yes to the first and a no to the
+  // second.
+  const isRoute =
+    RESOLVING.has(verdict) ? (confounded === null ? null : !confounded)
+    : verdict === 'refused' || verdict === 'error' || verdict === 'error-status' ? null
+    : verdict === 'unrecognised' ? null
+    : false;
+
+  // Only meaningful if addressing works *with* a window. Against a route that
+  // does not exist both calls fail for the same reason, and reporting `true`
+  // would invent a window requirement out of a plain absence — measured
+  // 2026-08-21, when every addressed call came back 404.
+  const windowRequired =
+    windowlessShape === null || !RESOLVING.has(verdict)
+      ? null
+      : !RESOLVING.has(windowlessShape);
+
+  return {
+    verdict,
+    // Did the addressed call come back with the event at all? Every gate below
+    // hangs off this, and it is exported so a caller does not have to restate
+    // the rule in its own terms and get it subtly different.
+    resolved: RESOLVING.has(verdict),
+    isRoute,
+    resolvesFallback,
+    fallbackBasis,
+    status: direct?.status ?? null,
+    // The server's complaint about *our own request*, which is the whole answer
+    // when there is no route to describe. `errorMessageOf` is the one bounded
+    // way into a body here — error-shaped fields only, never the record fields
+    // where names and dates of birth live.
+    refusal: errorMessageOf(direct?.body),
+    fields: fieldNamesOf(direct?.body),
+    returnedIds,
+    echoesCollection,
+    confounded,
+    missingBehaviour,
+    missingStatus: missing?.status ?? null,
+    discriminates,
+    windowRequired,
+    windowlessStatus: windowless?.status ?? null,
+    summary: `HTTP ${direct?.status ?? 'n/a'} · ${SHAPE_SUMMARY[verdict] ?? verdict}`,
   };
 }

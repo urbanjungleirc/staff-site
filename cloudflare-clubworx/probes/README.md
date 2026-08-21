@@ -17,6 +17,8 @@ only way to learn how it behaves is to ask it, carefully, in production.
 | `run-60.mjs` | The probe that produced it — **writes, and deletes** |
 | `63-member-creation.md` | [#63](https://github.com/urbanjungleirc/staff-site/issues/63) — the gate on the #46 build: does `POST /api/v2/members` create a contact, is it bookable, and can the School Pass ride along on the create call |
 | `run-63.mjs` | The probe that produced it — **creates contacts, assigns passes, books and cancels** |
+| `97-events-by-id.md` | [#97](https://github.com/urbanjungleirc/staff-site/issues/97) — **no**, `GET /events/:id` is not a route: a flat `404 "Not Found"` for a real id and an invented one alike, so #67's paste-the-id fallback cannot work |
+| `run-97.mjs` | The probe that produced it — read-only, 4 reads |
 
 A file's number is the issue it answers, so `63-member-creation.md` belongs to
 [#63](https://github.com/urbanjungleirc/staff-site/issues/63). That ticket's own
@@ -57,6 +59,11 @@ node probes/run-63.mjs --dry-run     # the plan and every request, zero network
 node probes/run-63.mjs               # read-only: what exists already, and the plan lookup
 node probes/run-63.mjs --event=<id> --write  # ⚠️ creates up to 2 PERMANENT contacts + 2 passes
 node probes/run-63.mjs --encoding=form       # force the body shape rather than discovering it
+
+node probes/run-97.mjs --dry-run     # the 4 calls, zero network — and no key needed
+node probes/run-97.mjs               # read-only: is events/:id a route, and what shape
+node probes/run-97.mjs --days=3      # how far ahead to look for one real event (default 14)
+node probes/run-97.mjs --missing-id=<id>     # choose the id that should not exist
 
 npm test                             # the pure logic, no network
 ```
@@ -162,7 +169,22 @@ run-50.mjs        the #50 probe itself — writes and deletes
 run-60.mjs        the #60 probe itself — writes and deletes
 run-63.mjs        the #63 probe itself — creates contacts,
                   assigns passes, books and deletes
+run-97.mjs        the #97 probe itself — read-only
 ```
+
+`run-97.mjs` loads the key **after** its `--dry-run` branch rather than before,
+which is the one place these runners differ. A dry run is what somebody reads
+*before* deciding to point a script at production, and that reader is the one
+least likely to have a key in place yet; the others refuse to describe
+themselves without one.
+
+### `events/:id` does not exist, and `DELETE /bookings/:id` does
+
+The two facts sit next to each other in this directory and they are the reason
+"it works for that resource" is not evidence here. Clubworx addresses bookings
+by path (#60) and does not address events by path (#97) — same API, same
+version, no note of it in the reference. Anything path-addressed that nobody has
+actually completed is unproven, whatever its neighbours do.
 
 The two `../src/` entries are not probe files any more. staff-site#66 promoted
 them into the Worker's own module, because the Worker needs exactly the same URL

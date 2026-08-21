@@ -10,7 +10,8 @@
     "probe:51": "node probes/run-51.mjs",
     "probe:49": "node probes/run-49.mjs",
     "probe:60": "node probes/run-60.mjs",
-    "probe:63": "node probes/run-63.mjs"
+    "probe:63": "node probes/run-63.mjs",
+    "probe:97": "node probes/run-97.mjs"
   },
   "devDependencies": {
     "vitest": "^2.1.0",
