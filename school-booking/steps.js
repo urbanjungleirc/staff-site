@@ -105,9 +105,16 @@ export function countDeclaration({ value, unknown } = {}) {
 // ---------------------------------------------------------------------------
 
 /**
- * Record — or clear — one resolution. Returns a new log; the original is left
- * alone, because Alpine re-renders from the returned value and a mutated
+ * Record — or take back — one resolution. Returns a new log; the original is
+ * left alone, because Alpine re-renders from the returned value and a mutated
  * original would make an undo unobservable.
+ *
+ * **Taking one back leaves a `reverted` entry rather than erasing the key.**
+ * The row goes back to exactly where the parse put it — nothing downstream
+ * treats `reverted` as a resolution — but the log still says the row was
+ * worked on, and that is what the re-declare gate is a question about. Erasing
+ * the key erases the evidence, and the gate then swings shut behind staff who
+ * undo their own edit; see canRedeclare().
  *
  * @param {object} resolutions  the current log
  * @param {number|string} key   a row's first source line, or `list:<kind>`
@@ -116,8 +123,14 @@ export function countDeclaration({ value, unknown } = {}) {
  */
 export function resolve(resolutions, key, action) {
   const next = { ...(resolutions ?? {}) };
-  if (action === null || action === undefined) delete next[key];
-  else next[key] = action;
+  if (action === null || action === undefined) {
+    const previous = next[key];
+    // Nothing to take back means nothing to remember.
+    if (!previous) delete next[key];
+    else next[key] = { kind: 'reverted', was: previous.was ?? previous.kind };
+  } else {
+    next[key] = action;
+  }
   return next;
 }
 
@@ -154,6 +167,21 @@ const noteFor = (flags, needs, fallback) => {
 };
 
 const nameOf = (row) => [row.firstName, row.lastName].filter(Boolean).join(' ').trim();
+
+// The resolution actually in force on a row. `reverted` is a record of what
+// staff did, not a state the row is in.
+const inForce = (entry) => (!entry || entry.kind === 'reverted' ? null : entry.kind);
+
+// Did staff work the rows themselves? The question the re-declare gate asks,
+// answered over the whole log rather than over the current counts — including
+// entries since taken back, because taking an edit back does not un-read the
+// list. Confirming is left out on purpose: it is agreeing with the parser
+// about a row, which tells nobody anything new about how many students there
+// are. Acknowledging a list-level question is not about a row at all.
+const EDIT_KINDS = ['accept', 'dismiss'];
+const rowsWorked = (log) =>
+  Object.entries(log).some(([key, entry]) =>
+    !String(key).startsWith('list:') && EDIT_KINDS.includes(entry.was ?? entry.kind));
 
 // A record built out of a line staff accepted as a student. It is deliberately
 // the same shape as one parse.js emits, down to `compare` — the identity read
@@ -316,7 +344,7 @@ export function review(parsed, { declaration, resolutions } = {}) {
       needs: record.needs.map((need) => ({ ...need })),
       note: record.state === 'clean' ? '' : noteFor(record.flags, record.needs),
       needsHuman: record.state !== 'clean',
-      resolution: log[record.lineNumbers[0]]?.kind ?? null,
+      resolution: inForce(log[record.lineNumbers[0]]),
     })),
     ...errors.map((error) => ({
       key: error.lineNumbers[0],
@@ -331,7 +359,7 @@ export function review(parsed, { declaration, resolutions } = {}) {
       needs: [],
       note: REASON_NOTES[error.reason] ?? REASON_NOTES.unparseable,
       needsHuman: true,
-      resolution: log[error.lineNumbers[0]]?.kind ?? null,
+      resolution: inForce(log[error.lineNumbers[0]]),
     })),
   ].sort((a, b) => a.key - b.key);
 
@@ -370,9 +398,9 @@ export function review(parsed, { declaration, resolutions } = {}) {
         + 'look like this. Fix the rows, or say the count has changed.',
       lineNumbers: [],
       // The escape hatch, offered only when the gate survives it — see
-      // countMoved() below. Carried as data so the markup cannot offer it
+      // canRedeclare() below. Carried as data so the markup cannot offer it
       // ungated by forgetting a condition.
-      actions: countMoved(counts.records, parsed.counts.records)
+      actions: rowsWorked(log)
         ? [{
           key: 'redeclare',
           label: `The count has changed \u2014 make it ${counts.records}`,
@@ -443,9 +471,9 @@ export function review(parsed, { declaration, resolutions } = {}) {
     blockers,
     ready: !blockers.some((b) => b.severity === 'block'),
     declared: gate,
-    // What the parser read before anybody touched it. The re-declare gate is
-    // the only thing that needs it, and it needs it for a reason: see below.
+    // What the parser read before anybody touched it, and whether anybody has.
     recordsParsed: parsed.counts.records,
+    rowsWorked: rowsWorked(log),
   };
 }
 
@@ -525,23 +553,31 @@ const acknowledgement = (kind) => ({
  * Whether the count mismatch may offer a re-declare.
  *
  * Accepting an unreadable line as a student legitimately moves the count, so
- * the mismatch has to be re-answerable — but **only once staff have moved it
- * themselves.** Ungated, that button is a one-click dismissal of the gate P5
- * exists to enforce: staff who cannot make the numbers agree would agree with
- * the parser instead, which is the anchoring the gate's ordering was designed
- * to prevent. The gate must survive its own escape hatch.
+ * the mismatch has to be re-answerable — but **only once staff have edited
+ * rows themselves.** Ungated, that button is a one-click dismissal of the gate
+ * P5 exists to enforce: staff who cannot make the numbers agree would agree
+ * with the parser instead, which is the anchoring the gate's ordering was
+ * designed to prevent. The gate must survive its own escape hatch.
  *
- * The test is the sharpest one available: the record count has moved from what
- * the parser read, and only a resolution can have moved it. Confirming a row
- * does not qualify — nothing about the count changed — and neither does
- * dismissing an unreadable line, which moves a line between two buckets nobody
- * was ever asked to count.
+ * The question is whether staff **worked the rows**, not where the count
+ * currently sits. Two things go wrong when it is tied to the count instead,
+ * and both were found in use:
+ *
+ *   - **It swings shut behind an undo.** Dismiss a row, re-declare to the new
+ *     number, then realise the dismissal was wrong and put the row back: the
+ *     count matches the parse again, the button disappears, and the mismatch
+ *     staff are now stuck on has no way out but re-pasting the whole list.
+ *   - **It rewards dismissing a real student.** Staff who have read the rows
+ *     and concluded the list really is what the parser said cannot unlock the
+ *     button without moving the count — so the only route forward is to drop
+ *     a child who belongs there.
+ *
+ * Confirming a row is still not an edit: it is agreeing with the parser about
+ * one row, which says nothing new about how many students there are.
  */
 export function canRedeclare(reviewed) {
-  return Boolean(reviewed) && countMoved(reviewed.counts.records, reviewed.recordsParsed);
+  return Boolean(reviewed) && reviewed.rowsWorked === true;
 }
-
-const countMoved = (records, recordsParsed) => records !== recordsParsed;
 
 // ---------------------------------------------------------------------------
 // The lines step 3 puts on screen

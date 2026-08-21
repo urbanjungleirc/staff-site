@@ -165,7 +165,7 @@ describe('step 3 — reading the list', () => {
     app.reviewed.blockers.find((b) => b.kind === 'count-mismatch')
       ?.actions.find((a) => a.answers === 'redeclare');
 
-  test('a mismatch blocks, and offers no re-declare until staff move it', async () => {
+  test('a mismatch blocks, and offers no re-declare until staff work the rows', async () => {
     const app = await upToStepThree(component(), { count: '21' });
     expect(app.reviewed.ready).toBe(false);
     // The gate is carried on the blocker rather than tested in the markup, so
@@ -179,6 +179,37 @@ describe('step 3 — reading the list', () => {
     app.answerBlocker(redeclareAction(app));
     expect(app.countValue).toBe('5');
     expect(app.reviewed.ready).toBe(true);
+  });
+
+  test('putting the row back does not strand staff behind the gate', async () => {
+    // Reported in use: the button reappears on every "put it back" except the
+    // last, because the last one returns the count to what the parser read.
+    // The worse version is the same rule one step on — re-declare, then undo,
+    // and the mismatch has no way out but re-pasting the list.
+    const app = await upToStepThree(component(), { count: '21' });
+    app.dismissRow(2);
+    app.dismissRow(3);
+    expect(redeclareAction(app)).toBeDefined();
+
+    app.undoRow(3);
+    expect(redeclareAction(app)).toBeDefined();
+    app.undoRow(2); // the last one back — the count now matches the parse again
+    expect(app.reviewed.counts.records).toBe(6);
+    expect(redeclareAction(app).label).toContain('6');
+  });
+
+  test('a fresh read locks the gate again', async () => {
+    // The log is what remembers the edits, and a new read starts a new one.
+    const app = await upToStepThree(component(), { count: '21' });
+    app.dismissRow(2);
+    expect(redeclareAction(app)).toBeDefined();
+
+    app.go(1);
+    app.rawPaste = SPREADSHEET.replace('Katie', 'Katherine');
+    app.pasteChanged();
+    app.countValue = '21';
+    app.readList();
+    expect(redeclareAction(app)).toBeUndefined();
   });
 
   test('the Back button does not walk around the count gate', async () => {

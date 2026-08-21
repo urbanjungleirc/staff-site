@@ -340,9 +340,10 @@
              move the in-place re-declare refuses, one click further away.
              Editing the paste unlocks it, because that is a different list. -->
         <p x-show="countLocked()" x-cloak
-           class="text-xs text-neutral-500 mt-3 bg-neutral-100 border border-neutral-200 rounded-lg px-3 py-2 inline-block">
-          You have already answered this for this list. Edit the paste to answer it again — or,
-          if fixing the rows changed the number, say so on the next screen.
+           class="text-xs text-sky-900 mt-3 bg-sky-50 border border-sky-200 rounded-lg px-3 py-2 inline-block max-w-2xl">
+          <b>You have already answered this for this list.</b>
+          Edit the paste to answer it again — or, if sorting out the rows changed the number,
+          say so on the next screen.
         </p>
         <p x-show="countUnknown" x-cloak
            class="text-xs text-amber-700 mt-3 bg-amber-50 border border-amber-200 rounded-lg px-3 py-2 inline-block">
@@ -370,6 +371,9 @@
                  :class="countTone()">
               <div class="font-semibold" x-text="countLine()"></div>
               <div class="text-xs mt-1 opacity-90" x-text="reconciliationLine()"></div>
+              <div class="text-xs mt-0.5 opacity-90 font-medium" x-show="reviewed.ready" x-cloak>
+                Every line is accounted for.
+              </div>
             </div>
 
             <!-- The verdict, in plain English, with the override behind it. -->
@@ -485,11 +489,6 @@
                 </div>
               </div>
             </template>
-            </div>
-
-            <div x-show="reviewed.ready" x-cloak
-                 class="rounded-xl bg-emerald-50 border border-emerald-200 text-emerald-800 px-3.5 py-2.5 text-sm mb-2">
-              Every line is accounted for.
             </div>
 
             <!-- ── The rows ─────────────────────────────────────────────── -->

@@ -756,6 +756,28 @@ human fix it" a workflow rather than a dead end.
   edited rows themselves.** Ungated, that button is a one-click dismissal of the
   gate P5 exists to enforce. The gate must survive its own escape hatch.
 
+**Amended on #71: the gate asks whether staff worked the rows, not where the
+count sits.** Built first as "the record count has moved from what the parser
+read" — a tightening of the sentence above, on the reasoning that only a
+resolution can move it. Two faults, both found in use within a day:
+
+- **It swings shut behind an undo.** Dismiss a row, re-declare to the new
+  number, then put the row back: the count matches the parse again, the button
+  disappears, and the mismatch staff are now stuck on has no way out but
+  re-pasting the whole list. The milder daily version is the button reappearing
+  on every "put it back" except the last.
+- **It rewards dismissing a real student.** Staff who have read the rows and
+  concluded the list really is what the parser said cannot unlock the button
+  without moving the count — so the only route forward is to drop a child who
+  belongs there. A gate that makes the destructive action the unlocking one is
+  worse than the anchoring it was guarding against.
+
+So the log remembers a resolution that was taken back, rather than erasing it:
+the row returns to exactly where the parse put it, and the log still says it was
+worked on. Taking an edit back does not un-read the list. **Confirming a row
+still does not count** — that is agreeing with the parser about one row, which
+says nothing new about how many students there are.
+
 ### The preview table
 
 Three columns, one per state axis:
