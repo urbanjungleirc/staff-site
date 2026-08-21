@@ -826,7 +826,7 @@
         <div class="flex items-end gap-3 flex-wrap mb-4">
           <div class="block">
             <span class="field-label">First session on or after</span>
-            <div class="dp-anchor" @click.outside="closeDatePicker()">
+            <div class="dp-anchor">
               <button type="button" class="dp-field"
                       :aria-expanded="datePicker === 'from' ? 'true' : 'false'"
                       aria-haspopup="dialog"
@@ -838,7 +838,9 @@
               </button>
 
               <div class="dp-dropdown" x-show="datePicker === 'from'" x-cloak
-                   role="dialog" aria-label="Choose the first date to search from">
+                   role="dialog" aria-label="Choose the first date to search from"
+                   @click.outside="closeDatePicker('from')"
+                   @keydown.escape.window="closeDatePicker('from')">
                 <div class="dp-header">
                   <button type="button" class="dp-nav" aria-label="Previous month"
                           @click="stepMonth(-1)">&#8592;</button>
@@ -865,7 +867,7 @@
           </div>
           <div class="block">
             <span class="field-label">Last session on or before</span>
-            <div class="dp-anchor" @click.outside="closeDatePicker()">
+            <div class="dp-anchor">
               <button type="button" class="dp-field"
                       :aria-expanded="datePicker === 'to' ? 'true' : 'false'"
                       aria-haspopup="dialog"
@@ -877,7 +879,9 @@
               </button>
 
               <div class="dp-dropdown" x-show="datePicker === 'to'" x-cloak
-                   role="dialog" aria-label="Choose the last date to search to">
+                   role="dialog" aria-label="Choose the last date to search to"
+                   @click.outside="closeDatePicker('to')"
+                   @keydown.escape.window="closeDatePicker('to')">
                 <div class="dp-header">
                   <button type="button" class="dp-nav" aria-label="Previous month"
                           @click="stepMonth(-1)">&#8592;</button>
@@ -1734,7 +1738,16 @@ function schoolBooking() {
       this.dpMonth = on?.month ?? new Date().getMonth();
     },
 
-    closeDatePicker() {
+    // `which` is not decoration. There are two pickers, so "outside" is a
+    // different region for each — and a handler that closed *whichever* was
+    // open would shut the one just opened by a click on the other's trigger.
+    // That is exactly the bug this replaced: clicking From ran To's
+    // outside-handler, and the picker opened and closed on the same click.
+    //
+    // Called with no argument it closes whatever is open, which is what
+    // picking a day and toggling want.
+    closeDatePicker(which) {
+      if (which && this.datePicker !== which) return;
       this.datePicker = null;
     },
 

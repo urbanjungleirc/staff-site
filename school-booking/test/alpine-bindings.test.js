@@ -221,6 +221,43 @@ describe('school-booking.html', () => {
     }
   });
 
+  test('no two always-present outside-handlers close the same thing', () => {
+    // The fault this catches, found in use on #106: the two date pickers each
+    // had `@click.outside="closeDatePicker()"` on their own always-present
+    // wrapper. Clicking the From trigger is *outside* the To wrapper, so To's
+    // handler fired and shut the picker From had just opened — the picker
+    // opened and closed on the same click, and nothing threw.
+    //
+    // Like the `x-show="b.fix"` bug above, this is invisible to a component
+    // test: `toggleDatePicker` and `closeDatePicker` are both correct on their
+    // own, and only their wiring is wrong. So it is checked as text.
+    //
+    // The rule: an outside-handler must sit on the element it hides — `x-show`
+    // gives it no size when shut, and Alpine skips an outside-handler on a
+    // zero-size element, so a closed control has no live handler to fire on a
+    // click meant for another. The column chips already do this. A handler on
+    // an always-present wrapper is only safe when it is alone in what it
+    // closes.
+    const handlers = [...html.matchAll(/<(\w+)((?:[^>]|\n)*?@click\.outside="([^"]*)"(?:[^>]|\n)*?)>/g)]
+      .map(([, tag, attrs, expr]) => ({
+        tag,
+        expr,
+        conditional: attrs.includes('x-show') || attrs.includes('x-if'),
+      }));
+    expect(handlers.length, 'the page has outside-handlers to check').toBeGreaterThan(0);
+
+    const unconditional = handlers.filter((h) => !h.conditional);
+    for (const handler of unconditional) {
+      const sharing = handlers.filter((h) => h.expr === handler.expr).length;
+      expect(
+        sharing,
+        `\`@click.outside="${handler.expr}"\` sits on an element with no x-show/x-if and is `
+        + 'not alone — each copy fires on a click inside the other, so they close each other. '
+        + 'Move it onto the element the control hides, as the column chips do.',
+      ).toBe(1);
+    }
+  });
+
   test('the page is not reachable from the hub yet', () => {
     // §17: the hub entry is the last step of #46, and it is what makes every
     // earlier step visible to staff. Landing it early ships a half-built tool
