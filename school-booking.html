@@ -809,18 +809,29 @@ function schoolBooking() {
     // re-read is a list nobody chose.
     override(patch) {
       this.parseOptions = { ...this.parseOptions, ...patch };
-      // Resolutions are keyed by source line, which survives a re-parse of the
-      // same paste — so they are deliberately kept. A staff member who fixes
-      // the column mapping has not un-dismissed the teacher they dismissed.
-      this.expandedRow = null;
-      this.chipMenu = null;
-      this.reparse();
+      this.reread();
     },
 
     clearOverrides() {
       this.parseOptions = {};
+      this.reread();
+    },
+
+    reread() {
       this.expandedRow = null;
       this.chipMenu = null;
+      // Resolutions are keyed by source line, which survives a re-parse of the
+      // same paste — so they are deliberately kept. A staff member who fixed
+      // the column mapping has not un-dismissed the teacher they dismissed.
+      //
+      // Edit buffers are NOT. They were seeded from the rows the *previous*
+      // read produced, and `syncDrafts` only fills the gaps — so a buffer that
+      // outlived its parse would hand the confirm button the pre-override
+      // names and quietly undo the override for that one row. Nothing would
+      // error and the row would look confirmed. Cleared here so they re-seed
+      // from what is actually on screen; an acceptance already made keeps its
+      // values, because those live in the resolution rather than the buffer.
+      this.drafts = {};
       this.reparse();
     },
 

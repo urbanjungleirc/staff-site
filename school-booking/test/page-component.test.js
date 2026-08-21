@@ -252,6 +252,40 @@ describe('step 3 — the overrides', () => {
     expect(app.reviewed.blockers.some((b) => b.kind === 'refusal')).toBe(false);
   });
 
+  test('an override drops the edit buffers, so confirm cannot undo it', async () => {
+    // The buffers were seeded from the rows the *previous* read produced. One
+    // that outlived its parse would hand the confirm button the pre-override
+    // names — quietly reverting the swap for that one row, with nothing thrown
+    // and the row looking confirmed.
+    const app = await upToStepThree(component());
+    expect(app.draftFor(2)).toMatchObject({ firstName: 'Katie', lastName: 'Fernsby' });
+
+    app.swapNames();
+    expect(app.draftFor(2)).toMatchObject({ firstName: 'Fernsby', lastName: 'Katie' });
+
+    app.confirmRow(2);
+    expect(app.reviewed.rows[0]).toMatchObject({ firstName: 'Fernsby', lastName: 'Katie' });
+  });
+
+  test('an acceptance survives an override — it lives in the resolution, not the buffer', async () => {
+    const app = await upToStepThree(component(), {
+      text: [
+        ['First name', 'Surname', 'DOB'].join('\t'),
+        ['Katie', 'Fernsby', '23/4/2010'].join('\t'),
+        'Otto Brennan born 4 March 2011',
+      ].join('\n'),
+      count: '2',
+    });
+    Object.assign(app.draftFor(3), { firstName: 'Otto', lastName: 'Brennan', dob: '4/3/2011' });
+    app.acceptRow(3);
+    expect(app.reviewed.counts.records).toBe(2);
+
+    app.swapNames();
+    expect(app.reviewed.rows.find((r) => r.key === 3)).toMatchObject({
+      bucket: 'record', firstName: 'Otto', lastName: 'Brennan',
+    });
+  });
+
   test('an override keeps the resolutions — the source lines did not move', async () => {
     const app = await upToStepThree(component());
     app.dismissRow(2);
