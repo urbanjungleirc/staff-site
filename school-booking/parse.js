@@ -354,6 +354,17 @@ function detectVertical(seq, strict) {
   return { blockSize: gap, start, blocks, dobPos: firstHit - start };
 }
 
+// A forced block size is taken from the first non-blank line. Finding an offset
+// is the anchor's job, and a staff member reaching for this override is saying
+// the anchor was wrong — so it does not get a second vote on where the list
+// starts. Whole blocks only; the remainder is a truncated paste, which is the
+// count gate's business (P5) rather than this function's.
+function forcedVertical(seq, blockSize) {
+  const blocks = Math.floor(seq.length / blockSize);
+  if (blocks < 1) return null;
+  return { blockSize, start: 0, blocks, dobPos: null };
+}
+
 // ---------------------------------------------------------------------------
 // P6 — columns mapped content-first
 // ---------------------------------------------------------------------------
@@ -443,6 +454,33 @@ function mapColumns(dataRows, width, dobCol, header) {
   return null;
 }
 
+// P6's chips, read back. A chip labelled "First name" is also the answer to
+// P7's order question — naming the columns and then asking which order they are
+// in would ask staff the same thing twice and let the two answers disagree.
+function readColumnOverride(columns, width) {
+  if (!columns || typeof columns !== 'object') return { ok: true, override: null };
+
+  const at = (value) => (value === null || value === undefined ? null : value);
+  const picked = {
+    dob: at(columns.dob),
+    firstName: at(columns.firstName),
+    lastName: at(columns.lastName),
+    combined: at(columns.combined),
+  };
+
+  const named = Object.values(picked).filter((c) => c !== null);
+  if (named.length === 0) return { ok: true, override: null };
+  if (named.some((c) => !Number.isInteger(c) || c < 0 || c >= width)) return { ok: false };
+  // One column cannot be two fields, and a combined name column is the whole
+  // name — naming it alongside a first or last is a contradiction, not a
+  // preference this could resolve either way.
+  if (new Set(named).size !== named.length) return { ok: false };
+  if (picked.combined !== null && (picked.firstName !== null || picked.lastName !== null)) {
+    return { ok: false };
+  }
+  return { ok: true, override: picked };
+}
+
 function columnLabel(header, index) {
   const named = header && String(header[index] ?? '').trim();
   return named || `Column ${index + 1}`;
@@ -530,6 +568,11 @@ const REFUSALS = {
   'date-orientation-contradiction':
     'This list contains dates that prove both day/month and month/day, so it cannot be read '
     + 'safely.',
+  // An override out of range is a bug in the caller, not a property of the
+  // paste — the values come from the page's own chips. It refuses rather than
+  // falling back, because reading a different column than the chip names would
+  // write a permanent wrong contact with nothing on screen disagreeing.
+  'override-out-of-range': 'The layout or column override does not describe this list.',
 };
 
 const refusal = (code, extra = {}) => ({ code, message: REFUSALS[code], ...extra });
@@ -542,14 +585,29 @@ const refusal = (code, extra = {}) => ({ code, message: REFUSALS[code], ...extra
  * @param {Object<number, number>} [options.nameSplits]  answers to the P8
  *        per-row question: first source line number → chosen split point
  * @param {string} [options.eventDate]  ISO date, enables the P13 age band
+ * @param {'horizontal'|'vertical'} [options.layout]  overrides the detected
+ *        layout — P4's one-click verdict override (#71)
+ * @param {number} [options.blockSize]  fields per student, when the layout is
+ *        forced vertical. Omitted, the DOB anchor still finds it.
+ * @param {object} [options.columns]  overrides the content-first mapping —
+ *        P6's three swappable chips (#71). `{dob, firstName, lastName,
+ *        combined}`, each a column index; omit one to keep what was inferred.
  *
  * Every question this module raises in `needs` has an option above that answers
- * it. Layout and column overrides deliberately do not: those are inferences
- * with a UI affordance rather than questions, and their shape belongs to #71.
+ * it. The layout and column overrides are the other kind — inferences this
+ * module has already answered, which the page's affordances (#71) exist to
+ * contradict. They are obeyed literally, including where the inference was
+ * right: an override the parser may discard when it disagrees is not an
+ * override, and a staff member watching the verdict stay the same after
+ * clicking cannot tell a rejected override from a broken button.
  */
 export function parseStudentList(text, options = {}) {
   const nameOrder = options.nameOrder === 'last-first' ? 'last-first' : 'first-last';
   const nameSplits = options.nameSplits ?? {};
+  const layoutOverride =
+    options.layout === 'vertical' || options.layout === 'horizontal' ? options.layout : null;
+  const blockSizeOverride =
+    options.blockSize === null || options.blockSize === undefined ? null : options.blockSize;
   const lines = splitLines(text);
   const delimiter = detectDelimiter(lines);
 
@@ -586,6 +644,13 @@ export function parseStudentList(text, options = {}) {
       extras: {},
     });
 
+  // A block size below two cannot hold a name and a date, so it describes no
+  // list at all. Checked here rather than clamped: a clamp would read the list
+  // some other way and call it the caller's choice.
+  if (blockSizeOverride !== null && (!Number.isInteger(blockSizeOverride) || blockSizeOverride < 2)) {
+    return bail('override-out-of-range');
+  }
+
   if (filled.length === 0) {
     return finish({
       lines,
@@ -606,7 +671,7 @@ export function parseStudentList(text, options = {}) {
   const counts = new Map();
   for (const c of filled) counts.set(c.fields.length, (counts.get(c.fields.length) ?? 0) + 1);
   const modalWidth = modalCount([...counts.entries()]);
-  const vertical = modalWidth === 1;
+  const vertical = layoutOverride ? layoutOverride === 'vertical' : modalWidth === 1;
 
   let rows; // { fields, lineNumbers }
   let header = null;
@@ -618,8 +683,10 @@ export function parseStudentList(text, options = {}) {
     // whole line, and where a stray delimiter split one, the remainder is not
     // part of the repeating block.
     const seq = filled.map((c) => ({ value: c.fields[0], n: c.n }));
-    const shape = detectVertical(seq, true) || detectVertical(seq, false);
-    if (!shape) return bail('layout-not-held');
+    const shape = blockSizeOverride
+      ? forcedVertical(seq, blockSizeOverride)
+      : detectVertical(seq, true) || detectVertical(seq, false);
+    if (!shape) return bail(blockSizeOverride ? 'override-out-of-range' : 'layout-not-held');
 
     blockSize = shape.blockSize;
     width = blockSize;
@@ -655,8 +722,16 @@ export function parseStudentList(text, options = {}) {
   // --- the DOB anchor ----------------------------------------------------
   // Strict first, so a list that has a real date column is never anchored on a
   // five-digit integer column that happens to look like Excel serials.
+  const { ok: overrideOk, override } = readColumnOverride(options.columns, width);
+  if (!overrideOk) return bail('override-out-of-range');
+
+  // A named DOB column narrows what counts as a data row to that one column.
+  // It has to: naming it is how staff resolve `dob-column-ambiguous`, and
+  // "any field is date-shaped" would still see both columns and still refuse.
   const dateBearing = (strict) =>
-    rows.filter((row) => row.fields.some((f) => isDateShaped(f, { strict })));
+    override?.dob !== null && override?.dob !== undefined
+      ? rows.filter((row) => isDateShaped(row.fields[override.dob], { strict }))
+      : rows.filter((row) => row.fields.some((f) => isDateShaped(f, { strict })));
 
   let strict = true;
   let dataRows = dateBearing(true);
@@ -666,13 +741,18 @@ export function parseStudentList(text, options = {}) {
   }
   if (dataRows.length === 0) return bail('no-dob-column');
 
-  const dateCols = [];
-  for (let c = 0; c < width; c++) {
-    if (dataRows.every((row) => isDateShaped(row.fields[c], { strict }))) dateCols.push(c);
+  let dobCol;
+  if (override?.dob !== null && override?.dob !== undefined) {
+    dobCol = override.dob;
+  } else {
+    const dateCols = [];
+    for (let c = 0; c < width; c++) {
+      if (dataRows.every((row) => isDateShaped(row.fields[c], { strict }))) dateCols.push(c);
+    }
+    if (dateCols.length === 0) return bail('no-dob-column');
+    if (dateCols.length > 1) return bail('dob-column-ambiguous', { columns: dateCols });
+    dobCol = dateCols[0];
   }
-  if (dateCols.length === 0) return bail('no-dob-column');
-  if (dateCols.length > 1) return bail('dob-column-ambiguous', { columns: dateCols });
-  const dobCol = dateCols[0];
 
   // --- non-data lines, classified by position (P9) ------------------------
   if (!vertical) {
@@ -707,11 +787,55 @@ export function parseStudentList(text, options = {}) {
         errors.push({ lineNumbers: [cell.n], text: cell.raw, reason: 'unparseable' });
       }
     }
+  } else {
+    // The same positional rule, for whole blocks. The anchor cannot produce a
+    // dateless block — a constant stride of date-shaped lines is what it
+    // measures — but a forced block size (#71) can put the header or a
+    // trailing note inside one, and a block that is neither a record nor a
+    // bucket is a line dropped, which is the one thing P1 forbids.
+    const dataBlocks = new Set(dataRows);
+    const firstDataAt = rows.indexOf(dataRows[0]);
+    rows.forEach((row, i) => {
+      if (dataBlocks.has(row)) return;
+      const before = i < firstDataAt;
+      if (before && header === null) header = row.fields;
+      const reason = before ? (header === row.fields ? 'header' : 'junk') : 'unparseable';
+      row.fields.forEach((value, k) => {
+        (before ? ignored : errors).push({
+          lineNumbers: [row.lineNumbers[k]],
+          text: value,
+          reason,
+        });
+      });
+    });
   }
 
   // --- column mapping (P6) ------------------------------------------------
-  const mapping = mapColumns(dataRows, width, dobCol, header);
+  const namesOverridden =
+    override !== null
+    && (override.firstName !== null || override.lastName !== null || override.combined !== null);
+
+  // The override replaces the mapping rather than patching it. Half an inferred
+  // mapping beside half a named one is a state nobody chose: swapping the two
+  // name chips would leave the inferred `lastName` sitting under the column the
+  // caller just named `firstName`, and both would be written.
+  const mapping = namesOverridden
+    ? {
+      firstName: override.firstName,
+      lastName: override.lastName,
+      combined: override.combined,
+      // Naming the columns answers P7 as well; see readColumnOverride.
+      nameOrderKnown: override.combined === null,
+      firstNameIsPreferred:
+        override.firstName !== null && header ? isPreferredLabel(header[override.firstName]) : false,
+    }
+    : mapColumns(dataRows, width, dobCol, header);
   if (!mapping) return bail('no-name-columns');
+  // A named pair with one half missing names no columns at all: the row loop
+  // would read `undefined` as a name and write a student with a blank surname.
+  if (namesOverridden && mapping.combined === null && (mapping.firstName === null || mapping.lastName === null)) {
+    return bail('override-out-of-range');
+  }
 
   const usedCols = new Set(
     [dobCol, mapping.firstName, mapping.lastName, mapping.combined].filter(
