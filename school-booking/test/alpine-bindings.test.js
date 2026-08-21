@@ -39,16 +39,21 @@ const html = readFileSync(PAGE, 'utf8');
 // is *supposed* to be called from. Everything else — x-show, x-if, x-text,
 // x-html, x-model, x-init, x-effect, x-for and every `:attr` binding — is
 // evaluated on render.
-const DIRECTIVE = /(?:^|\s)(x-(?!on:)[a-z][a-z-]*|:[a-zA-Z][\w:-]*)\s*=\s*"([^"]*)"/g;
+const DIRECTIVE = /(?:^|\s)(x-(?!on:)[a-z][a-z-]*|:[a-zA-Z][\w:-]*)\s*=\s*(?:"([^"]*)"|'([^']*)')/g;
 
 // Strings inside an expression are data, not references. Stripped so that
-// `x-text="'review'"` is not read as a reference to `review`.
+// `x-text="'review'"` is not read as a reference to `review`. Double quotes
+// cannot appear inside a double-quoted attribute, so single and template
+// quotes are the two that matter.
 const withoutStrings = (expression) => expression.replace(/'[^']*'/g, "''").replace(/`[^`]*`/g, '``');
 
 function directives(source) {
   const found = [];
-  for (const [, name, expression] of source.matchAll(DIRECTIVE)) {
-    found.push({ name, expression });
+  for (const [, name, doubled, singled] of source.matchAll(DIRECTIVE)) {
+    // Both quote styles. A guard that reads only `x-show="…"` is one
+    // apostrophe away from seeing nothing at all, which is the failure mode a
+    // static check has to be built against.
+    found.push({ name, expression: doubled ?? singled ?? '' });
   }
   return found;
 }
@@ -93,6 +98,64 @@ describe('the guard can see what it is guarding', () => {
     expect(offendersIn(directives('<div @click="b.review()">x</div>'))).toHaveLength(0);
     expect(offendersIn(directives('<div x-show="b.review()">x</div>'))).toHaveLength(0);
   });
+
+  test('it reads single-quoted attributes too', () => {
+    expect(offendersIn(directives("<div x-show='b.review'>x</div>"))).toHaveLength(1);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// The other half of the guard
+// ---------------------------------------------------------------------------
+// The check above catches a *name* the page publishes as a function. The bug it
+// was written for was `b.fix` — a function on a plain data object, which a text
+// check can only see if the property name happens to collide with one of those
+// names. Nothing static closes that.
+//
+// What closes it is the other end: every object an Alpine directive on this
+// page can reach comes out of `review()`. So if nothing in a review is ever a
+// function, there is nothing for a directive to invoke by accident, whatever it
+// is named. That is an invariant rather than a pattern match, and it is checked
+// here over the whole structure rather than one level of `blockers`.
+
+function functionsIn(value, path = '$', seen = new WeakSet()) {
+  if (typeof value === 'function') return [path];
+  if (value === null || typeof value !== 'object') return [];
+  if (seen.has(value)) return [];
+  seen.add(value);
+  return Object.entries(value).flatMap(([key, child]) =>
+    functionsIn(child, `${path}.${key}`, seen));
+}
+
+describe('nothing a review returns is ever a function', () => {
+  const fixture = (name) =>
+    readFileSync(new URL(`../../docs/school-lists/${name}`, import.meta.url), 'utf8');
+
+  const cases = {
+    'a clean list': [fixture('fixture-2-spreadsheet.tsv'), {}, {}],
+    'a vertical list': [fixture('fixture-1-vertical.txt'), {}, {}],
+    'a refused list': [['Katie\tFernsby\t23/4/2010\t1/2/2024'].join('\n'), {}, {}],
+    'a list with an unreadable line': [
+      ['First name\tSurname\tDOB', 'Katie\tFernsby\t23/4/2010', 'and Otto too'].join('\n'), {}, {},
+    ],
+    'a list with rows resolved': [
+      ['First name\tSurname\tDOB', 'Katie\tFernsby\t23/4/2010', 'and Otto too'].join('\n'),
+      { 3: { kind: 'dismiss' } }, {},
+    ],
+    'a list mid-question': [
+      ['Katie\tFernsby\t3/4/2010', 'Tomas\tOakhill\t7/11/2010'].join('\n'), {}, {},
+    ],
+  };
+
+  for (const [name, [text, resolutions, options]] of Object.entries(cases)) {
+    test(name, () => {
+      const reviewed = steps.review(parser.parseStudentList(text, options), {
+        declaration: steps.countDeclaration({ value: '3' }),
+        resolutions,
+      });
+      expect(functionsIn(reviewed)).toEqual([]);
+    });
+  }
 });
 
 function offendersIn(list) {
@@ -121,11 +184,24 @@ describe('school-booking.html', () => {
     expect(offenders, `\n${detail}\n`).toHaveLength(0);
   });
 
-  test('the two gate modules are imported with a cache-busting version', () => {
+  test('every module in the page\'s import chain is version-busted', () => {
     // A stale cached copy of a gate module breaks every check on the page at
     // once and in silence — the one failure the ?v= exists to prevent.
     expect(html).toMatch(/import \* as parser from '\.\/school-booking\/parse\.js\?v=\d+'/);
     expect(html).toMatch(/import \* as steps from '\.\/school-booking\/steps\.js\?v=\d+'/);
+
+    // Including the imports *inside* those modules. A specifier is a URL, so an
+    // unversioned `./parse.js` in steps.js is a second module the page's bump
+    // never reaches — leaving the file that holds every gate running against a
+    // parser the page has already moved on from.
+    const stepsSource = readFileSync(new URL('../steps.js', import.meta.url), 'utf8');
+    expect(stepsSource).not.toMatch(/from '\.\/parse\.js'/);
+
+    // And at the same version, or the page loads the parser twice.
+    const pageVersion = html.match(/school-booking\/parse\.js\?v=(\d+)/)[1];
+    const stepsVersion = stepsSource.match(/from '\.\/parse\.js\?v=(\d+)'/)[1];
+    expect(stepsVersion, 'bump parse.js\'s ?v= in the page and in steps.js together')
+      .toBe(pageVersion);
   });
 
   test('the page is not reachable from the hub yet', () => {

@@ -295,6 +295,19 @@ function splitFields(raw, delimiter) {
   return fields;
 }
 
+/**
+ * How many lines a paste holds, by the same rule `counts.lines` uses.
+ *
+ * Exported because the page needs it *before* a parse — the count gate is
+ * answered first (P5) — and a second implementation of this would put a line
+ * count on step 2 that disagrees with the one on step 3. Two numbers for one
+ * thing, differing in the trailing-newline case, on the screen whose whole job
+ * is making counts agree.
+ */
+export function countLines(text) {
+  return splitLines(text).length;
+}
+
 function modalCount(counts) {
   let best = 0;
   let bestN = 0;
@@ -452,6 +465,29 @@ function mapColumns(dataRows, width, dobCol, header) {
     };
   }
   return null;
+}
+
+/**
+ * Is this a complete, usable column mapping? The rule the parser enforces and
+ * the page's chips have to obey, in one place — the page validates before it
+ * sends, because the parser refusing an override is correct but reads to staff
+ * as a broken chip, and two copies of this rule would drift apart silently.
+ *
+ * @param {{dob, firstName, lastName, combined}} columns  column indices
+ * @param {number} width  how many columns the list has
+ */
+export function usableColumns(columns, width) {
+  if (!columns) return false;
+  const named = [columns.dob, columns.firstName, columns.lastName, columns.combined]
+    .filter((c) => c !== null && c !== undefined);
+  if (named.some((c) => !Number.isInteger(c) || c < 0 || c >= width)) return false;
+  if (new Set(named).size !== named.length) return false;
+  if (!Number.isInteger(columns.dob)) return false;
+  const combined = Number.isInteger(columns.combined);
+  const pair = Number.isInteger(columns.firstName) && Number.isInteger(columns.lastName);
+  // Exactly one name shape: one column holding the whole name, or two holding
+  // its halves. Neither names no columns at all; both is a contradiction.
+  return combined !== pair;
 }
 
 // P6's chips, read back. A chip labelled "First name" is also the answer to
@@ -728,9 +764,12 @@ export function parseStudentList(text, options = {}) {
   // A named DOB column narrows what counts as a data row to that one column.
   // It has to: naming it is how staff resolve `dob-column-ambiguous`, and
   // "any field is date-shaped" would still see both columns and still refuse.
+  // `at()` in readColumnOverride already normalised an omitted role to null, so
+  // null is the only "not named" this has to test for.
+  const overriddenDob = override?.dob ?? null;
   const dateBearing = (strict) =>
-    override?.dob !== null && override?.dob !== undefined
-      ? rows.filter((row) => isDateShaped(row.fields[override.dob], { strict }))
+    overriddenDob !== null
+      ? rows.filter((row) => isDateShaped(row.fields[overriddenDob], { strict }))
       : rows.filter((row) => row.fields.some((f) => isDateShaped(f, { strict })));
 
   let strict = true;
@@ -742,8 +781,8 @@ export function parseStudentList(text, options = {}) {
   if (dataRows.length === 0) return bail('no-dob-column');
 
   let dobCol;
-  if (override?.dob !== null && override?.dob !== undefined) {
-    dobCol = override.dob;
+  if (overriddenDob !== null) {
+    dobCol = overriddenDob;
   } else {
     const dateCols = [];
     for (let c = 0; c < width; c++) {
@@ -798,8 +837,9 @@ export function parseStudentList(text, options = {}) {
     rows.forEach((row, i) => {
       if (dataBlocks.has(row)) return;
       const before = i < firstDataAt;
-      if (before && header === null) header = row.fields;
-      const reason = before ? (header === row.fields ? 'header' : 'junk') : 'unparseable';
+      const isHeader = before && header === null;
+      if (isHeader) header = row.fields;
+      const reason = before ? (isHeader ? 'header' : 'junk') : 'unparseable';
       row.fields.forEach((value, k) => {
         (before ? ignored : errors).push({
           lineNumbers: [row.lineNumbers[k]],
@@ -831,11 +871,11 @@ export function parseStudentList(text, options = {}) {
     }
     : mapColumns(dataRows, width, dobCol, header);
   if (!mapping) return bail('no-name-columns');
-  // A named pair with one half missing names no columns at all: the row loop
-  // would read `undefined` as a name and write a student with a blank surname.
-  if (namesOverridden && mapping.combined === null && (mapping.firstName === null || mapping.lastName === null)) {
-    return bail('override-out-of-range');
-  }
+  // An inferred mapping is usable by construction, so this only ever fires on
+  // an override — a named pair with one half missing names no columns at all,
+  // and the row loop would read `undefined` as a name and write a student with
+  // a blank surname.
+  if (!usableColumns({ ...mapping, dob: dobCol }, width)) return bail('override-out-of-range');
 
   const usedCols = new Set(
     [dobCol, mapping.firstName, mapping.lastName, mapping.combined].filter(
@@ -845,6 +885,17 @@ export function parseStudentList(text, options = {}) {
   const ignoredColumns = [];
   for (let c = 0; c < width; c++) {
     if (!usedCols.has(c)) ignoredColumns.push({ index: c, label: columnLabel(header, c) });
+  }
+
+  // Which columns hold a name in *every* record row. Emitted because P6's chips
+  // otherwise have to guess: a page moving a combined name back to two columns
+  // has to name a second column, and the only alternative to this list is
+  // picking the next free index — which is how `Email` or `YearLevel` becomes
+  // somebody's permanent surname, obeyed literally and with nothing to
+  // disagree with it.
+  const nameShapedColumns = [];
+  for (let c = 0; c < width; c++) {
+    if (dataRows.every((row) => isNameShaped(row.fields[c]))) nameShapedColumns.push(c);
   }
 
   // --- date orientation, once for the whole list (P11) --------------------
@@ -1030,6 +1081,7 @@ export function parseStudentList(text, options = {}) {
         firstNameIsPreferred: mapping.firstNameIsPreferred,
       },
       ignoredColumns,
+      nameShapedColumns,
       dateOrientation: {
         value: orientation,
         basis: orientationBasis,
@@ -1110,6 +1162,7 @@ function finish({ lines, layout, records, ignored, errors, refusalValue, extras 
     verdict: '',
     columns: null,
     ignoredColumns: [],
+    nameShapedColumns: [],
     dateOrientation: null,
     nameOrder: 'first-last',
     needs: [],

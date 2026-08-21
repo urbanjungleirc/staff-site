@@ -33,7 +33,17 @@
 // re-parse of the same paste (parse.js keys its own `nameSplits` answers the
 // same way), or by `list:<kind>` for a question about the whole list.
 
-import { compareForm, readDate, writeForm } from './parse.js';
+// The `?v=` is not decoration here and is not optional. A module specifier is
+// a URL: `parse.js` and `parse.js?v=1` are two different modules to a browser,
+// so an unversioned import here would (a) instantiate a second copy of the
+// parser beside the page's, and (b) never be invalidated by bumping the page's
+// `?v=` — leaving this module, which holds every gate, running against a
+// cached parser the page has already moved on from. That is exactly the
+// "breaks every check simultaneously and silently" failure §16 names.
+//
+// Bump this in lockstep with school-booking.html. alpine-bindings.test.js
+// fails if the two ever disagree.
+import { compareForm, readDate, writeForm } from './parse.js?v=1';
 
 const DOMAIN = 'urbanjungleirc.com';
 
@@ -206,6 +216,7 @@ export function review(parsed, { declaration, resolutions } = {}) {
         title: 'This list cannot be read safely',
         detail: parsed.refusal.message,
         lineNumbers: [],
+        actions: [],
       }],
       ready: false,
       reconciled: parsed.counts.reconciled,
@@ -335,6 +346,7 @@ export function review(parsed, { declaration, resolutions } = {}) {
       title: 'The line counts do not add up',
       detail: `${counts.accounted} of ${counts.lines} pasted lines are accounted for.`,
       lineNumbers: [],
+      actions: [],
     });
   }
 
@@ -346,6 +358,7 @@ export function review(parsed, { declaration, resolutions } = {}) {
       title: `We read ${plural(counts.records, 'student')}`,
       detail: 'Nobody has said how many there should be, so nothing is checking this number.',
       lineNumbers: [],
+      actions: [],
     });
   } else if (gate.ready && gate.count !== counts.records) {
     blockers.push({
@@ -356,6 +369,17 @@ export function review(parsed, { declaration, resolutions } = {}) {
       detail: 'A layout read wrong, a header absorbed as a student or a truncated paste all '
         + 'look like this. Fix the rows, or say the count has changed.',
       lineNumbers: [],
+      // The escape hatch, offered only when the gate survives it — see
+      // countMoved() below. Carried as data so the markup cannot offer it
+      // ungated by forgetting a condition.
+      actions: countMoved(counts.records, parsed.counts.records)
+        ? [{
+          key: 'redeclare',
+          label: `The count has changed \u2014 make it ${counts.records}`,
+          answers: 'redeclare',
+          value: counts.records,
+        }]
+        : [],
     });
   }
 
@@ -369,6 +393,7 @@ export function review(parsed, { declaration, resolutions } = {}) {
       detail: 'Each sits after a real student, so each may be one. Give it a name and a '
         + 'birthday, or say it is not a student.',
       lineNumbers: unreadable.flatMap((row) => row.lineNumbers),
+      actions: [],
     });
   }
 
@@ -381,6 +406,7 @@ export function review(parsed, { declaration, resolutions } = {}) {
       title: `${plural(wanting.length, 'row')} needs you`,
       detail: wanting.map((row) => nameOf(row) || `line ${row.key}`).join(', '),
       lineNumbers: wanting.flatMap((row) => row.lineNumbers),
+      actions: [],
     });
   }
 
@@ -408,6 +434,9 @@ export function review(parsed, { declaration, resolutions } = {}) {
     verdict: parsed.verdict,
     columns: parsed.columns,
     ignoredColumns: parsed.ignoredColumns,
+    // Which columns hold a name in every row. The chips need it to move a
+    // combined name back onto two columns without guessing which one.
+    nameShapedColumns: parsed.nameShapedColumns,
     dateOrientation: parsed.dateOrientation,
     nameOrder: parsed.nameOrder,
     reconciled: counts.reconciled,
@@ -421,16 +450,32 @@ export function review(parsed, { declaration, resolutions } = {}) {
 }
 
 function listBlocker(need, parsed) {
-  const base = { key: `list:${need.kind}`, kind: need.kind, severity: 'block', lineNumbers: [] };
+  const base = {
+    key: `list:${need.kind}`, kind: need.kind, severity: 'block', lineNumbers: [], actions: [],
+  };
   if (need.kind === 'name-order') {
+    // Both readings, side by side. P7 asks for the samples "read both ways" and
+    // the reason is the whole rule: shown in list order alone, staff reverse it
+    // in their heads, which is the guess this exists to remove. A reversed
+    // contact is permanent and nothing downstream would notice.
     const shown = (need.samples ?? [])
-      .map((sample) => sample.values.join(' '))
+      .map((sample) => {
+        const values = sample.values ?? [];
+        const forward = values.join(' ');
+        const reversed = [...values].reverse().join(' ');
+        return forward === reversed ? forward : `${forward} / ${reversed}`;
+      })
       .join(' · ');
     return {
       ...base,
       title: 'Which way round are the names?',
-      detail: `No header names the columns, so this is a guess: ${shown}. Getting it wrong `
-        + 'creates a permanently reversed contact and nothing downstream would notice.',
+      detail: 'No header names the columns, so this is a guess. First-name-first, then '
+        + `surname-first: ${shown}. Getting it wrong creates a permanently reversed contact `
+        + 'and nothing downstream would notice.',
+      actions: [
+        { key: 'first-last', label: 'First name first', answers: 'nameOrder', value: 'first-last' },
+        { key: 'last-first', label: 'Surname first', answers: 'nameOrder', value: 'last-first' },
+      ],
     };
   }
   if (need.kind === 'date-orientation') {
@@ -440,13 +485,18 @@ function listBlocker(need, parsed) {
       title: 'Day/month, or month/day?',
       detail: `${sample.value} reads as ${sample.dmy} one way and ${sample.mdy} the other. `
         + 'A wrong reading does not error — it turns March into May.',
+      actions: [
+        { key: 'dmy', label: 'Day/month', answers: 'dateOrientation', value: 'dmy' },
+        { key: 'mdy', label: 'Month/day', answers: 'dateOrientation', value: 'mdy' },
+      ],
     };
   }
   if (need.kind === 'combined-name-comma') {
     return {
       ...base,
       title: 'A name was split on a comma',
-      detail: 'Read as “Surname, Given”. Check the students below read the right way round.',
+      detail: 'Read as \u201CSurname, Given\u201D. Check the students below read the right way round.',
+      actions: [acknowledgement(need.kind)],
     };
   }
   if (need.kind === 'excel-serial-dates') {
@@ -454,10 +504,22 @@ function listBlocker(need, parsed) {
       ...base,
       title: 'Some dates arrived as spreadsheet serial numbers',
       detail: 'They have been converted. Check the birthdays below before going on.',
+      actions: [acknowledgement(need.kind)],
     };
   }
   return { ...base, title: 'This list needs a decision', detail: need.kind };
 }
+
+// An action is data, like everything else a blocker carries: what to call it,
+// and what answering it means. The page reads `answers` and dispatches; it does
+// not know the blocker kinds, so a kind added here cannot arrive without the
+// control that clears it. Nothing here is ever a function — see the header.
+const acknowledgement = (kind) => ({
+  key: `acknowledge:${kind}`,
+  label: 'Checked \u2014 go on',
+  answers: 'acknowledge',
+  value: kind,
+});
 
 /**
  * Whether the count mismatch may offer a re-declare.
@@ -476,8 +538,10 @@ function listBlocker(need, parsed) {
  * was ever asked to count.
  */
 export function canRedeclare(reviewed) {
-  return Boolean(reviewed) && reviewed.counts.records !== reviewed.recordsParsed;
+  return Boolean(reviewed) && countMoved(reviewed.counts.records, reviewed.recordsParsed);
 }
+
+const countMoved = (records, recordsParsed) => records !== recordsParsed;
 
 // ---------------------------------------------------------------------------
 // The lines step 3 puts on screen
@@ -514,11 +578,23 @@ export function ignoredSummary(reviewed) {
     + `${dismissed} you dismissed`;
 }
 
-/** P1, as a sentence. It is a sum, so it is shown as one. */
+/**
+ * P1, as a sentence. It is a sum, so it has to add up on screen — which means
+ * counting the students' **lines**, not the students. A vertical list puts one
+ * student on six lines and a collapsed duplicate (P14) puts one on two, so
+ * `5 + 7 + 0 = 37` is not arithmetic anybody can check; it is the reconciliation
+ * failing quietly on the one screen whose job is making counts agree.
+ *
+ * The student count still leads, because that is the number staff came for. The
+ * line count joins it only where the two differ.
+ */
 export function reconciliationLine(reviewed) {
   const c = reviewed?.counts;
   if (!c) return '';
-  return `${plural(c.records, 'student')} + ${c.ignoredLines} ignored + ${c.errorLines} unreadable `
+  const students = c.recordLines === c.records
+    ? plural(c.records, 'student')
+    : `${plural(c.records, 'student')} on ${plural(c.recordLines, 'line')}`;
+  return `${students} + ${c.ignoredLines} ignored + ${c.errorLines} unreadable `
     + `= ${plural(c.lines, 'line')} pasted.`;
 }
 

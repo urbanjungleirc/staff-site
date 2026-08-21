@@ -394,10 +394,39 @@ describe('the lines step 3 puts on screen', () => {
   });
 
   test('the reconciliation reads as a sum, because that is what it is (P1)', () => {
+    // The numbers on screen have to add up, which means counting the students'
+    // LINES. A vertical list puts one student on six of them, so a sentence
+    // reading "5 + 7 + 0 = 37" is the reconciliation failing quietly on the one
+    // screen whose job is making counts agree.
     const r = reviewOf(VERTICAL, declared(5));
     expect(reconciliationLine(r)).toBe(
-      '5 students + 7 ignored + 0 unreadable = 37 lines pasted.',
+      '5 students on 30 lines + 7 ignored + 0 unreadable = 37 lines pasted.',
     );
+  });
+
+  test('one student per line says it once — the two numbers are the same number', () => {
+    expect(reconciliationLine(reviewOf(SPREADSHEET, declared(6)))).toBe(
+      '6 students + 1 ignored + 0 unreadable = 7 lines pasted.',
+    );
+  });
+
+  test('the sentence adds up, on every fixture and after a dismissal', () => {
+    // The assertion the two above are examples of. Read the numbers back out of
+    // the rendered sentence and check the arithmetic, so a future rewording
+    // cannot quietly stop summing the way the first draft of this did.
+    const cases = [
+      reviewOf(VERTICAL, declared(5)),
+      reviewOf(SPREADSHEET, declared(6)),
+      reviewOf(VERTICAL, declared(5), resolve({}, 8, { kind: 'dismiss' })),
+      reviewOf(SPREADSHEET, declared(6), resolve({}, 2, { kind: 'dismiss' })),
+    ];
+    for (const r of cases) {
+      const numbers = reconciliationLine(r).match(/\d+/g).map(Number);
+      const total = numbers.pop();
+      const parts = numbers.length === 4 ? numbers.slice(1) : numbers; // "N students on M lines"
+      expect(parts.reduce((a, b) => a + b, 0), reconciliationLine(r)).toBe(total);
+      expect(total).toBe(r.counts.lines);
+    }
   });
 
   test('the count line says what was expected and what was read, in that order', () => {

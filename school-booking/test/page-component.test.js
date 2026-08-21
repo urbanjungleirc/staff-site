@@ -78,11 +78,15 @@ beforeEach(() => {
 });
 
 describe('bootstrap', () => {
-  test('it loads the schools and the signed-in identity', async () => {
+  test('it loads the schools, and reads nothing else', async () => {
     const app = await settled(component());
     expect(app.bootstrapError).toBe('');
     expect(app.schools).toHaveLength(2);
-    expect(app.accessEmail).toBe('staff@urbanjungleirc.com');
+    // One call, to the one route the ticket asks for. #71 asks for the school
+    // list and nothing else; every other read is a page doing more than it
+    // was asked to.
+    expect(globalThis.fetch).toHaveBeenCalledTimes(1);
+    expect(String(globalThis.fetch.mock.calls[0][0])).toContain('/api/clubworx/schools');
   });
 
   test('a failed schools read does not block step 1', async () => {
@@ -157,25 +161,58 @@ describe('step 3 — reading the list', () => {
     expect(app.countTone()).toContain('emerald');
   });
 
+  const redeclareAction = (app) =>
+    app.reviewed.blockers.find((b) => b.kind === 'count-mismatch')
+      ?.actions.find((a) => a.answers === 'redeclare');
+
   test('a mismatch blocks, and offers no re-declare until staff move it', async () => {
     const app = await upToStepThree(component(), { count: '21' });
     expect(app.reviewed.ready).toBe(false);
-    expect(app.canRedeclare()).toBe(false);
+    // The gate is carried on the blocker rather than tested in the markup, so
+    // there is no condition a template can forget.
+    expect(redeclareAction(app)).toBeUndefined();
 
     app.dismissRow(2); // the first student
     expect(app.reviewed.counts.records).toBe(5);
-    expect(app.canRedeclare()).toBe(true);
+    expect(redeclareAction(app)).toBeDefined();
 
-    app.redeclare();
+    app.answerBlocker(redeclareAction(app));
     expect(app.countValue).toBe('5');
     expect(app.reviewed.ready).toBe(true);
+  });
+
+  test('the Back button does not walk around the count gate', async () => {
+    // canRedeclare() refuses the in-place button; a Back to a freely editable
+    // count box with the read count on screen is the same move, one click
+    // further away, and it is the anchoring P5's ordering exists to prevent.
+    const app = await upToStepThree(component(), { count: '21' });
+    app.go(1);
+    expect(app.countLocked()).toBe(true);
+
+    // Editing the paste is a different list, so the declaration goes with it.
+    app.rawPaste = `${SPREADSHEET}\nOtto\tBrennan\t4/3/2011`;
+    app.pasteChanged();
+    expect(app.countLocked()).toBe(false);
+    expect(app.countValue).toBe('');
+    expect(app.canRead()).toBe(false);
+  });
+
+  test('Back then forward keeps the rows already sorted out', async () => {
+    const app = await upToStepThree(component(), { count: '6' });
+    app.dismissRow(2);
+    expect(app.reviewed.counts.records).toBe(5);
+
+    app.go(1);
+    app.readList();
+    expect(app.stepIndex).toBe(2);
+    expect(app.reviewed.counts.records).toBe(5);
   });
 
   test('the drawer and the sums say the same thing as the module', async () => {
     const app = await upToStepThree(component(), { text: VERTICAL, count: '5' });
     expect(app.ignoredSummary()).toBe('7 lines ignored before the first student');
     expect(app.ignoredColumnsLine()).toBe('3 columns ignored: FormGroup, YearLevel, Email.');
-    expect(app.reconciliationLine()).toBe('5 students + 7 ignored + 0 unreadable = 37 lines pasted.');
+    expect(app.reconciliationLine()).toBe('5 students on 30 lines + 7 ignored + 0 unreadable = 37 lines pasted.');
   });
 
   test('every row gets an edit buffer, and none is created during a render', async () => {
@@ -244,12 +281,38 @@ describe('step 3 — the overrides', () => {
     expect(app.reviewed.counts.records).toBe(5);
   });
 
-  test('a block size that cannot describe a list is not sent at all', async () => {
+  test('a block size that cannot describe a list is put back, not just ignored', async () => {
+    // Left in the box while the parse keeps the old block size, it is two
+    // plausible states contradicting each other with nothing thrown — §16's
+    // fault shape, which is the one this page is built to be careful about.
     const app = await upToStepThree(component(), { text: VERTICAL, count: '5' });
-    app.setBlockSize('1');
-    app.setBlockSize('not a number');
+    const input = { value: '1' };
+    app.setBlockSize('1', input);
+    expect(input.value).toBe(6);
+    app.setBlockSize('not a number', input);
+    expect(input.value).toBe(6);
     expect(app.reviewed.blockSize).toBe(6);
     expect(app.reviewed.blockers.some((b) => b.kind === 'refusal')).toBe(false);
+  });
+
+  test('a combined name only splits onto a column that holds names', async () => {
+    // `free[0]` would have picked whichever column was next — which is how
+    // `Email` or `YearLevel` becomes somebody's permanent surname, obeyed
+    // literally with nothing on screen to disagree with it.
+    const app = await upToStepThree(component(), { text: VERTICAL, count: '5' });
+    app.setNameShape('combined');
+    expect(app.currentColumns().combined).toBe(0);
+
+    const free = app.nameShapedFree();
+    expect(free).not.toContain(2); // Dob
+    expect(free).not.toContain(5); // Email — never name-shaped
+    app.setNameShape('split');
+    expect(app.currentColumns().lastName).toBe(free[0]);
+    // The surname is the column headed LastName, and Email stays where it
+    // belongs — named in the ignored list, which is P6's tell that the mapping
+    // is right.
+    expect(app.columnLabel(app.currentColumns().lastName)).toBe('LastName');
+    expect(app.reviewed.ignoredColumns.map((c) => c.label)).toContain('Email');
   });
 
   test('an override drops the edit buffers, so confirm cannot undo it', async () => {
@@ -331,6 +394,54 @@ describe('step 3 — resolving a row', () => {
     app.undoRow(3);
     expect(app.reviewed.ready).toBe(false);
     expect(app.reviewed.rows.find((r) => r.key === 3).bucket).toBe('error');
+  });
+
+  test('every blocker action dispatches to something', async () => {
+    // The page dispatches on `answers` and knows no blocker kinds, so a kind
+    // added in steps.js cannot arrive with no way out of it. This is the check
+    // that the dispatch actually covers what steps.js emits.
+    const KNOWN = ['nameOrder', 'dateOrientation', 'acknowledge', 'redeclare'];
+    const pastes = [
+      { text: WITH_STRAY_LINE, count: '9' },
+      // Headerless: the name-order question.
+      { text: [['Katie', 'Fernsby', '23/4/2010'].join('\t'), ['Tomas', 'Oakhill', '7/11/2010'].join('\t')].join('\n'), count: '2' },
+      // Every date ambiguous, so nothing proves the orientation: the day/month
+      // question, which is the one a wrong answer does not error on.
+      {
+        text: [
+          ['First name', 'Surname', 'DOB'].join('\t'),
+          ['Katie', 'Fernsby', '3/4/2010'].join('\t'),
+          ['Tomas', 'Oakhill', '7/11/2010'].join('\t'),
+        ].join('\n'),
+        count: '2',
+      },
+    ];
+    let seen = 0;
+    for (const paste of pastes) {
+      const app = await upToStepThree(component(), paste);
+      for (const blocker of app.reviewed.blockers) {
+        for (const action of blocker.actions) {
+          expect(KNOWN, `${blocker.kind} offers "${action.answers}"`).toContain(action.answers);
+          expect(typeof action.label).toBe('string');
+          seen += 1;
+        }
+      }
+    }
+    expect(seen).toBeGreaterThan(3);
+  });
+
+  test('answering a list question clears its blocker', async () => {
+    const headerless = [
+      ['Katie', 'Fernsby', '23/4/2010'].join('\t'),
+      ['Tomas', 'Oakhill', '7/11/2010'].join('\t'),
+    ].join('\n');
+    const app = await upToStepThree(component(), { text: headerless, count: '2' });
+    const order = app.reviewed.blockers.find((b) => b.kind === 'name-order');
+    expect(order.detail).toContain('Katie Fernsby / Fernsby Katie'); // P7: both ways
+
+    app.answerBlocker(order.actions.find((a) => a.value === 'last-first'));
+    expect(app.reviewed.blockers.some((b) => b.kind === 'name-order')).toBe(false);
+    expect(app.reviewed.rows[0]).toMatchObject({ firstName: 'Fernsby', lastName: 'Katie' });
   });
 
   test('the row helpers describe every row without throwing', async () => {

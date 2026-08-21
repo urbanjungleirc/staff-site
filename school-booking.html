@@ -87,7 +87,7 @@
   .field-label {
     display: block; font-size: 0.67rem; font-weight: 600;
     text-transform: uppercase; letter-spacing: 0.05em;
-    color: #9ca3af; margin-bottom: 6px;
+    color: #6b7280; margin-bottom: 6px;
   }
 
   /* Combobox — the staff portal's dropdown, copied from vouchers/stats.html. A
@@ -156,7 +156,7 @@
     cursor: pointer;
   }
   .chip:hover { border-color: rgba(139, 28, 35, 0.45); color: var(--uj); }
-  .chip-role { font-size: 0.62rem; font-weight: 700; text-transform: uppercase; letter-spacing: 0.05em; color: #9ca3af; }
+  .chip-role { font-size: 0.62rem; font-weight: 700; text-transform: uppercase; letter-spacing: 0.05em; color: #6b7280; }
 
   .mono { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-variant-numeric: tabular-nums; }
   .strike { text-decoration: line-through; }
@@ -203,7 +203,7 @@
       <!-- A module that did not load is a page whose gates are decoration. Said
            out loud rather than left to fail per-expression, because every gate
            on this page fails the same way and at the same moment. -->
-      <div x-show="bootstrapError" x-cloak
+      <div x-show="bootstrapError" x-cloak role="alert"
            class="rounded-xl bg-rose-50 border border-rose-200 text-rose-800 px-4 py-3 text-sm mb-5">
         <b>This page is not safe to use.</b>
         <span x-text="bootstrapError"></span>
@@ -216,6 +216,7 @@
           <template x-for="(s, i) in STEPS" :key="s.key">
             <button type="button" :class="stepIndex === i ? 'active' : ''"
                     :disabled="i > maxStepReached || !s.built"
+                    :aria-current="stepIndex === i ? 'step' : false"
                     :title="s.built ? '' : 'Not built yet'"
                     @click="i <= maxStepReached && s.built && go(i)">
               <span class="mono text-[0.7rem] mr-1" x-text="i + 1"></span><span x-text="s.label"></span>
@@ -245,20 +246,25 @@
               <span x-text="tag || 'Choose a school, or type a new tag…'"></span>
               <svg class="combo-chevron" viewBox="0 0 24 24"><path d="m6 9 6 6 6-6"/></svg>
             </button>
-            <div x-show="schoolOpen" x-transition.origin.top x-cloak class="combo-menu" role="listbox">
+            <div x-show="schoolOpen" x-transition.origin.top x-cloak class="combo-menu">
               <div class="px-1 pb-2">
                 <input x-model="schoolQuery" type="text" placeholder="Type to filter, or type a new tag…"
+                       aria-label="Filter schools, or type a new tag"
                        class="w-full rounded-lg border border-neutral-200 px-2.5 py-1.5 text-sm focus:outline-none focus:border-uj"
                        @keydown.enter.prevent="useTypedTag()">
-                <p class="text-[0.68rem] text-neutral-400 mt-1.5 px-1" x-text="schoolsNote()"></p>
+                <p class="text-[0.68rem] text-neutral-500 mt-1.5 px-1" x-text="schoolsNote()"></p>
               </div>
 
+              <!-- The role wraps the options and nothing else: the filter box
+                   above is not an option, and a listbox containing one is
+                   invalid ARIA that a screen reader reads as a broken widget. -->
+              <div role="listbox" aria-label="Schools already in Clubworx">
               <template x-for="s in filteredSchools()" :key="s.tag">
                 <button type="button" role="option" class="combo-option"
                         :aria-selected="tag === s.tag ? 'true' : 'false'" :class="tag === s.tag ? 'active' : ''"
                         @click="tag = s.tag; schoolOpen = false">
                   <span class="mono" x-text="s.tag"></span>
-                  <span class="text-[0.68rem] text-neutral-400"
+                  <span class="text-[0.68rem] text-neutral-500"
                         x-text="s.contacts + (s.contacts === 1 ? ' contact' : ' contacts')"></span>
                 </button>
               </template>
@@ -267,11 +273,13 @@
                    gets its first one. It is offered last and shown normalised,
                    so what will be written is what is on screen before the
                    click, not after it. -->
-              <button type="button" class="combo-option" x-show="typedTag() && !knownTag(typedTag())" x-cloak
+              <button type="button" role="option" aria-selected="false"
+                      class="combo-option" x-show="typedTag() && !knownTag(typedTag())" x-cloak
                       @click="useTypedTag()">
                 <span>Use a new tag <span class="mono font-bold" x-text="typedTag()"></span></span>
-                <span class="text-[0.68rem] text-neutral-400">new school</span>
+                <span class="text-[0.68rem] text-neutral-500">new school</span>
               </button>
+              </div>
             </div>
           </div>
 
@@ -303,25 +311,39 @@
           absorbed as a student, a truncated paste and a phantom column all at once.
         </p>
 
-        <textarea x-model="rawPaste" rows="12" spellcheck="false"
+        <textarea x-model="rawPaste" rows="12" spellcheck="false" @input="pasteChanged()"
           aria-label="The pasted student list"
           class="w-full rounded-xl border border-neutral-200 p-3 text-sm mono focus:outline-none focus:border-uj focus:ring-2 focus:ring-uj/15"></textarea>
-        <p class="text-xs text-neutral-400 mt-1">
+        <p class="text-xs text-neutral-500 mt-1">
           <span class="mono" x-text="pastedLineCount()"></span> lines pasted.
         </p>
 
         <div class="flex items-end gap-4 flex-wrap mt-6">
           <div>
             <span class="field-label">Expected students</span>
-            <input x-model="countValue" type="text" inputmode="numeric" :disabled="countUnknown"
+            <input x-model="countValue" type="text" inputmode="numeric"
+                   :disabled="countUnknown || countLocked()"
                    aria-label="Expected number of students"
                    class="w-32 rounded-xl border border-neutral-200 px-3 py-2 text-lg mono font-bold focus:outline-none focus:border-uj focus:ring-2 focus:ring-uj/15 disabled:bg-neutral-50 disabled:text-neutral-300">
           </div>
           <label class="flex items-center gap-2 text-sm text-neutral-600 pb-2.5 cursor-pointer">
-            <input type="checkbox" x-model="countUnknown" class="rounded border-neutral-300 text-uj focus:ring-uj/30">
+            <input type="checkbox" x-model="countUnknown" :disabled="countLocked()"
+                   class="rounded border-neutral-300 text-uj focus:ring-uj/30 disabled:opacity-40">
             I don't know
           </label>
         </div>
+
+        <!-- Locked once the list has been read, because it has: the count is a
+             declaration about a paste, and this one has already been answered
+             about this one. Coming back here to change the number after seeing
+             what we read is the anchoring P5's ordering prevents — the same
+             move the in-place re-declare refuses, one click further away.
+             Editing the paste unlocks it, because that is a different list. -->
+        <p x-show="countLocked()" x-cloak
+           class="text-xs text-neutral-500 mt-3 bg-neutral-100 border border-neutral-200 rounded-lg px-3 py-2 inline-block">
+          You have already answered this for this list. Edit the paste to answer it again — or,
+          if fixing the rows changed the number, say so on the next screen.
+        </p>
         <p x-show="countUnknown" x-cloak
            class="text-xs text-amber-700 mt-3 bg-amber-50 border border-amber-200 rounded-lg px-3 py-2 inline-block">
           Fine — the count becomes a banner you have to read, rather than a gate that blocks.
@@ -376,7 +398,7 @@
                         <input type="text" inputmode="numeric" class="w-16 rounded-lg border border-sky-200 px-2 py-1 text-sm mono"
                                aria-label="Fields per student"
                                :value="reviewed.blockSize"
-                               @change="setBlockSize($event.target.value)">
+                               @change="setBlockSize($event.target.value, $event.target)">
                         fields per student
                       </label>
                     </template>
@@ -388,18 +410,24 @@
                   <div class="flex items-center gap-2 flex-wrap">
                     <template x-for="chip in columnChips()" :key="chip.role">
                       <div class="relative">
-                        <button type="button" class="chip" @click="chipMenu = (chipMenu === chip.role ? null : chip.role)">
+                        <button type="button" class="chip" aria-haspopup="listbox"
+                                :aria-expanded="chipMenu === chip.role ? 'true' : 'false'"
+                                :aria-label="chip.roleLabel + ' is ' + chip.label + '. Choose another column.'"
+                                @click="chipMenu = (chipMenu === chip.role ? null : chip.role)">
                           <span class="chip-role" x-text="chip.roleLabel"></span>
                           <span class="mono" x-text="chip.label"></span>
                         </button>
-                        <div x-show="chipMenu === chip.role" x-cloak class="combo-menu w-56"
-                             @click.outside="chipMenu = null">
+                        <div x-show="chipMenu === chip.role" x-cloak role="listbox"
+                             class="combo-menu w-56 max-w-[calc(100vw-3rem)]"
+                             :aria-label="'Column for ' + chip.roleLabel"
+                             @click.outside="chipMenu = null" @keydown.escape.window="chipMenu = null">
                           <template x-for="choice in columnChoices()" :key="choice.index">
-                            <button type="button" class="combo-option"
+                            <button type="button" class="combo-option" role="option"
+                                    :aria-selected="choice.index === chip.index ? 'true' : 'false'"
                                     :class="choice.index === chip.index ? 'active' : ''"
                                     @click="setColumn(chip.role, choice.index)">
                               <span class="mono" x-text="choice.label"></span>
-                              <span class="text-[0.68rem] text-neutral-400" x-text="'column ' + (choice.index + 1)"></span>
+                              <span class="text-[0.68rem] text-neutral-500" x-text="'column ' + (choice.index + 1)"></span>
                             </button>
                           </template>
                         </div>
@@ -410,7 +438,8 @@
                             @click="swapNames()">⇄ swap first and last</button>
                     <button type="button" class="chip" x-show="reviewed.columns?.combined === null" x-cloak
                             @click="setNameShape('combined')">the name is one column</button>
-                    <button type="button" class="chip" x-show="reviewed.columns?.combined !== null" x-cloak
+                    <button type="button" class="chip" x-cloak
+                            x-show="reviewed.columns?.combined !== null && nameShapedFree().length"
                             @click="setNameShape('split')">the name is two columns</button>
                   </div>
                 </div>
@@ -428,6 +457,7 @@
             <!-- Blockers. Each is data: a title, a detail and the lines it is
                  about. None of them carries a function, which is what makes
                  the #54 render-tick bug unreachable from here. -->
+            <div aria-live="polite">
             <template x-for="b in reviewed.blockers" :key="b.key">
               <div class="rounded-xl px-3.5 py-2.5 text-sm mb-2 border"
                    :class="b.severity === 'block' ? 'bg-rose-50 border-rose-200 text-rose-800' : 'bg-amber-50 border-amber-200 text-amber-800'">
@@ -436,35 +466,26 @@
                     <div class="font-semibold" x-text="b.title"></div>
                     <div class="text-xs mt-0.5 opacity-90" x-text="b.detail"></div>
                   </div>
-                  <div class="flex items-center gap-2 shrink-0">
-                    <!-- The re-declare, and the gate that survives it. Offered
-                         only once staff have moved the count themselves; see
-                         canRedeclare() in steps.js for why an ungated one is a
-                         one-click dismissal of the gate it escapes. -->
-                    <button type="button" x-show="b.kind === 'count-mismatch' && canRedeclare()" x-cloak
-                            class="rounded-lg border border-rose-300 px-3 py-1.5 text-xs font-semibold hover:bg-rose-100"
-                            @click="redeclare()">
-                      The count has changed — make it <span class="mono" x-text="reviewed.counts.records"></span>
-                    </button>
-                    <button type="button" x-show="acknowledgeable(b.kind)" x-cloak
-                            class="rounded-lg border border-rose-300 px-3 py-1.5 text-xs font-semibold hover:bg-rose-100"
-                            @click="acknowledge(b.kind)">Checked — go on</button>
-                    <button type="button" x-show="b.kind === 'name-order'" x-cloak
-                            class="rounded-lg border border-rose-300 px-3 py-1.5 text-xs font-semibold hover:bg-rose-100"
-                            @click="setNameOrder('first-last')">First name first</button>
-                    <button type="button" x-show="b.kind === 'name-order'" x-cloak
-                            class="rounded-lg border border-rose-300 px-3 py-1.5 text-xs font-semibold hover:bg-rose-100"
-                            @click="setNameOrder('last-first')">Surname first</button>
-                    <button type="button" x-show="b.kind === 'date-orientation'" x-cloak
-                            class="rounded-lg border border-rose-300 px-3 py-1.5 text-xs font-semibold hover:bg-rose-100"
-                            @click="setDateOrientation('dmy')">Day/month</button>
-                    <button type="button" x-show="b.kind === 'date-orientation'" x-cloak
-                            class="rounded-lg border border-rose-300 px-3 py-1.5 text-xs font-semibold hover:bg-rose-100"
-                            @click="setDateOrientation('mdy')">Month/day</button>
+                  <!-- One loop, because the blocker carries the controls it
+                       offers. Six `b.kind === '…'` tests here plus a matching
+                       list in the component meant a kind added in steps.js
+                       could arrive with no way out of it, and a gate nobody
+                       can clear is a stuck run. The re-declare is in this list
+                       too, and steps.js is what decides whether to include it
+                       — see canRedeclare(): ungated it is a one-click
+                       dismissal of the gate it escapes. -->
+                  <div class="flex items-center gap-2 shrink-0 flex-wrap">
+                    <template x-for="action in b.actions" :key="action.key">
+                      <button type="button"
+                              class="rounded-lg border px-3 py-1.5 text-xs font-semibold"
+                              :class="b.severity === 'block' ? 'border-rose-300 hover:bg-rose-100' : 'border-amber-300 hover:bg-amber-100'"
+                              @click="answerBlocker(action)" x-text="action.label"></button>
+                    </template>
                   </div>
                 </div>
               </div>
             </template>
+            </div>
 
             <div x-show="reviewed.ready" x-cloak
                  class="rounded-xl bg-emerald-50 border border-emerald-200 text-emerald-800 px-3.5 py-2.5 text-sm mb-2">
@@ -478,9 +499,9 @@
               <table class="w-full">
                 <thead>
                   <tr class="border-b border-neutral-100 bg-neutral-50/70">
-                    <th class="text-left px-4 py-2.5 text-[0.67rem] font-semibold text-neutral-400 uppercase tracking-wider">Student</th>
-                    <th class="text-left px-4 py-2.5 text-[0.67rem] font-semibold text-neutral-400 uppercase tracking-wider">Date of birth</th>
-                    <th class="text-left px-4 py-2.5 text-[0.67rem] font-semibold text-neutral-400 uppercase tracking-wider">Read</th>
+                    <th scope="col" class="text-left px-4 py-2.5 text-[0.67rem] font-semibold text-neutral-500 uppercase tracking-wider">Student</th>
+                    <th scope="col" class="text-left px-4 py-2.5 text-[0.67rem] font-semibold text-neutral-500 uppercase tracking-wider">Date of birth</th>
+                    <th scope="col" class="text-left px-4 py-2.5 text-[0.67rem] font-semibold text-neutral-500 uppercase tracking-wider">Read</th>
                   </tr>
                 </thead>
                 <template x-for="r in reviewed.rows" :key="r.key">
@@ -493,7 +514,7 @@
                              x-text="r.bucket === 'error' ? r.raw : nameOf(r)"></div>
                         <div x-show="r.note" class="text-xs mt-0.5"
                              :class="r.bucket === 'error' ? 'text-rose-600' : 'text-amber-700'" x-text="r.note"></div>
-                        <div class="text-[0.66rem] text-neutral-400 mono mt-0.5"
+                        <div class="text-[0.66rem] text-neutral-500 mono mt-0.5"
                              x-text="'line ' + r.lineNumbers.join(', ')"></div>
                       </td>
                       <td class="px-4 py-2.5 text-sm mono text-neutral-600" x-text="r.dob || '—'"></td>
@@ -502,10 +523,14 @@
                           <span class="pill" :class="stateTone(r)" x-text="r.state"></span>
                           <button x-show="r.needsHuman" type="button"
                                   class="text-xs font-semibold text-uj underline underline-offset-2"
+                                  :aria-expanded="expandedRow === r.key ? 'true' : 'false'"
+                                  :aria-label="(expandedRow === r.key ? 'Close ' : 'Sort out ') + nameOf(r)"
                                   @click.stop="toggleRow(r.key)"
                                   x-text="expandedRow === r.key ? 'close' : 'sort it out'"></button>
                           <button x-show="!r.needsHuman" type="button"
-                                  class="text-xs text-neutral-400 hover:text-neutral-700 underline underline-offset-2"
+                                  class="text-xs text-neutral-500 hover:text-neutral-800 underline underline-offset-2"
+                                  :aria-expanded="expandedRow === r.key ? 'true' : 'false'"
+                                  :aria-label="(expandedRow === r.key ? 'Close ' : 'Change ') + nameOf(r)"
                                   @click.stop="toggleRow(r.key)"
                                   x-text="expandedRow === r.key ? 'close' : 'change'"></button>
                         </div>
@@ -584,9 +609,9 @@
                 <div x-show="showIgnored" x-cloak class="mt-2 space-y-1">
                   <template x-for="entry in reviewed.ignored" :key="entry.lineNumbers.join('-')">
                     <div class="flex items-center gap-2">
-                      <span class="mono text-[0.66rem] text-neutral-300" x-text="entry.lineNumbers.join(', ')"></span>
-                      <span class="mono text-[0.7rem] text-neutral-400 strike" x-text="entry.text || '(blank)'"></span>
-                      <span class="text-[0.66rem] text-neutral-400" x-text="entry.reason"></span>
+                      <span class="mono text-[0.66rem] text-neutral-500" x-text="entry.lineNumbers.join(', ')"></span>
+                      <span class="mono text-[0.7rem] text-neutral-500 strike" x-text="entry.text || '(blank)'"></span>
+                      <span class="text-[0.66rem] text-neutral-500" x-text="entry.reason"></span>
                       <button type="button" x-show="entry.reason === 'dismissed'" x-cloak
                               class="text-[0.66rem] text-uj underline underline-offset-2"
                               @click="undoRow(entry.lineNumbers[0])">put it back</button>
@@ -615,9 +640,6 @@
 
   <footer class="max-w-[1100px] mx-auto w-full px-4 pb-8 text-xs text-neutral-500">
     <div class="border-t border-neutral-200 pt-4 flex flex-wrap items-center justify-between gap-x-5 gap-y-1">
-      <span x-show="accessEmail" x-cloak>
-        Signed in as <span class="font-medium text-neutral-600" x-text="accessEmail"></span>
-      </span>
       <span>Nothing on this page writes anything. Steps 4–6 are staff-site#72 and #73.</span>
     </div>
   </footer>
@@ -655,6 +677,15 @@ function schoolBooking() {
     rawPaste: '',
     countValue: '',
     countUnknown: false,
+    // The paste the current declaration was made about. P5's ordering is what
+    // the gate is made of, and a Back button reopens it: staff who cannot make
+    // the numbers agree return to a freely editable count box with the read
+    // count already on screen, which is the anchoring the ordering exists to
+    // prevent — two clicks instead of the one canRedeclare() refuses.
+    //
+    // So the declaration is locked to its paste. Change the paste and it is a
+    // declaration about a different list, and has to be made again.
+    declaredFor: null,
 
     // Step 3
     parsed: null,
@@ -666,8 +697,6 @@ function schoolBooking() {
     showIgnored: false,
     showOverrides: false,
     chipMenu: null,
-
-    accessEmail: '',
 
     init() {
       // Both modules or neither. Every gate on this page is one of their
@@ -681,7 +710,6 @@ function schoolBooking() {
         return;
       }
       this.loadSchools();
-      this.loadIdentity();
     },
 
     // --- step 1 ----------------------------------------------------------
@@ -699,17 +727,6 @@ function schoolBooking() {
         // aid to reusing an existing tag, not a permission to proceed.
         this.schools = [];
         this.schoolsState = 'error';
-      }
-    },
-
-    async loadIdentity() {
-      try {
-        const res = await fetch('/cdn-cgi/access/get-identity');
-        if (!res.ok) return;
-        const body = await res.json();
-        this.accessEmail = body.email ?? '';
-      } catch {
-        this.accessEmail = '';
       }
     },
 
@@ -748,9 +765,23 @@ function schoolBooking() {
     },
 
     // --- step 2 ----------------------------------------------------------
+    // The parser's own line count, not a second implementation of it. A
+    // trailing newline is a terminator there and would be a line here, so two
+    // implementations put two different totals on the two screens whose whole
+    // job is agreeing about a number.
     pastedLineCount() {
-      if (!this.rawPaste) return 0;
-      return this.rawPaste.replace(/\r\n|\r/g, '\n').replace(/\n$/, '').split('\n').length;
+      return this.rawPaste ? window.schoolListParser.countLines(this.rawPaste) : 0;
+    },
+
+    countLocked() {
+      return this.declaredFor !== null && this.rawPaste === this.declaredFor;
+    },
+
+    pasteChanged() {
+      if (this.declaredFor === null || this.rawPaste === this.declaredFor) return;
+      this.declaredFor = null;
+      this.countValue = '';
+      this.countUnknown = false;
     },
 
     declaration() {
@@ -765,10 +796,18 @@ function schoolBooking() {
     },
 
     readList() {
+      // Nothing changed since the last read, so this is a Back-then-forward and
+      // not a new one. Re-reading would silently throw away every row staff had
+      // already sorted out.
+      if (this.countLocked() && this.parsed) {
+        this.go(2);
+        return;
+      }
       this.resolutions = {};
       this.parseOptions = {};
       this.drafts = {};
       this.expandedRow = null;
+      this.declaredFor = this.rawPaste;
       this.reparse();
       this.go(2);
     },
@@ -843,9 +882,16 @@ function schoolBooking() {
       }
     },
 
-    setBlockSize(value) {
+    // A refused value is put back, not just ignored. Leaving it in the box
+    // while the parse keeps the old block size is two plausible states
+    // contradicting each other with nothing thrown — the fault shape §16
+    // records, and the one this page exists to be careful about.
+    setBlockSize(value, input) {
       const n = Number(String(value).trim());
-      if (!Number.isInteger(n) || n < 2) return;
+      if (!Number.isInteger(n) || n < 2) {
+        if (input) input.value = this.reviewed?.blockSize ?? '';
+        return;
+      }
       this.override({ layout: 'vertical', blockSize: n });
     },
 
@@ -887,6 +933,16 @@ function schoolBooking() {
       return (named && String(named).trim()) || `Column ${index + 1}`;
     },
 
+    // Columns holding a name in every record row, minus the ones already
+    // spoken for. Empty means the split control has no honest answer to give,
+    // and it is hidden rather than guessing one.
+    nameShapedFree() {
+      const c = this.currentColumns();
+      if (!c) return [];
+      return (this.reviewed?.nameShapedColumns ?? [])
+        .filter((index) => index !== c.combined && index !== c.dob);
+    },
+
     columnChoices() {
       const width = this.reviewed?.fieldCount ?? 0;
       return Array.from({ length: width }, (_, index) => ({ index, label: this.columnLabel(index) }));
@@ -923,9 +979,11 @@ function schoolBooking() {
         this.applyColumns({ dob: c.dob, firstName: null, lastName: null, combined: c.firstName });
         return;
       }
-      // Back to two columns: the second is whichever column is not already
-      // spoken for, which is the only unambiguous answer available here.
-      const free = this.columnChoices().map((x) => x.index).filter((i) => i !== c.combined && i !== c.dob);
+      // Back to two columns. The second one is picked from the columns the
+      // parser found to hold a name in *every* row — never the next free
+      // index, which is how `Email` or `YearLevel` becomes somebody's
+      // permanent surname, obeyed literally with nothing to disagree with it.
+      const free = this.nameShapedFree();
       if (free.length === 0) return;
       this.applyColumns({ dob: c.dob, firstName: c.combined, lastName: free[0], combined: null });
     },
@@ -940,16 +998,11 @@ function schoolBooking() {
       this.override({ columns });
     },
 
-    usableColumns(c) {
-      const named = COLUMN_ROLES.map((role) => c[role]).filter((v) => v !== null && v !== undefined);
-      if (new Set(named).size !== named.length) return false;
-      if (c.dob === null || c.dob === undefined) return false;
-      const combined = c.combined !== null && c.combined !== undefined;
-      const pair = c.firstName !== null && c.firstName !== undefined
-        && c.lastName !== null && c.lastName !== undefined;
-      // Exactly one name shape: one column holding the whole name, or two
-      // holding its halves. Neither, or both, names no columns at all.
-      return combined !== pair;
+    // The parser's rule, asked rather than restated. Two copies of "what is a
+    // usable mapping" drift, and the drift is silent: the page keeps offering
+    // a chip the parser has started refusing.
+    usableColumns(columns) {
+      return window.schoolListParser.usableColumns(columns, this.reviewed?.fieldCount ?? 0);
     },
 
     // --- rows ------------------------------------------------------------
@@ -985,8 +1038,15 @@ function schoolBooking() {
       this.resolveRow(key, null);
     },
 
-    acknowledgeable(kind) {
-      return kind === 'combined-name-comma' || kind === 'excel-serial-dates';
+    // A blocker says what answering it means; this dispatches on that and
+    // knows no blocker kinds. Adding one in steps.js therefore cannot arrive
+    // without its control — which is what a blocker with no way out of it
+    // would be: a gate staff are simply stuck behind.
+    answerBlocker(action) {
+      if (action.answers === 'nameOrder') this.override({ nameOrder: action.value });
+      else if (action.answers === 'dateOrientation') this.override({ dateOrientation: action.value });
+      else if (action.answers === 'acknowledge') this.acknowledge(action.value);
+      else if (action.answers === 'redeclare') this.redeclare(action.value);
     },
 
     acknowledge(kind) {
@@ -994,13 +1054,10 @@ function schoolBooking() {
       this.refresh();
     },
 
-    canRedeclare() {
-      return window.schoolBookingSteps.canRedeclare(this.reviewed);
-    },
-
-    redeclare() {
-      this.countValue = String(this.reviewed.counts.records);
+    redeclare(count) {
+      this.countValue = String(count);
       this.countUnknown = false;
+      this.declaredFor = this.rawPaste;
       this.refresh();
     },
 
