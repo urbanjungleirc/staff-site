@@ -13,6 +13,7 @@
 
 import { describe, expect, test } from 'vitest';
 import {
+  cancelReport,
   cancellable,
   isFailure,
   resultLine,
@@ -329,5 +330,60 @@ describe('the record staff keep — D10', () => {
     expect(text).toContain('b1');
     // Parseable, so a later tool can read it rather than a human re-typing it.
     expect(() => JSON.parse(text)).not.toThrow();
+  });
+});
+
+describe('cancelReport — what a human still has to do', () => {
+  const withCancel = (cancel) => ({ bookings: [], cancel });
+
+  test('no cancel yet is null, not an empty report', () => {
+    // Absent and "did nothing" are different facts.
+    expect(cancelReport({ bookings: [] })).toBe(null);
+  });
+
+  test('rows the Worker did not try after a throttle are kept out of the by-hand list', () => {
+    const report = cancelReport(withCancel({
+      outcome: 'partial',
+      cancelled: 1,
+      cancelledIds: ['b1'],
+      verified: true,
+      stillBooked: [],
+      failed: [
+        { booking_id: 'b2', event_id: 'e2', reason: 'refused', attempted: true },
+        { booking_id: 'b3', event_id: 'e3', reason: 'not attempted — throttling', attempted: false },
+      ],
+    }));
+    // b3 is still there and still cancellable from this page; naming it as a
+    // manual job sends staff into Clubworx to do what one more click does.
+    expect(report.byHand.map((f) => f.booking_id)).toEqual(['b2']);
+    expect(report.notAttempted.map((f) => f.booking_id)).toEqual(['b3']);
+  });
+
+  test('a pre-send refusal has no `attempted` flag at all and still needs a hand', () => {
+    const report = cancelReport(withCancel({
+      cancelled: 0, cancelledIds: [], verified: false, stillBooked: [],
+      failed: [{ booking_id: null, event_id: 'e1', reason: 'Clubworx returned no booking id' }],
+    }));
+    expect(report.byHand).toHaveLength(1);
+    expect(report.notAttempted).toEqual([]);
+  });
+
+  test('an id the re-read found still present joins the by-hand list', () => {
+    const report = cancelReport(withCancel({
+      outcome: 'still-booked', cancelled: 2, cancelledIds: ['b1', 'b2'],
+      verified: false, stillBooked: ['b2'], failed: [],
+    }));
+    expect(report.byHand.map((f) => f.booking_id)).toEqual(['b2']);
+    expect(report.byHand[0].reason).toContain('still there on a re-read');
+  });
+
+  test('unverified is reported as unverified, not as failed', () => {
+    const report = cancelReport(withCancel({
+      outcome: 'unverified', cancelled: 2, cancelledIds: ['b1', 'b2'],
+      verified: false, stillBooked: [], failed: [],
+    }));
+    expect(report.verified).toBe(false);
+    expect(report.byHand).toEqual([]);
+    expect(report.cancelled).toBe(2);
   });
 });

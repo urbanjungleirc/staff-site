@@ -210,6 +210,46 @@ export function cancellable(record) {
   );
 }
 
+/**
+ * What a cancel left behind, split by what a human actually has to do.
+ *
+ * `POST /unbook` returns `failed[]` and `stillBooked[]` on a **200** on purpose:
+ * a non-200 invites the page to throw the body away, and that body is the only
+ * record of which bookings a human still has to remove. So they are rendered,
+ * not summarised into a count.
+ *
+ * The split matters more than the total. `failed[].attempted === false` marks
+ * rows the Worker deliberately did **not** try after a throttle — those
+ * bookings are still there and still cancellable by clicking again, and listing
+ * them as needing manual removal would send staff into Clubworx to do by hand
+ * what one more click does. Everything else — a refused cancel, a row with no
+ * booking id, and an id that came back present on the verifying re-read — is
+ * genuinely a hand job.
+ *
+ * `verified: false` is **not** a synonym for failed. It means the cancel was
+ * accepted and could not be confirmed: go and look, rather than try again.
+ */
+export function cancelReport(record) {
+  const c = record?.cancel;
+  if (!c) return null;
+  const failed = Array.isArray(c.failed) ? c.failed : [];
+  return {
+    outcome: c.outcome ?? 'failed',
+    cancelled: c.cancelled ?? 0,
+    verified: c.verified === true,
+    message: c.message ?? '',
+    notAttempted: failed.filter((f) => f?.attempted === false),
+    byHand: [
+      ...failed.filter((f) => f?.attempted !== false),
+      ...(c.stillBooked ?? []).map((id) => ({
+        booking_id: id,
+        event_id: null,
+        reason: 'Clubworx accepted the cancellation and the booking was still there on a re-read',
+      })),
+    ],
+  };
+}
+
 /** Whether anything in the run can still be cancelled. */
 export function anyCancellable(records) {
   return (records ?? []).some((r) => cancellable(r).length > 0);

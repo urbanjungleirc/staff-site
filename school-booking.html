@@ -1359,10 +1359,35 @@
                       </div>
                     </div>
 
-                    <div class="text-[0.78rem] text-neutral-600 mt-2" x-show="record.cancel" x-cloak>
-                      <span class="field-label">Cancel</span>
-                      <span x-text="cancelLine(record)"></span>
-                    </div>
+                    <!-- The cancel's own record. `failed[]` and `stillBooked[]`
+                         arrive on a 200 because they are the list of what a
+                         human still has to remove by hand — so they are shown,
+                         not folded into a count. Rows the Worker did not try
+                         after a throttle are kept apart: those are still there
+                         and still cancellable from this page. -->
+                    <template x-if="cancelReport(record)">
+                      <div class="text-[0.78rem] text-neutral-600 mt-2">
+                        <span class="field-label">Cancel</span>
+                        <div x-text="cancelLine(record)"></div>
+                        <div class="text-amber-800 mt-1" x-show="!cancelReport(record).verified && cancelReport(record).cancelled > 0" x-cloak>
+                          Accepted, but not confirmed by a re-read — check this student in Clubworx
+                          before assuming these are gone.
+                        </div>
+                        <template x-if="cancelReport(record).byHand.length > 0">
+                          <div class="text-rose-700 mt-1">
+                            <div>Still in Clubworx — remove these by hand:</div>
+                            <template x-for="left in cancelReport(record).byHand" :key="left.booking_id || left.event_id">
+                              <div class="mono text-[0.7rem]">
+                                <span x-text="left.booking_id || left.event_id"></span>
+                                <span class="font-sans" x-text="' — ' + left.reason"></span>
+                              </div>
+                            </template>
+                          </div>
+                        </template>
+                        <div class="text-amber-800 mt-1" x-show="cancelReport(record).notAttempted.length > 0" x-cloak
+                             x-text="`${cancelReport(record).notAttempted.length} booking(s) were not tried — Clubworx began throttling. They are still there and can be cancelled again shortly.`"></div>
+                      </div>
+                    </template>
                   </td>
                 </tr>
               </tbody>
@@ -2682,6 +2707,10 @@ function schoolBooking() {
       this.running = false;
       this.guardUnload(false);
       this.saveRun();
+    },
+
+    cancelReport(record) {
+      return window.schoolBookingOutcome.cancelReport(record);
     },
 
     /** The line a cancelled row shows, in the Worker's own words. */
