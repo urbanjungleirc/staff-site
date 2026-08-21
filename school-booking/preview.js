@@ -252,10 +252,11 @@ export function permanenceLine(preview) {
  * @param {Array<object>} opts.rows step 3's rows, in step 3's order
  * @param {object} opts.matches `matchStudent` results (or `{error}`) keyed by row key
  * @param {object} opts.selection a `selectionReport`
+ * @param {object} [opts.review] step 3's own `review()`, for its gates — see below
  * @param {object|null} opts.plan the `/plan` response body
  * @param {object} opts.decisions the match resolution log
  */
-export function buildPreview({ rows, matches, selection, plan, decisions } = {}) {
+export function buildPreview({ rows, matches, selection, review, plan, decisions } = {}) {
   const log = decisions ?? {};
   const found = matches ?? {};
   const picked = selection ?? { events: [], blockers: [], sessions: 0 };
@@ -282,10 +283,15 @@ export function buildPreview({ rows, matches, selection, plan, decisions } = {})
     bookings: runnable.length * sessions,
   };
 
-  // Step 4's blockers come first and unchanged. Apply reads one list, so a
-  // session inside the lead time and an unresolved name variant stop the run
-  // the same way and in the same place.
-  const blockers = [...(picked.blockers ?? [])];
+  // Steps 3 and 4's blockers come first and unchanged. Apply reads **one**
+  // list: §11 hard-stops on "any unresolved gate", and a gate that is only
+  // visible on the screen that raised it is not a gate on the screen that
+  // commits. It also closes the step 5 → 3 → 5 walk, where reopening the count
+  // gate would otherwise leave a preview still saying it was ready.
+  //
+  // Carried verbatim, actions included, so a control that clears a gate on
+  // step 3 clears it from here too rather than being a dead label.
+  const blockers = [...(review?.blockers ?? []), ...(picked.blockers ?? [])];
 
   blockers.push(...planBlockers(plan, picked.lastSession));
 

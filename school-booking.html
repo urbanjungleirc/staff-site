@@ -699,6 +699,19 @@
                     @click="usePastedId()">Find it</button>
           </div>
           <div class="text-xs mt-2" :class="pastedIdTone()" x-show="pastedIdNote" x-cloak x-text="pastedIdNote"></div>
+
+          <!-- The confirmation. The picker rests on an undocumented Clubworx
+               behaviour, so a human agreeing this is the right class is the
+               safeguard — not the id resolving. -->
+          <div class="mt-2 rounded-lg bg-white border border-neutral-300 px-3 py-2"
+               x-show="pastedIdEvent" x-cloak>
+            <div class="text-[0.78rem] text-neutral-700" x-text="pastedIdConfirmLine()"></div>
+            <div class="flex gap-2 mt-2">
+              <button type="button" class="chip border-solid border-uj text-uj"
+                      @click="confirmPastedId()">Yes, use this session</button>
+              <button type="button" class="chip" @click="cancelPastedId()">Cancel</button>
+            </div>
+          </div>
         </div>
 
         <!-- Every event in the window, including the ones that cannot be
@@ -710,11 +723,11 @@
             <table class="w-full text-sm">
               <thead class="bg-neutral-50 border-b border-neutral-200">
                 <tr class="text-left text-[0.68rem] uppercase tracking-wider text-neutral-500">
-                  <th class="px-3 py-2 w-10"></th>
-                  <th class="px-3 py-2">Session</th>
-                  <th class="px-3 py-2">Starts</th>
-                  <th class="px-3 py-2">Spaces</th>
-                  <th class="px-3 py-2">Series</th>
+                  <th scope="col" class="px-3 py-2 w-10"><span class="sr-only">Book</span></th>
+                  <th scope="col" class="px-3 py-2">Session</th>
+                  <th scope="col" class="px-3 py-2">Starts</th>
+                  <th scope="col" class="px-3 py-2">Spaces</th>
+                  <th scope="col" class="px-3 py-2">Series</th>
                 </tr>
               </thead>
               <tbody>
@@ -729,7 +742,8 @@
                     <td class="px-3 py-2">
                       <div x-text="event.event_name || '(unnamed session)'"></div>
                       <div class="text-[0.7rem] text-neutral-500" x-text="event.location_name || ''"></div>
-                      <div class="text-[0.7rem] text-rose-700" x-show="!event.bookable" x-cloak
+                      <div class="text-[0.7rem]" :class="eventWarningTone(event)"
+                           x-show="eventWarning(event)" x-cloak
                            x-text="eventWarning(event)"></div>
                     </td>
                     <td class="px-3 py-2 mono text-[0.75rem]" x-text="eventWhen(event)"></td>
@@ -827,11 +841,11 @@
               <table class="w-full text-sm">
                 <thead class="bg-neutral-50 border-b border-neutral-200">
                   <tr class="text-left text-[0.68rem] uppercase tracking-wider text-neutral-500">
-                    <th class="px-4 py-2">Student</th>
-                    <th class="px-4 py-2">DOB</th>
-                    <th class="px-4 py-2">Read</th>
-                    <th class="px-4 py-2">Clubworx</th>
-                    <th class="px-4 py-2">Outcome</th>
+                    <th scope="col" class="px-4 py-2">Student</th>
+                    <th scope="col" class="px-4 py-2">DOB</th>
+                    <th scope="col" class="px-4 py-2">Read</th>
+                    <th scope="col" class="px-4 py-2">Clubworx</th>
+                    <th scope="col" class="px-4 py-2">Outcome</th>
                   </tr>
                 </thead>
                 <template x-for="line in preview.rows" :key="line.key">
@@ -992,6 +1006,9 @@ function schoolBooking() {
     pastedEventId: '',
     pastedIdNote: '',
     pastedIdOk: false,
+    // The resolved session, waiting to be confirmed. Never a selection on its
+    // own — see usePastedId.
+    pastedIdEvent: null,
     picked: [],
     // Never null. The markup reads `selection.blockers` and `selection.ready`
     // on every render of step 4, including the first, and an Alpine expression
@@ -1142,6 +1159,25 @@ function schoolBooking() {
         resolutions: this.resolutions,
       });
       this.syncDrafts();
+      // Any step-3 edit makes the preview a statement about a list that has
+      // changed underneath it — different rows, or the same rows with a gate
+      // reopened. Dropped rather than refreshed: the match states came from
+      // reads keyed on the *old* rows, so refreshing would keep answers about
+      // students who may no longer be on the list. The check is cheap to
+      // re-run and wrong to reuse.
+      this.discardPreview();
+    },
+
+    // The step strip lets staff jump to any step already reached, so this is
+    // also what stops a jump straight back to a preview whose list has moved.
+    // `x-if="preview"` renders nothing without it, and step 5's own forward
+    // button reads `preview.ready`.
+    discardPreview() {
+      if (!this.preview && Object.keys(this.matches).length === 0) return;
+      this.preview = null;
+      this.matches = {};
+      this.decisions = {};
+      this.checkState = 'idle';
     },
 
     // Edit buffers are seeded here, once per review, rather than lazily from
@@ -1485,19 +1521,54 @@ function schoolBooking() {
       this.refreshSelection();
     },
 
+    // Resolved, then confirmed — never selected outright. §8: the paste is a
+    // shortcut past the *search*, never past the *confirmation*. The picker is
+    // built on an undocumented behaviour that contradicts Clubworx's own
+    // reference, so a human agreeing this is the right class is the whole
+    // safeguard, and `spaces_available` travels because it is one of the three
+    // facts they agree on.
     usePastedId() {
       const found = window.schoolBookingEvents.resolvePastedId(this.events, this.pastedEventId);
+      this.pastedIdEvent = null;
       if (!found.ok) {
         this.pastedIdNote = found.message;
         this.pastedIdOk = false;
         return;
       }
-      // Resolved, then confirmed — never selected outright. The paste is a
-      // shortcut past the search, never past the confirmation (§8), so it ticks
-      // the session and names it, leaving the tick as the thing staff read.
-      this.pickSeries(found.event.event_id);
       this.pastedIdOk = true;
-      this.pastedIdNote = `Found and ticked: ${window.schoolBookingEvents.sessionLabel(found.event)}.`;
+      this.pastedIdNote = '';
+      this.pastedIdEvent = found.event;
+    },
+
+    // Name, date and spaces, in one sentence — plus what confirming costs.
+    // Confirming ticks the series from this session, which *replaces* whatever
+    // is ticked now, because pasting an id is the same statement as "pick this
+    // first". Discarding six already-ticked sessions in silence is what would
+    // make that surprising, so the count is named before the click.
+    pastedIdConfirmLine() {
+      const event = this.pastedIdEvent;
+      if (!event) return '';
+      const spaces = event.spaces_available === null
+        ? 'no space count'
+        : `${event.spaces_available} spaces`;
+      const line = `${window.schoolBookingEvents.sessionLabel(event)} — ${spaces}.`;
+      if (this.picked.length === 0) return line;
+      return `${line} Taking it will replace the ${this.picked.length} session`
+        + `${this.picked.length === 1 ? '' : 's'} already ticked.`;
+    },
+
+    confirmPastedId() {
+      const event = this.pastedIdEvent;
+      if (!event) return;
+      this.pickSeries(event.event_id);
+      this.pastedIdEvent = null;
+      this.pastedEventId = '';
+      this.pastedIdNote = `Ticked from the pasted id: ${window.schoolBookingEvents.sessionLabel(event)}.`;
+    },
+
+    cancelPastedId() {
+      this.pastedIdEvent = null;
+      this.pastedIdNote = '';
     },
 
     pastedIdTone() {
@@ -1508,21 +1579,29 @@ function schoolBooking() {
       return String(event.event_start_at ?? '').replace('T', ' ').slice(0, 16);
     },
 
+    // Both of these ask `sessionRefusal` rather than reading `bookable`. The
+    // Worker's flag folds "no room" in with "too close to the start", and only
+    // the second refuses a booking — so a row with an unknown space count was
+    // being painted the same red as a lead-time hard-stop, with no reason
+    // beside it, against §11's "warn, never block".
     eventLane(event) {
-      if (!event.bookable) return 'lane-bad';
+      const refusal = window.schoolBookingEvents.sessionRefusal(event);
+      if (refusal?.severity === 'block') return 'lane-bad';
+      if (refusal) return 'lane-need';
       return this.isPicked(event.event_id) ? 'lane-ok' : 'lane';
     },
 
-    // Why a session is greyed, in the words that name the cause. Clubworx's own
-    // refusal — "Sorry! This class is now closed for bookings." — names none of
-    // them and reads like a capacity problem (D9).
+    // Why a session is flagged, in the words that name the cause. Clubworx's
+    // own refusal — "Sorry! This class is now closed for bookings." — names
+    // none of them and reads like a capacity problem (D9).
     eventWarning(event) {
-      const lead = event.lead ?? {};
-      if (lead.unreadable) return 'No readable start time.';
-      if (lead.past) return 'Already started.';
-      if (lead.withinLeadTime) return `Starts in under ${lead.minLeadHours ?? 24} hours — Clubworx would refuse it.`;
-      if (event.event_full === true || event.spaces_available === 0) return 'Reported full.';
-      return '';
+      return window.schoolBookingEvents.sessionRefusal(event)?.message ?? '';
+    },
+
+    eventWarningTone(event) {
+      return window.schoolBookingEvents.sessionRefusal(event)?.severity === 'block'
+        ? 'text-rose-700'
+        : 'text-amber-700';
     },
 
     refreshSelection() {
@@ -1655,6 +1734,10 @@ function schoolBooking() {
         rows: this.reviewed?.rows ?? [],
         matches: this.matches,
         selection: this.selection,
+        // Step 3's gates travel too. §11 hard-stops on "any unresolved gate",
+        // and a gate visible only on the screen that raised it is not a gate on
+        // the screen that commits.
+        review: this.reviewed,
         plan: this.plan,
         decisions: this.decisions,
       });

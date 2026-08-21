@@ -205,6 +205,71 @@ export function sessionLabel(event) {
   return day ? `${name}, ${day}` : name;
 }
 
+/**
+ * What is wrong with one session, and how serious.
+ *
+ * **The one place that decides this.** It lived in two before — the blocker
+ * list here and the page's own row styling — and the two disagreed: a session
+ * Clubworx reported full was painted red as refused while this report called it
+ * a warning, which is what §11 actually says. Two surfaces contradicting each
+ * other about whether a run can proceed is the fault shape §16 records, and the
+ * severity is the half that matters.
+ *
+ * The Worker's `bookable` is deliberately not the answer. It folds *no room in
+ * the class* in with *too close to the start*, and only the second of those
+ * refuses a booking: #50 measured `spaces_available` wrong in both directions,
+ * so §11 makes it "warn, never block". Reading `bookable` alone paints a
+ * warnable session as a refused one.
+ *
+ * @returns {{kind: string, severity: 'block'|'warn', message: string}|null}
+ *   null when there is nothing wrong with the session.
+ */
+export function sessionRefusal(event) {
+  const lead = event?.lead ?? {};
+
+  if (lead.unreadable === true) {
+    return {
+      kind: 'unreadable-session',
+      severity: 'block',
+      message: 'No readable start time, so the 24-hour rule cannot be checked against it.',
+    };
+  }
+
+  if (lead.past === true) {
+    return { kind: 'past-session', severity: 'block', message: 'Already started.' };
+  }
+
+  if (lead.withinLeadTime === true) {
+    return {
+      kind: 'lead-time',
+      severity: 'block',
+      // Named here rather than met as Clubworx's own refusal — D9. Its message,
+      // "Sorry! This class is now closed for bookings.", names no cause and
+      // reads like the class is full.
+      message: `Starts in under ${lead.minLeadHours ?? 24} hours, so Clubworx would refuse it.`,
+    };
+  }
+
+  // Ranked below the lead time on purpose: a session that is both too soon and
+  // full is refused for the reason that actually refuses it.
+  if (event?.event_full === true || event?.spaces_available === 0) {
+    return {
+      kind: 'full',
+      severity: 'warn',
+      message: 'Clubworx reports no spaces — a number that has been wrong in both directions.',
+    };
+  }
+
+  return null;
+}
+
+const REFUSAL_TITLES = {
+  'unreadable-session': 'A session has no readable start time',
+  'past-session': 'A session has already started',
+  'lead-time': 'A session starts too soon to book',
+  full: 'Clubworx reports no spaces on a session',
+};
+
 const removal = (event) => ({
   key: `remove:${event.event_id}`,
   label: 'Remove this session',
@@ -253,55 +318,27 @@ export function selectionReport({ events, selected, studentCount = 0, truncated 
   }
 
   for (const event of picked) {
-    const lead = event.lead ?? {};
-
-    if (lead.unreadable === true) {
+    // Asked, never re-decided — see sessionRefusal. A blocker is only offered a
+    // removal when it is a `block`: D9's one-click fix answers a session that
+    // refuses the run, and offering it beside a warning turns "worth a look"
+    // into "click here to make this go away".
+    const refusal = sessionRefusal(event);
+    if (refusal) {
       blockers.push({
-        key: `unreadable:${event.event_id}`,
-        kind: 'unreadable-session',
-        severity: 'block',
-        title: 'A session has no readable start time',
-        detail: `${sessionLabel(event)} came back without a start time this page can read, so `
-          + 'the 24-hour rule cannot be checked against it.',
-        actions: [removal(event)],
+        key: `${refusal.kind}:${event.event_id}`,
+        kind: refusal.kind,
+        severity: refusal.severity,
+        title: REFUSAL_TITLES[refusal.kind],
+        detail: `${sessionLabel(event)} — ${refusal.message}`,
+        actions: refusal.severity === 'block' ? [removal(event)] : [],
       });
-      continue;
     }
 
-    if (lead.past === true) {
-      blockers.push({
-        key: `past:${event.event_id}`,
-        kind: 'past-session',
-        severity: 'block',
-        title: 'A session has already started',
-        detail: `${sessionLabel(event)} has already begun.`,
-        actions: [removal(event)],
-      });
-      continue;
-    }
-
-    if (lead.withinLeadTime === true) {
-      blockers.push({
-        key: `lead:${event.event_id}`,
-        kind: 'lead-time',
-        severity: 'block',
-        title: 'A session starts too soon to book',
-        // Named here rather than met as Clubworx's own refusal — D9. Its
-        // message, "Sorry! This class is now closed for bookings.", names no
-        // cause and reads like the class is full.
-        detail: `${sessionLabel(event)} starts in under ${lead.minLeadHours ?? 24} hours. `
-          + 'Clubworx closes a class to bookings before it starts, so this one would be refused.',
-        actions: [removal(event)],
-      });
-      continue;
-    }
-
-    // Warn, never block: #50 measured this number wrong in both directions, in
-    // a way that has nothing to do with the room in the class. A null is not a
-    // zero — it is Clubworx declining to say, passed through untouched by the
-    // Worker for exactly this reason.
+    // Room is a second question from "is it full", and both are warnings.
+    // A null is not a zero — it is Clubworx declining to say, passed through
+    // untouched by the Worker for exactly this reason.
     const spaces = event.spaces_available;
-    if (typeof spaces === 'number' && studentCount > 0 && spaces < studentCount) {
+    if (refusal?.kind !== 'full' && typeof spaces === 'number' && studentCount > 0 && spaces < studentCount) {
       blockers.push({
         key: `spaces:${event.event_id}`,
         kind: 'spaces',

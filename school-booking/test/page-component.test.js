@@ -664,6 +664,7 @@ describe('step 4 — the session picker', () => {
     expect(app.events).toHaveLength(1); // annotated, never filtered
     expect(app.eventLane(past)).toBe('lane-bad');
     expect(app.eventWarning(past)).toBe('Already started.');
+    expect(app.eventWarningTone(past)).toBe('text-rose-700');
   });
 
   test('too few spaces warns without blocking', async () => {
@@ -693,13 +694,16 @@ describe('step 4 — the session picker', () => {
     expect(app.selection.ready).toBe(false);
   });
 
-  test('a pasted id resolves against the loaded window and ticks its series', async () => {
+  test('a pasted id resolves against the loaded window, then waits to be confirmed', async () => {
     const app = await upToSessions(component());
     app.pastedEventId = ' e1 ';
     app.usePastedId();
     expect(app.pastedIdOk).toBe(true);
+    expect(app.pastedIdConfirmLine()).toContain('School Session');
+    // Nothing is ticked until a human agrees this is the right class — §8.
+    expect(app.picked).toEqual([]);
+    app.confirmPastedId();
     expect(app.picked).toEqual(['e1', 'e2']);
-    expect(app.pastedIdNote).toContain('School Session');
   });
 
   test('an id outside the window never claims the id is wrong', async () => {
@@ -894,5 +898,110 @@ describe('an unresolvable plan stops the run before it spends the allowance', ()
     expect(app.preview.blockers.some((b) => b.kind === 'plan' && b.severity === 'block')).toBe(true);
     expect(app.preview.ready).toBe(false);
     expect(app.checkState).toBe('done');
+  });
+});
+
+describe('the pasted id is a shortcut past the search, never past the confirmation', () => {
+  test('resolving offers the session for confirmation and ticks nothing yet', async () => {
+    // §8: "The id is resolved and shown with its name, date and
+    // `spaces_available` for confirmation before it can be selected."
+    const app = await upToSessions(component());
+    app.pastedEventId = 'e1';
+    app.usePastedId();
+
+    expect(app.picked).toEqual([]);
+    expect(app.pastedIdEvent).toMatchObject({ event_id: 'e1', spaces_available: 30 });
+    expect(app.pastedIdConfirmLine()).toContain('School Session');
+    expect(app.pastedIdConfirmLine()).toContain('2026-09-01');
+    expect(app.pastedIdConfirmLine()).toContain('30'); // spaces_available, on screen
+  });
+
+  test('confirming ticks the series from that session', async () => {
+    const app = await upToSessions(component());
+    app.pastedEventId = 'e1';
+    app.usePastedId();
+    app.confirmPastedId();
+    expect(app.picked).toEqual(['e1', 'e2']);
+    expect(app.pastedIdEvent).toBe(null);
+  });
+
+  test('it says out loud that confirming replaces what is already ticked', async () => {
+    // It replaces because pasting an id is the same statement as "pick this
+    // first". Silently discarding six ticked sessions is what makes that
+    // surprising, so the sentence names the count before the click.
+    const app = await upToSessions(component());
+    app.togglePick('e3');
+    app.pastedEventId = 'e1';
+    app.usePastedId();
+    expect(app.pastedIdConfirmLine()).toMatch(/replace/i);
+    expect(app.pastedIdConfirmLine()).toContain('1');
+  });
+
+  test('an unresolvable id offers nothing to confirm', async () => {
+    const app = await upToSessions(component());
+    app.togglePick('e1');
+    app.pastedEventId = '999999';
+    app.usePastedId();
+    expect(app.pastedIdEvent).toBe(null);
+    expect(app.pastedIdNote).toMatch(/window/i);
+    expect(app.picked).toEqual(['e1']); // and takes nothing away
+  });
+
+  test('a resolved session can be dismissed without being taken', async () => {
+    const app = await upToSessions(component());
+    app.pastedEventId = 'e1';
+    app.usePastedId();
+    app.cancelPastedId();
+    expect(app.pastedIdEvent).toBe(null);
+    expect(app.picked).toEqual([]);
+  });
+});
+
+describe('a preview cannot outlive the list it describes', () => {
+  test('reopening a step 3 gate drops the preview rather than leaving it ready', async () => {
+    // The step strip lets staff jump to any step already reached, so without
+    // this a walk of 5 → 3 → (edit) → 5 lands on a preview that still says
+    // "ready" about a list that has changed underneath it.
+    const app = await upToPreview(component());
+    expect(app.preview.ready).toBe(true);
+
+    app.go(2);
+    app.dismissRow(app.reviewed.rows[0].key); // a real edit: one student fewer
+
+    expect(app.preview).toBe(null);
+    expect(app.matches).toEqual({});
+    expect(app.checkState).toBe('idle');
+  });
+
+  test('a match decision is dropped with it, not carried onto different rows', async () => {
+    const app = await upToPreview(component({
+      candidatesFor: (lastName, dob) => (lastName === 'Fernsby'
+        ? [{ contact_key: 'ck-1', first_name: 'Katherine', last_name: 'Fernsby', dob, status_view: 'members' }]
+        : []),
+    }));
+    const variant = app.preview.rows.find((r) => r.clubworx === 'name-variant');
+    app.useContact(variant.key, 'ck-1');
+    expect(app.decisions[variant.key]).toBeTruthy();
+
+    app.go(2);
+    app.dismissRow(app.reviewed.rows[0].key);
+    expect(app.decisions).toEqual({});
+  });
+
+  test('a step 3 gate still open is a hard-stop on the preview itself', async () => {
+    // Belt as well as braces: even a preview that was somehow built while a
+    // gate was open reports that gate, because buildPreview carries them.
+    const app = await upToSessions(component());
+    app.pickSeries('e1');
+    await app.toPreview();
+    expect(app.preview.ready).toBe(true);
+
+    // Reopen the count gate the way staff would, then rebuild in place.
+    app.countValue = '99';
+    app.refresh();
+    expect(app.preview).toBe(null);
+    app.refreshPreview();
+    expect(app.preview.blockers.some((b) => b.kind === 'count-mismatch')).toBe(true);
+    expect(app.preview.ready).toBe(false);
   });
 });

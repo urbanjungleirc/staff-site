@@ -397,3 +397,55 @@ describe('the hard-stops before Apply lights up', () => {
     expect(preview.totals).toMatchObject({ students: 1, contacts: 1, passes: 1, bookings: 2, blocked: 1 });
   });
 });
+
+describe('step 3’s gates are hard-stops here too', () => {
+  // #72: "Any unresolved gate — **Hard-stop**." The preview is where Apply
+  // lights up, so every gate upstream of it has to be visible from here — not
+  // only the ones this step raised. Without this, a step 5 → 3 → 5 walk could
+  // leave a preview saying ready while the count gate was reopened behind it.
+  const blocked = {
+    ready: false,
+    blockers: [{
+      key: 'count-mismatch',
+      kind: 'count-mismatch',
+      severity: 'block',
+      title: 'You expected 7; we read 6',
+      detail: 'Fix the rows, or say the count has changed.',
+      lineNumbers: [],
+      actions: [],
+    }],
+  };
+
+  test('a blocking gate from step 3 keeps Apply dark', () => {
+    const preview = build({ review: blocked });
+    expect(preview.blockers.some((b) => b.kind === 'count-mismatch')).toBe(true);
+    expect(preview.ready).toBe(false);
+  });
+
+  test('step 3’s warnings are carried too, without blocking', () => {
+    const preview = build({
+      review: {
+        ready: true,
+        blockers: [{ key: 'count-unknown', kind: 'count-unknown', severity: 'warn', title: 'We read 6 students', detail: '…', actions: [] }],
+      },
+    });
+    expect(preview.blockers.some((b) => b.kind === 'count-unknown')).toBe(true);
+    expect(preview.ready).toBe(true);
+  });
+
+  test('step 3’s gates are not restated when it has none', () => {
+    expect(build().blockers.filter((b) => b.kind === 'count-mismatch')).toEqual([]);
+  });
+
+  test('a step-3 action is carried intact, so its control still works', () => {
+    const withAction = {
+      ready: false,
+      blockers: [{
+        key: 'count-mismatch', kind: 'count-mismatch', severity: 'block', title: 'x', detail: 'y',
+        actions: [{ key: 'redeclare', label: 'The count has changed', answers: 'redeclare', value: 6 }],
+      }],
+    };
+    const carried = build({ review: withAction }).blockers.find((b) => b.kind === 'count-mismatch');
+    expect(carried.actions[0].answers).toBe('redeclare');
+  });
+});

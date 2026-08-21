@@ -113,10 +113,14 @@ school-booking/events.js - what a SELECTION of sessions is: the same-name,
                           same-location pre-tick (no recurrence field exists,
                           so any automatic rule is a guess), the lead-time and
                           past-session hard-stops with D9's one-click removal,
-                          and the spaces warning that never blocks. It reads
-                          `lead` and `bookable` as the Worker annotated them
-                          and never re-derives either, so the picker's grey-out
-                          and the write chain's refusal cannot disagree.
+                          and the spaces warning that never blocks.
+                          sessionRefusal() is the ONE place deciding what is
+                          wrong with a session and how serious — the blocker
+                          list and the picker's row styling both ask it. Do not
+                          read the Worker's `bookable` for this: it folds "no
+                          room" in with "too close to the start", and only the
+                          second refuses a booking, so reading it alone paints
+                          a warnable session as a refused one.
                           The paste-an-id fallback resolves HERE, against the
                           window already on screen — GET /events/:id answers 404
                           for every id, real or invented (#97), so a message

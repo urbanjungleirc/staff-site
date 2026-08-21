@@ -9,6 +9,7 @@
 import { describe, expect, test } from 'vitest';
 import {
   defaultWindow,
+  sessionRefusal,
   preTicked,
   resolvePastedId,
   selectedEvents,
@@ -293,5 +294,79 @@ describe('sessionsLine', () => {
 
   test('nothing picked yet says nothing', () => {
     expect(sessionsLine({ sessions: 0, students: 4, bookings: 0 })).toBe('');
+  });
+});
+
+describe('sessionRefusal', () => {
+  // The one place that decides what is wrong with a session and how serious.
+  // It existed twice before — once in `selectionReport`, once in the page's own
+  // `eventWarning` — and the two disagreed: a session Clubworx reported full
+  // was painted red as refused while the report called it a warning, which is
+  // what §11 actually says ("warn, never block").
+  test('a bookable session has nothing wrong with it', () => {
+    expect(sessionRefusal(event())).toBe(null);
+  });
+
+  test('too soon to book is a block, and names the hours', () => {
+    const soon = event({
+      bookable: false,
+      lead: { hoursAhead: 4, past: false, withinLeadTime: true, minLeadHours: 24, unreadable: false },
+    });
+    expect(sessionRefusal(soon)).toMatchObject({ kind: 'lead-time', severity: 'block' });
+    expect(sessionRefusal(soon).message).toMatch(/under 24 hours/);
+  });
+
+  test('already started is a block', () => {
+    const past = event({
+      bookable: false,
+      lead: { hoursAhead: -10, past: true, withinLeadTime: false, minLeadHours: 24, unreadable: false },
+    });
+    expect(sessionRefusal(past)).toMatchObject({ kind: 'past-session', severity: 'block' });
+  });
+
+  test('an unreadable start time is a block', () => {
+    const broken = event({
+      bookable: false,
+      lead: { hoursAhead: null, past: null, withinLeadTime: null, minLeadHours: 24, unreadable: true },
+    });
+    expect(sessionRefusal(broken)).toMatchObject({ kind: 'unreadable-session', severity: 'block' });
+  });
+
+  test('a session reported full is a WARNING, never a block', () => {
+    // §11, and #50 behind it: that number has been wrong in both directions.
+    // The Worker's `bookable` folds no-room in with the lead time, so reading
+    // `bookable` alone paints a warnable session as a refused one.
+    const full = event({ event_full: true, spaces_available: 0, bookable: false });
+    expect(sessionRefusal(full)).toMatchObject({ kind: 'full', severity: 'warn' });
+  });
+
+  test('the lead time outranks the room, because only one of them refuses', () => {
+    const both = event({
+      event_full: true,
+      spaces_available: 0,
+      bookable: false,
+      lead: { hoursAhead: 2, past: false, withinLeadTime: true, minLeadHours: 24, unreadable: false },
+    });
+    expect(sessionRefusal(both).severity).toBe('block');
+  });
+});
+
+describe('the picker and the report agree about severity', () => {
+  test('a full session does not stop a run the report calls ready', () => {
+    const full = event({ event_id: 'f', event_full: true, spaces_available: 0, bookable: false });
+    const report = selectionReport({ events: [full], selected: ['f'], studentCount: 6 });
+    expect(report.ready).toBe(true);
+    expect(sessionRefusal(full).severity).toBe('warn');
+  });
+
+  test('a too-soon session stops it, and says so on the row too', () => {
+    const soon = event({
+      event_id: 's',
+      bookable: false,
+      lead: { hoursAhead: 4, past: false, withinLeadTime: true, minLeadHours: 24, unreadable: false },
+    });
+    const report = selectionReport({ events: [soon], selected: ['s'], studentCount: 6 });
+    expect(report.ready).toBe(false);
+    expect(sessionRefusal(soon).severity).toBe('block');
   });
 });
