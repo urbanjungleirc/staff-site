@@ -1150,6 +1150,29 @@ describe('the house date picker', () => {
     expect(app.datePicker).toBe('to');
   });
 
+  test('a close meant for the other picker leaves this one alone', async () => {
+    // The runtime half of #106's fix. Both pickers have an outside-handler, so
+    // a click on one trigger fires the other's — and a close that did not
+    // check which picker it spoke for would shut the one just opened. That is
+    // the bug that shipped: the picker opened and closed on the same click,
+    // and nothing threw.
+    const app = await upToSessions(component());
+    app.toggleDatePicker('from');
+    app.closeDatePicker('to');
+    expect(app.datePicker).toBe('from');
+
+    app.closeDatePicker('from');
+    expect(app.datePicker).toBe(null);
+  });
+
+  test('a close with no picker named shuts whatever is open', async () => {
+    // Which is what picking a day and re-clicking a trigger both want.
+    const app = await upToSessions(component());
+    app.toggleDatePicker('to');
+    app.closeDatePicker();
+    expect(app.datePicker).toBe(null);
+  });
+
   test('the months walk, and roll the year', async () => {
     const app = await upToSessions(component());
     app.eventsFrom = '2026-12-01';
