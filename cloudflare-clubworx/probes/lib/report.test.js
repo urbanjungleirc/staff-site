@@ -759,12 +759,72 @@ describe('describeEventById', () => {
     expect(out.resolvesFallback).toBe(true);
   });
 
-  it('reads a one-element array carrying the asked-for id as a resolving route', () => {
-    const out = describeEventById({ wantedId, direct: ok([row()]) });
+  it('reads a corroborated one-element array as a resolving route', () => {
+    const out = describeEventById({
+      wantedId,
+      direct: ok([row()]),
+      // The window held more than the one row that came back, so the path
+      // segment narrowed it — the collection cannot be what answered.
+      collectionIds: [wantedId, 999, 1000],
+    });
 
     expect(out.verdict).toBe('one-element-array');
     expect(out.isRoute).toBe(true);
+    expect(out.confounded).toBe(false);
     expect(out.resolvesFallback).toBe(true);
+  });
+
+  it('will not call an uncorroborated one-element array a route', () => {
+    // A window holding exactly one event answers a path-ignoring collection
+    // read and a genuine resolution identically. Nothing here can tell them
+    // apart, so nothing here may claim to.
+    const out = describeEventById({ wantedId, direct: ok([row()]) });
+
+    expect(out.verdict).toBe('one-element-array');
+    expect(out.confounded).toBeNull();
+    expect(out.isRoute).toBeNull();
+  });
+
+  it('takes a bare object as evidence in itself — the collection never sends one', () => {
+    const out = describeEventById({ wantedId, direct: ok(row()) });
+
+    expect(out.confounded).toBe(false);
+    expect(out.isRoute).toBe(true);
+  });
+
+  it('refuses to call it a route when a made-up id answers the same way', () => {
+    const out = describeEventById({
+      wantedId,
+      missingId: 999999999,
+      direct: ok([row()]),
+      collectionIds: [wantedId, 999, 1000],
+      missing: ok([row(999999999)]),
+    });
+
+    expect(out.confounded).toBe(true);
+    expect(out.isRoute).toBe(false);
+  });
+
+  it('refuses to call it a route when the rows returned are the whole collection', () => {
+    const out = describeEventById({
+      wantedId,
+      direct: ok([row()]),
+      collectionIds: [wantedId],
+    });
+
+    expect(out.echoesCollection).toBe(true);
+    expect(out.confounded).toBe(true);
+    expect(out.isRoute).toBe(false);
+  });
+
+  it('reads a 2xx body it cannot interpret as unmeasured, not as an absent route', () => {
+    // A single event naming its key `id` rather than `event_id` would land
+    // here. That is a shape nobody has read yet, not a missing route.
+    const out = describeEventById({ wantedId, direct: ok({ id: wantedId, name: 'x' }) });
+
+    expect(out.verdict).toBe('unrecognised');
+    expect(out.isRoute).toBeNull();
+    expect(out.resolvesFallback).toBe(false);
   });
 
   it('matches the id as text, because a pasted id is a string and Clubworx sends a number', () => {
@@ -869,6 +929,45 @@ describe('describeEventById', () => {
 
     expect(out.missingBehaviour).toBe('collection');
     expect(out.discriminates).toBe(false);
+  });
+
+  it('flags a made-up id that resolves as an event — read against the id actually asked for', () => {
+    // The made-up call asked for `missingId`, not `wantedId`. Reading it
+    // against the real id would score a resolved fake as "unrecognised" and
+    // report the route as discriminating on precisely the case that proves it
+    // does not.
+    const out = describeEventById({
+      wantedId,
+      missingId: 999999999,
+      direct: ok(row()),
+      missing: ok(row(999999999)),
+    });
+
+    expect(out.missingBehaviour).toBe('single-object');
+    expect(out.discriminates).toBe(false);
+  });
+
+  it('leaves the made-up id unknown when the answer was a refusal, not an absence', () => {
+    const out = describeEventById({
+      wantedId,
+      missingId: 999999999,
+      direct: ok(row()),
+      missing: { status: 401, body: null, error: null },
+    });
+
+    expect(out.missingBehaviour).toBe('refused');
+    expect(out.discriminates).toBeNull();
+  });
+
+  it('counts an empty answer to a made-up id as discriminating', () => {
+    const out = describeEventById({
+      wantedId,
+      missingId: 999999999,
+      direct: ok(row()),
+      missing: ok([]),
+    });
+
+    expect(out.discriminates).toBe(true);
   });
 
   it('leaves the made-up id unknown when that call was not made', () => {

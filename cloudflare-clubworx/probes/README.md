@@ -17,8 +17,7 @@ only way to learn how it behaves is to ask it, carefully, in production.
 | `run-60.mjs` | The probe that produced it — **writes, and deletes** |
 | `63-member-creation.md` | [#63](https://github.com/urbanjungleirc/staff-site/issues/63) — the gate on the #46 build: does `POST /api/v2/members` create a contact, is it bookable, and can the School Pass ride along on the create call |
 | `run-63.mjs` | The probe that produced it — **creates contacts, assigns passes, books and cancels** |
-| `97-events-by-id.md` | [#97](https://github.com/urbanjungleirc/staff-site/issues/97) — is `GET /events/:id` a route, and does #67's paste-the-id fallback survive whatever it is |
-| `run-97.mjs` | The probe that produced it — read-only, 4 reads |
+| `run-97.mjs` | [#97](https://github.com/urbanjungleirc/staff-site/issues/97) — is `GET /events/:id` a route, and does #67's paste-the-id fallback survive whatever it is. Read-only, 4 reads. **Not yet run** — see below |
 
 A file's number is the issue it answers, so `63-member-creation.md` belongs to
 [#63](https://github.com/urbanjungleirc/staff-site/issues/63). That ticket's own
@@ -176,6 +175,21 @@ which is the one place these runners differ. A dry run is what somebody reads
 *before* deciding to point a script at production, and that reader is the one
 least likely to have a key in place yet; the others refuse to describe
 themselves without one.
+
+### #97 has no write-up yet, and the row above says so
+
+Every other probe here is a script *and* the findings it produced. #97 is the
+script only: it was built on a machine without the key (ACCESS.md §1 — the gym
+key is not recoverable from Cloudflare, and both Workers are behind Access), so
+the four reads have never been issued.
+
+There is deliberately no `97-events-by-id.md` stub. A findings file in a
+directory where every other findings file is measured would be read as measured,
+and the one thing #97 exists to stop is an unverified answer about `events/:id`
+being treated as a verified one. Run `node probes/run-97.mjs`, then write the
+document from what came back — and `../src/events.js`'s `resolveEvent` header,
+which currently says the route is unmeasured, is the second half of that same
+edit.
 
 The two `../src/` entries are not probe files any more. staff-site#66 promoted
 them into the Worker's own module, because the Worker needs exactly the same URL

@@ -61,6 +61,22 @@ const OUT_DIR = path.join(HERE, 'out');
 const args = process.argv.slice(2);
 const DRY_RUN = args.includes('--dry-run');
 
+/** Everything after the first '=' — a path may contain one, and a truncated
+ * value fails in ways that look like the endpoint's fault rather than the
+ * flag's. */
+const flag = name => args.find(a => a.startsWith(`${name}=`))?.split('=').slice(1).join('=');
+
+/**
+ * Asked for on every call, including the addressed ones.
+ *
+ * "A full page is not an answer" (README): `/events` returned exactly 50 for
+ * every #51 variant, and a page that comes back full is truncated rather than
+ * complete. It matters *more* on the addressed calls than the listing, not
+ * less: the hypothesis under test is that the path segment is ignored, and if
+ * it is, calls 2-4 are collection reads with no bound on them.
+ */
+const PAGE_SIZE = 50;
+
 /**
  * An id that should not exist, for call 3.
  *
@@ -69,13 +85,11 @@ const DRY_RUN = args.includes('--dry-run');
  * with nothing behind it answers. The key is scoped to one gym, so a number
  * this far above UJ's range belongs to no event the key can see either way.
  */
-const MISSING_ID = args.find(a => a.startsWith('--missing-id='))?.split('=')[1] ?? '999999999';
+const MISSING_ID = flag('--missing-id') ?? '999999999';
 
 /** Points at a key outside the package — a git worktree, where .dev.vars is
  * gitignored and so does not follow the checkout. */
-const DEV_VARS =
-  args.find(a => a.startsWith('--dev-vars='))?.split('=').slice(1).join('=') ||
-  path.join(HERE, '..', '.dev.vars');
+const DEV_VARS = flag('--dev-vars') || path.join(HERE, '..', '.dev.vars');
 
 /** Clubworx dates are plain YYYY-MM-DD; the gym runs on Australia/Perth. */
 const perthDate = offsetDays => {
@@ -87,24 +101,45 @@ const line = (label, value) => console.log(`  ${label.padEnd(34)} ${value}`);
 
 /** Ids only. The window is deliberately short — one page is all this needs. */
 async function findRealEventId(get, window) {
-  const res = await get('events', { ...window, page_size: 50 });
+  const res = await get('events', { ...window, page_size: PAGE_SIZE });
   const events = summariseEvents(res.body);
 
-  line('listing for a real id', `HTTP ${res.status} · ${res.ms}ms · ${events.count} events`);
+  // A page that comes back full is truncated rather than complete (#51). It is
+  // reported rather than paged past, because a truncated `collectionIds` is
+  // what would make `echoesCollection` — the check that catches a path-ignoring
+  // collection read — quietly answer `false`.
+  const full = events.count >= PAGE_SIZE;
+  line(
+    'listing for a real id',
+    `HTTP ${res.status} · ${res.ms}ms · ${events.count} events` +
+      (full ? '  ⚠️ page came back full — narrow the window and re-run' : ''),
+  );
 
   // The *first* future event, not any event: an id from the past is still a
   // valid address, but a route that only ever resolved historical rows would
   // answer a question #54 is not asking.
+  //
+  // Parsed, never compared as text: Clubworx sends `+08:00` and `toISOString()`
+  // is `Z`, so `>` between them is a string comparison of two different
+  // notations — which reads a Perth event that started this morning as still to
+  // come, by up to eight hours.
+  const startedAt = row => Date.parse(row?.event_start_at ?? '');
+  const from = Date.now();
   const rows = Array.isArray(res.body) ? res.body : [];
-  const now = new Date().toISOString();
   const future = rows
-    .filter(r => r?.event_id !== null && r?.event_id !== undefined && r?.event_start_at > now)
-    .sort((a, b) => String(a.event_start_at).localeCompare(String(b.event_start_at)));
+    .filter(r => r?.event_id !== null && r?.event_id !== undefined && startedAt(r) > from)
+    .sort((a, b) => startedAt(a) - startedAt(b));
 
   return {
     id: future[0]?.event_id ?? null,
     startsAt: future[0]?.event_start_at ?? null,
-    listing: { status: res.status, ms: res.ms, count: events.count, fields: events.fields },
+    listing: {
+      status: res.status,
+      ms: res.ms,
+      count: events.count,
+      pageCameBackFull: full,
+      fields: events.fields,
+    },
     collectionIds: events.ids,
   };
 }
@@ -118,10 +153,10 @@ async function main() {
     // reading the plan before deciding to run it.
     console.log('--dry-run: no requests issued. This run would make 4 reads, all GET:');
     console.log(`  1. GET /events?event_starts_after=${window.event_starts_after}` +
-      `&event_ends_before=${window.event_ends_before}&page_size=50`);
-    console.log('  2. GET /events/<the first future id from 1>  (same window)');
-    console.log(`  3. GET /events/${MISSING_ID}                 (same window)`);
-    console.log('  4. GET /events/<the same real id>            (no window at all)');
+      `&event_ends_before=${window.event_ends_before}&page_size=${PAGE_SIZE}`);
+    console.log(`  2. GET /events/<the first future id from 1>  (same window, page_size=${PAGE_SIZE})`);
+    console.log(`  3. GET /events/${MISSING_ID}                 (same window, page_size=${PAGE_SIZE})`);
+    console.log(`  4. GET /events/<the same real id>            (no window, page_size=${PAGE_SIZE})`);
     console.log('  Nothing is created, updated or deleted.');
     return;
   }
@@ -143,17 +178,23 @@ async function main() {
 
   console.log('\n── The three addressed calls ─────────────────────────────────');
 
-  const direct = await get(`events/${encodeURIComponent(seed.id)}`, window);
+  const paged = { ...window, page_size: PAGE_SIZE };
+
+  const direct = await get(`events/${encodeURIComponent(seed.id)}`, paged);
   line('2. events/<real id> + window', `HTTP ${direct.status} · ${direct.ms}ms`);
 
-  const missing = await get(`events/${encodeURIComponent(MISSING_ID)}`, window);
+  const missing = await get(`events/${encodeURIComponent(MISSING_ID)}`, paged);
   line(`3. events/${MISSING_ID}`, `HTTP ${missing.status} · ${missing.ms}ms`);
 
-  const windowless = await get(`events/${encodeURIComponent(seed.id)}`);
+  // No window, because that is exactly what `resolveEvent` sends. `page_size`
+  // still rides along: it bounds a collection read, and this call is the one
+  // most likely to be one.
+  const windowless = await get(`events/${encodeURIComponent(seed.id)}`, { page_size: PAGE_SIZE });
   line('4. events/<real id>, no window', `HTTP ${windowless.status} · ${windowless.ms}ms`);
 
   const finding = describeEventById({
     wantedId: seed.id,
+    missingId: MISSING_ID,
     direct,
     missing,
     windowless,
@@ -170,6 +211,12 @@ async function main() {
   line('fields returned', finding.fields.length ? finding.fields.join(', ') : '(none)');
   line('rows returned', String(finding.returnedIds.length));
   line('answered with the collection', String(finding.echoesCollection));
+  line(
+    'told apart from the collection',
+    finding.confounded === null
+      ? 'UNCORROBORATED — cannot tell a resolution from a one-row collection read'
+      : String(!finding.confounded),
+  );
   line('a made-up id answers', `${finding.missingBehaviour} (HTTP ${finding.missingStatus})`);
   line('tells real from made-up', String(finding.discriminates));
   line('date window required', `${finding.windowRequired} (HTTP ${finding.windowlessStatus})`);

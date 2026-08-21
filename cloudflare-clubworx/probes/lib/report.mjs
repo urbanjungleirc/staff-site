@@ -795,6 +795,27 @@ function shapeOf(res, wanted) {
 /** The shapes `resolveEvent` in `../src/events.js` accepts as one confirmed event. */
 const RESOLVING = new Set(['single-object', 'one-element-array']);
 
+/**
+ * What a made-up id's answer proves about the route.
+ *
+ * `true` — it told a real id from an invented one, which is what addressing
+ * means. `false` — it answered content for an id that does not exist, so it is
+ * answering *something else* and a paste field on it would confirm anything
+ * typed in. `null` — a refusal or a dropped request, which proves neither.
+ */
+const DISCRIMINATION = {
+  'not-found': true,
+  rejected: true,
+  empty: true,
+  'single-object': false,
+  'one-element-array': false,
+  collection: false,
+  unrecognised: false,
+  refused: null,
+  error: null,
+  'error-status': null,
+};
+
 const SHAPE_SUMMARY = {
   'single-object': 'a bare object carrying the id asked for — events/:id resolves',
   'one-element-array': 'a one-element array carrying the id asked for — events/:id resolves',
@@ -829,8 +850,16 @@ const SHAPE_SUMMARY = {
  *
  * Nothing here records a row: field **names**, ids and statuses only.
  *
+ * `confounded` is the one to read before quoting any of the others. A window
+ * holding exactly one event makes a path-ignoring collection read and a genuine
+ * resolution byte-identical, so "it came back with the right event" is not on
+ * its own an answer — it needs either a made-up id that answers differently, or
+ * a collection wider than what came back.
+ *
  * @param {object} opts
  * @param {string|number} opts.wantedId The real event id the direct call asked for.
+ * @param {string|number} [opts.missingId] The id the made-up call asked for. Read
+ *   `missing` against this, never against `wantedId`.
  * @param {{status: number|null, body: unknown, error: string|null}} opts.direct
  *   `GET events/<real id>`, inside the date window.
  * @param {{status: number|null, body: unknown, error: string|null}} [opts.missing]
@@ -842,6 +871,7 @@ const SHAPE_SUMMARY = {
  */
 export function describeEventById({
   wantedId,
+  missingId = null,
   direct = null,
   missing = null,
   windowless = null,
@@ -860,20 +890,6 @@ export function describeEventById({
   const fallbackBasis = windowlessShape === null ? 'windowed' : 'windowless';
   const resolvesFallback = RESOLVING.has(fallbackBasis === 'windowless' ? windowlessShape : verdict);
 
-  // Three states, and the third is the point. `false` is a measured absence;
-  // `null` is "this run did not find out", which a refusal or a dropped
-  // connection is. Collapsing them would write an unmeasured "no" into the
-  // findings.
-  //
-  // Read off the *addressed* call rather than the shipped route's one: "is
-  // `events/:id` a route" and "does #67's code work" are different questions,
-  // and a route that needs a window is a yes to the first and a no to the
-  // second.
-  const isRoute =
-    RESOLVING.has(verdict) ? true
-    : verdict === 'refused' || verdict === 'error' || verdict === 'error-status' ? null
-    : false;
-
   const returnedIds = rowsOf(direct?.body)
     .map(r => r?.event_id)
     .filter(id => id !== null && id !== undefined);
@@ -882,12 +898,43 @@ export function describeEventById({
       ? sameIds(returnedIds, collectionIds)
       : false;
 
-  const missingBehaviour = shapeOf(missing, `${wantedId}-does-not-exist`);
-  // A route that answers a made-up id the same way it answers a real one tells
-  // an operator nothing, and a paste field built on it would confirm anything
-  // typed into it.
-  const discriminates =
-    missingBehaviour === null ? null : !RESOLVING.has(missingBehaviour) && missingBehaviour !== 'collection';
+  // Read against the id the made-up call actually asked for. Scoring it against
+  // `wantedId` would make a *resolved* fake id look unrecognisable, and report
+  // the route as discriminating on exactly the case that proves it does not.
+  const missingBehaviour = shapeOf(missing, missingId);
+  const discriminates = missingBehaviour === null ? null : DISCRIMINATION[missingBehaviour] ?? null;
+
+  // Is the answer to a real id distinguishable from the collection, or from the
+  // answer to an id that does not exist?
+  //
+  // This is the trap the whole probe turns on. A window holding exactly one
+  // event makes a path-ignoring collection read and a genuine resolution
+  // *byte-identical* — both are a one-element array carrying the id asked for.
+  // A bare object is different: `/events` returns a list, so an object is
+  // evidence in itself.
+  const narrowerThanCollection =
+    Array.isArray(collectionIds) && collectionIds.length > 1 && returnedIds.length < collectionIds.length;
+
+  const confounded =
+    discriminates === false || echoesCollection === true ? true
+    : discriminates === true || narrowerThanCollection || verdict === 'single-object' ? false
+    : null;
+
+  // Three states, and the third is the point. `false` is a measured absence;
+  // `null` is "this run did not find out" — a refusal, a dropped connection, a
+  // 2xx body in a shape nobody has read, or an answer that cannot be told from
+  // the collection. Collapsing any of them into `false` would write an
+  // unmeasured "no" into the findings.
+  //
+  // Read off the *addressed* call rather than the shipped route's one: "is
+  // `events/:id` a route" and "does #67's code work" are different questions,
+  // and a route that needs a window is a yes to the first and a no to the
+  // second.
+  const isRoute =
+    RESOLVING.has(verdict) ? (confounded === null ? null : !confounded)
+    : verdict === 'refused' || verdict === 'error' || verdict === 'error-status' ? null
+    : verdict === 'unrecognised' ? null
+    : false;
 
   const windowRequired = windowlessShape === null ? null : !RESOLVING.has(windowlessShape);
 
@@ -900,6 +947,7 @@ export function describeEventById({
     fields: fieldNamesOf(direct?.body),
     returnedIds,
     echoesCollection,
+    confounded,
     missingBehaviour,
     missingStatus: missing?.status ?? null,
     discriminates,
