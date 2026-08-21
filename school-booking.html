@@ -1,0 +1,1112 @@
+<!--
+  School group booking — steps 1 to 3.
+
+  staff-site#71, map #46. Design:
+  docs/superpowers/specs/2026-08-19-school-group-booking-design.md §7 and §9.
+  Variant A, the gated stepper, decided on #54 against three built prototypes.
+
+  NOT LINKED FROM tools.json. That is deliberate and is the last step of #46
+  (§17): `main` is production here, so every step before the hub entry lands is
+  deployed but invisible to staff. Steps 4–6 — the session picker, the preview
+  and Apply — are #72 and #73, and nothing on this page can write anything.
+
+  Two house rules this page is built around (§16):
+
+    1. Never bind an Alpine directive to a function-valued property. Alpine
+       INVOKES a function returned by an expression, so `x-show="b.fix"` runs
+       the fix on every render tick. It defeated this exact confirmation gate
+       during #54 — silently, with no user action and no error. Bind to a
+       string or a boolean; call the function only from `@click`.
+       school-booking/test/alpine-bindings.test.js reads this file and fails on
+       any instance of it.
+
+    2. Bump the `?v=` below whenever either module gains or renames an export.
+       There is no build step — a browser holding an earlier copy of a module
+       serves it against newer HTML, and a stale copy of a *gate* module breaks
+       every check at once and in silence.
+-->
+<!doctype html>
+<html lang="en-AU">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="robots" content="noindex">
+<title>School booking - staff portal</title>
+<link rel="icon" type="image/svg+xml" href="data:image/svg+xml,%3Csvg%20xmlns='http://www.w3.org/2000/svg'%20viewBox='0%200%2024%2024'%3E%3Crect%20width='24'%20height='24'%20rx='6'%20fill='%238b1c23'/%3E%3Cg%20transform='translate(4.5%204.5)%20scale(0.625)'%20fill='none'%20stroke='%23fff'%20stroke-width='2.4'%20stroke-linecap='round'%20stroke-linejoin='round'%3E%3Cpath%20d='M3%207.5%2012%203l9%204.5-9%204.5z'/%3E%3Cpath%20d='M7%2010v5c0%201.7%202.2%203%205%203s5-1.3%205-3v-5'/%3E%3C/g%3E%3C/svg%3E">
+<script src="https://cdn.tailwindcss.com"></script>
+<script>
+  tailwind.config = {
+    theme: {
+      extend: {
+        colors: { uj: { DEFAULT: '#8b1c23', dark: '#6b181e', light: '#ab2930' } },
+        fontFamily: { sans: ['"Inter"', '"Segoe UI"', 'system-ui', '-apple-system', 'sans-serif'] },
+        borderRadius: { card: '18px' }
+      }
+    }
+  }
+</script>
+
+<!-- Module scripts are deferred and deferred scripts run in document order, so
+     this sits ABOVE the Alpine tag deliberately: it guarantees both globals
+     exist before any Alpine expression is evaluated. Same arrangement as
+     vouchers/index.html, for the same reason.
+
+     ?v= on BOTH: see the header comment. `bootstrapError` below turns a stale
+     or missing module into a visible refusal rather than a page whose gates
+     quietly do nothing. -->
+<script type="module">
+  import * as parser from './school-booking/parse.js?v=1';
+  import * as steps from './school-booking/steps.js?v=1';
+  window.schoolListParser = parser;
+  window.schoolBookingSteps = steps;
+</script>
+<script defer src="https://cdn.jsdelivr.net/npm/alpinejs@3.x.x/dist/cdn.min.js"></script>
+
+<style>
+  [x-cloak] { display: none !important; }
+  :root { --uj: #8b1c23; --border-soft: rgba(31, 41, 55, 0.08); }
+
+  .hub-header {
+    background:
+      radial-gradient(circle at 20% -20%, rgba(171, 49, 57, 0.32), transparent 55%),
+      linear-gradient(145deg, rgba(107, 24, 30, 0.95), rgba(139, 28, 35, 0.92));
+  }
+  .header-icon {
+    width: 58px; height: 58px; border-radius: 18px; color: var(--uj);
+    background: linear-gradient(135deg, #f4d4d8, #e0a9b0);
+    border: 1px solid rgba(255, 255, 255, 0.55);
+    box-shadow: 0 12px 24px -10px rgba(0, 0, 0, 0.5), inset 0 1px 0 rgba(255, 255, 255, 0.55);
+  }
+  .header-icon svg { width: 28px; height: 28px; }
+
+  .panel {
+    background: #fff; border: 1px solid var(--border-soft); border-radius: 18px;
+    box-shadow: 0 12px 30px -24px rgba(15, 23, 42, 1); padding: 24px 26px;
+  }
+
+  .field-label {
+    display: block; font-size: 0.67rem; font-weight: 600;
+    text-transform: uppercase; letter-spacing: 0.05em;
+    color: #6b7280; margin-bottom: 6px;
+  }
+
+  /* Combobox — the staff portal's dropdown, copied from vouchers/stats.html. A
+     native <select> renders with the OS chevron and OS menu, which is exactly
+     what the voucher pages threw out; this page must not reintroduce it. */
+  .combo { position: relative; }
+  .combo-trigger {
+    width: 100%; min-height: 40px;
+    display: flex; align-items: center; justify-content: space-between; gap: 12px;
+    padding: 0.5rem 0.75rem; border-radius: 12px;
+    border: 1px solid rgba(31, 41, 55, 0.12);
+    background: #fff; color: #1f2937;
+    font-size: 0.875rem; line-height: 1.35; text-align: left;
+    transition: border-color 150ms ease, box-shadow 150ms ease, background-color 150ms ease;
+  }
+  .combo-trigger:hover { border-color: rgba(139, 28, 35, 0.32); }
+  .combo-trigger:focus { outline: none; border-color: var(--uj); box-shadow: 0 0 0 3px rgba(139, 28, 35, 0.14); }
+  .combo-trigger > span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .combo-chevron {
+    width: 16px; height: 16px; flex-shrink: 0; color: #6b7280;
+    fill: none; stroke: currentColor; stroke-width: 2;
+    stroke-linecap: round; stroke-linejoin: round;
+    transition: transform 150ms ease;
+  }
+  .combo-trigger[aria-expanded="true"] .combo-chevron { transform: rotate(180deg); }
+  .combo-menu {
+    position: absolute; z-index: 40; left: 0; right: 0; top: calc(100% + 6px);
+    max-height: min(60vh, 560px); overflow: auto;
+    padding: 6px; border-radius: 14px;
+    border: 1px solid rgba(139, 28, 35, 0.14);
+    background: #fff; box-shadow: 0 18px 36px -26px rgba(15, 23, 42, 0.75);
+  }
+  .combo-option {
+    width: 100%; display: flex; align-items: center; justify-content: space-between; gap: 10px;
+    border: 0; border-radius: 10px; padding: 8px 10px;
+    background: transparent; color: #1f2937; font-size: 0.875rem;
+    text-align: left; cursor: pointer;
+  }
+  .combo-option:hover, .combo-option.active { background: rgba(139, 28, 35, 0.08); color: var(--uj); }
+  .combo-option.active { font-weight: 700; }
+
+  /* Segmented control — the step strip. */
+  .seg { display: inline-flex; background: rgba(31,41,55,0.05); border-radius: 12px; padding: 3px; gap: 2px; flex-wrap: wrap; }
+  .seg button {
+    border: 0; border-radius: 9px; padding: 6px 12px; background: transparent;
+    color: #6b7280; font-size: 0.8rem; font-weight: 600; cursor: pointer; white-space: nowrap;
+  }
+  .seg button.active { background: #fff; color: var(--uj); box-shadow: 0 1px 3px rgba(15,23,42,0.12); }
+  .seg button:disabled { color: #d1d5db; cursor: not-allowed; }
+
+  .pill {
+    display: inline-flex; align-items: center; gap: 4px;
+    padding: 2px 8px; border-radius: 9999px;
+    font-size: 0.67rem; font-weight: 600; text-transform: uppercase;
+    letter-spacing: 0.03em; white-space: nowrap;
+    box-shadow: inset 0 0 0 1px currentColor;
+  }
+
+  /* A column chip. Deliberately looks like something you can press: P6's
+     mapping is the decision that silently produces wrong permanent contacts,
+     so the affordance to correct it has to be visible without being hunted. */
+  .chip {
+    display: inline-flex; align-items: center; gap: 6px;
+    border: 1px dashed rgba(31, 41, 55, 0.22); border-radius: 10px;
+    padding: 4px 9px; background: #fff; font-size: 0.78rem; color: #1f2937;
+    cursor: pointer;
+  }
+  .chip:hover { border-color: rgba(139, 28, 35, 0.45); color: var(--uj); }
+  .chip-role { font-size: 0.62rem; font-weight: 700; text-transform: uppercase; letter-spacing: 0.05em; color: #6b7280; }
+
+  .mono { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-variant-numeric: tabular-nums; }
+  .strike { text-decoration: line-through; }
+
+  .row-hit { cursor: pointer; }
+  .row-hit:hover { background: rgba(139, 28, 35, 0.025); }
+  .lane { border-left: 3px solid transparent; }
+  .lane-need { border-left-color: #f59e0b; }
+  .lane-bad  { border-left-color: #e11d48; }
+  .lane-ok   { border-left-color: #10b981; }
+</style>
+</head>
+
+<!-- No x-init calling init(). Alpine calls a component's own init() for us, and
+     naming it here as well ran the whole bootstrap twice. See vouchers#69. -->
+<body class="bg-neutral-50 text-neutral-800 font-sans min-h-screen flex flex-col"
+      x-data="schoolBooking()" x-cloak>
+
+  <header class="hub-header text-white">
+    <div class="max-w-[1100px] mx-auto px-6 pt-10 pb-16 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-6">
+      <div class="flex items-center gap-4 shrink-0">
+        <div class="header-icon flex items-center justify-center shrink-0">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M3 7.5 12 3l9 4.5-9 4.5z"/><path d="M7 10v5c0 1.7 2.2 3 5 3s5-1.3 5-3v-5"/>
+          </svg>
+        </div>
+        <div>
+          <div class="text-[0.7rem] font-semibold uppercase tracking-[0.12em] text-white/65 leading-none mb-2">Staff Portal</div>
+          <h1 class="text-3xl sm:text-4xl font-bold tracking-tight text-white leading-none">School booking</h1>
+          <p class="text-sm text-white/75 mt-2">Paste a school's student list, check what we read, then book them in.</p>
+        </div>
+      </div>
+      <nav class="flex items-center gap-1.5 sm:justify-end">
+        <a href="/" class="px-4 py-2 rounded-xl border border-white/30 bg-white/[0.12] hover:bg-white/[0.22] text-[0.9rem] font-semibold transition-all">
+          Back to the hub
+        </a>
+      </nav>
+    </div>
+  </header>
+
+  <main class="max-w-[1100px] mx-auto w-full px-4 pb-8 -mt-10 flex-1">
+    <div class="panel">
+
+      <!-- A module that did not load is a page whose gates are decoration. Said
+           out loud rather than left to fail per-expression, because every gate
+           on this page fails the same way and at the same moment. -->
+      <div x-show="bootstrapError" x-cloak role="alert"
+           class="rounded-xl bg-rose-50 border border-rose-200 text-rose-800 px-4 py-3 text-sm mb-5">
+        <b>This page is not safe to use.</b>
+        <span x-text="bootstrapError"></span>
+        Reload with a hard refresh; if that does not fix it, the page has shipped against a stale module.
+      </div>
+
+      <!-- ── Step strip ──────────────────────────────────────────────────── -->
+      <div class="flex items-center justify-between gap-4 flex-wrap mb-6">
+        <div class="seg">
+          <template x-for="(s, i) in STEPS" :key="s.key">
+            <button type="button" :class="stepIndex === i ? 'active' : ''"
+                    :disabled="i > maxStepReached || !s.built"
+                    :aria-current="stepIndex === i ? 'step' : false"
+                    :title="s.built ? '' : 'Not built yet'"
+                    @click="i <= maxStepReached && s.built && go(i)">
+              <span class="mono text-[0.7rem] mr-1" x-text="i + 1"></span><span x-text="s.label"></span>
+            </button>
+          </template>
+        </div>
+        <div class="text-xs text-neutral-400">
+          Step <span class="mono" x-text="stepIndex + 1"></span> of <span class="mono" x-text="STEPS.length"></span>
+        </div>
+      </div>
+
+      <!-- ── 1 · School ──────────────────────────────────────────────────── -->
+      <section x-show="stepIndex === 0">
+        <h2 class="text-lg font-bold mb-1">Which school is this?</h2>
+        <p class="text-sm text-neutral-500 mb-5 max-w-2xl">
+          Reuse the school's existing tag wherever there is one. It becomes the permanent
+          marker on every contact this run creates, and it is the only record of which
+          school a contact belongs to that this system will ever have — so a second
+          spelling of one school splits its history in two, permanently.
+        </p>
+
+        <div class="max-w-lg">
+          <span class="field-label">School</span>
+          <div class="combo" @click.outside="schoolOpen = false" @keydown.escape.window="schoolOpen = false">
+            <button type="button" class="combo-trigger" @click="schoolOpen = !schoolOpen"
+                    :aria-expanded="schoolOpen ? 'true' : 'false'" aria-haspopup="listbox" aria-label="School">
+              <span x-text="tag || 'Choose a school, or type a new tag…'"></span>
+              <svg class="combo-chevron" viewBox="0 0 24 24"><path d="m6 9 6 6 6-6"/></svg>
+            </button>
+            <div x-show="schoolOpen" x-transition.origin.top x-cloak class="combo-menu">
+              <div class="px-1 pb-2">
+                <input x-model="schoolQuery" type="text" placeholder="Type to filter, or type a new tag…"
+                       aria-label="Filter schools, or type a new tag"
+                       class="w-full rounded-lg border border-neutral-200 px-2.5 py-1.5 text-sm focus:outline-none focus:border-uj"
+                       @keydown.enter.prevent="useTypedTag()">
+                <p class="text-[0.68rem] text-neutral-500 mt-1.5 px-1" x-text="schoolsNote()"></p>
+              </div>
+
+              <!-- The role wraps the options and nothing else: the filter box
+                   above is not an option, and a listbox containing one is
+                   invalid ARIA that a screen reader reads as a broken widget. -->
+              <div role="listbox" aria-label="Schools already in Clubworx">
+              <template x-for="s in filteredSchools()" :key="s.tag">
+                <button type="button" role="option" class="combo-option"
+                        :aria-selected="tag === s.tag ? 'true' : 'false'" :class="tag === s.tag ? 'active' : ''"
+                        @click="tag = s.tag; schoolOpen = false">
+                  <span class="mono" x-text="s.tag"></span>
+                  <span class="text-[0.68rem] text-neutral-500"
+                        x-text="s.contacts + (s.contacts === 1 ? ' contact' : ' contacts')"></span>
+                </button>
+              </template>
+
+              <!-- A new tag is a real and expected outcome — it is how a school
+                   gets its first one. It is offered last and shown normalised,
+                   so what will be written is what is on screen before the
+                   click, not after it. -->
+              <button type="button" role="option" aria-selected="false"
+                      class="combo-option" x-show="typedTag() && !knownTag(typedTag())" x-cloak
+                      @click="useTypedTag()">
+                <span>Use a new tag <span class="mono font-bold" x-text="typedTag()"></span></span>
+                <span class="text-[0.68rem] text-neutral-500">new school</span>
+              </button>
+              </div>
+            </div>
+          </div>
+
+          <p class="text-xs mt-3" :class="marker() ? 'text-neutral-500' : 'text-neutral-400'">
+            <template x-if="marker()">
+              <span>Every contact this run creates is written with <span class="mono text-neutral-700" x-text="marker()"></span>.</span>
+            </template>
+            <template x-if="!marker()">
+              <span>Pick or type a school to see the marker that will be written.</span>
+            </template>
+          </p>
+        </div>
+
+        <div class="flex justify-end mt-8">
+          <button type="button" :disabled="!tag"
+                  class="bg-uj hover:bg-uj-dark text-white rounded-xl px-5 py-2.5 text-sm font-semibold disabled:opacity-40"
+                  @click="go(1)">Paste the list →</button>
+        </div>
+      </section>
+
+      <!-- ── 2 · Paste, and declare the count ────────────────────────────── -->
+      <section x-show="stepIndex === 1">
+        <h2 class="text-lg font-bold mb-1">Paste the list, then say how many students there should be</h2>
+        <p class="text-sm text-neutral-500 mb-5 max-w-2xl">
+          Copy the students straight out of the email, spreadsheet or PDF — tabs, aligned
+          columns and one-field-per-line all work. Then answer the count
+          <b>before</b> we show you what we read: a number already on screen is one
+          nobody argues with, and this single check catches a misread layout, a header
+          absorbed as a student, a truncated paste and a phantom column all at once.
+        </p>
+
+        <textarea x-model="rawPaste" rows="12" spellcheck="false" @input="pasteChanged()"
+          aria-label="The pasted student list"
+          class="w-full rounded-xl border border-neutral-200 p-3 text-sm mono focus:outline-none focus:border-uj focus:ring-2 focus:ring-uj/15"></textarea>
+        <p class="text-xs text-neutral-500 mt-1">
+          <span class="mono" x-text="pastedLineCount()"></span> lines pasted.
+        </p>
+
+        <div class="flex items-end gap-4 flex-wrap mt-6">
+          <div>
+            <span class="field-label">Expected students</span>
+            <input x-model="countValue" type="text" inputmode="numeric"
+                   :disabled="countUnknown || countLocked()"
+                   aria-label="Expected number of students"
+                   class="w-32 rounded-xl border border-neutral-200 px-3 py-2 text-lg mono font-bold focus:outline-none focus:border-uj focus:ring-2 focus:ring-uj/15 disabled:bg-neutral-50 disabled:text-neutral-300">
+          </div>
+          <label class="flex items-center gap-2 text-sm text-neutral-600 pb-2.5 cursor-pointer">
+            <input type="checkbox" x-model="countUnknown" :disabled="countLocked()"
+                   class="rounded border-neutral-300 text-uj focus:ring-uj/30 disabled:opacity-40">
+            I don't know
+          </label>
+        </div>
+
+        <!-- Locked once the list has been read, because it has: the count is a
+             declaration about a paste, and this one has already been answered
+             about this one. Coming back here to change the number after seeing
+             what we read is the anchoring P5's ordering prevents — the same
+             move the in-place re-declare refuses, one click further away.
+             Editing the paste unlocks it, because that is a different list. -->
+        <p x-show="countLocked()" x-cloak
+           class="text-xs text-neutral-500 mt-3 bg-neutral-100 border border-neutral-200 rounded-lg px-3 py-2 inline-block">
+          You have already answered this for this list. Edit the paste to answer it again — or,
+          if fixing the rows changed the number, say so on the next screen.
+        </p>
+        <p x-show="countUnknown" x-cloak
+           class="text-xs text-amber-700 mt-3 bg-amber-50 border border-amber-200 rounded-lg px-3 py-2 inline-block">
+          Fine — the count becomes a banner you have to read, rather than a gate that blocks.
+        </p>
+
+        <div class="flex justify-between mt-8">
+          <button type="button" class="text-sm text-neutral-500 hover:text-neutral-800" @click="go(0)">← Back</button>
+          <button type="button" :disabled="!canRead()"
+                  class="bg-uj hover:bg-uj-dark text-white rounded-xl px-5 py-2.5 text-sm font-semibold disabled:opacity-40"
+                  @click="readList()">Show me what you read →</button>
+        </div>
+      </section>
+
+      <!-- ── 3 · Rows ────────────────────────────────────────────────────── -->
+      <section x-show="stepIndex === 2">
+        <h2 class="text-lg font-bold mb-3">What we read</h2>
+
+        <template x-if="reviewed">
+          <div>
+            <!-- The count gate, and the reconciliation under it. P1 is a sum,
+                 so it is shown as one — a sum that stops adding up is the only
+                 thing that catches a row quietly disappearing. -->
+            <div class="rounded-xl px-3.5 py-2.5 text-sm mb-2"
+                 :class="countTone()">
+              <div class="font-semibold" x-text="countLine()"></div>
+              <div class="text-xs mt-1 opacity-90" x-text="reconciliationLine()"></div>
+            </div>
+
+            <!-- The verdict, in plain English, with the override behind it. -->
+            <div class="rounded-xl bg-sky-50 border border-sky-200 text-sky-900 px-3.5 py-2.5 text-sm mb-2"
+                 x-show="!reviewed.blockers.some(b => b.kind === 'refusal')" x-cloak>
+              <div class="flex items-start justify-between gap-3 flex-wrap">
+                <div>
+                  <div x-text="reviewed.verdict"></div>
+                  <div class="text-xs text-sky-800/80 mt-1" x-text="ignoredColumnsLine()"></div>
+                </div>
+                <button type="button" class="underline underline-offset-2 font-semibold shrink-0"
+                        @click="showOverrides = !showOverrides"
+                        x-text="showOverrides ? 'done' : 'change'"></button>
+              </div>
+
+              <div x-show="showOverrides" x-cloak class="mt-3 pt-3 border-t border-sky-200 space-y-3">
+                <div>
+                  <span class="field-label text-sky-700">Layout</span>
+                  <div class="flex items-center gap-2 flex-wrap text-sm">
+                    <button type="button" class="chip" :class="reviewed.layout === 'horizontal' ? 'border-solid border-uj text-uj' : ''"
+                            @click="setLayout('horizontal')">One student per line</button>
+                    <button type="button" class="chip" :class="reviewed.layout === 'vertical' ? 'border-solid border-uj text-uj' : ''"
+                            @click="setLayout('vertical')">Fields down the page</button>
+                    <template x-if="reviewed.layout === 'vertical'">
+                      <label class="flex items-center gap-1.5 text-sm text-sky-900">
+                        <input type="text" inputmode="numeric" class="w-16 rounded-lg border border-sky-200 px-2 py-1 text-sm mono"
+                               aria-label="Fields per student"
+                               :value="reviewed.blockSize"
+                               @change="setBlockSize($event.target.value, $event.target)">
+                        fields per student
+                      </label>
+                    </template>
+                  </div>
+                </div>
+
+                <div x-show="reviewed.columns" x-cloak>
+                  <span class="field-label text-sky-700">Columns</span>
+                  <div class="flex items-center gap-2 flex-wrap">
+                    <template x-for="chip in columnChips()" :key="chip.role">
+                      <div class="relative">
+                        <button type="button" class="chip" aria-haspopup="listbox"
+                                :aria-expanded="chipMenu === chip.role ? 'true' : 'false'"
+                                :aria-label="chip.roleLabel + ' is ' + chip.label + '. Choose another column.'"
+                                @click="chipMenu = (chipMenu === chip.role ? null : chip.role)">
+                          <span class="chip-role" x-text="chip.roleLabel"></span>
+                          <span class="mono" x-text="chip.label"></span>
+                        </button>
+                        <div x-show="chipMenu === chip.role" x-cloak role="listbox"
+                             class="combo-menu w-56 max-w-[calc(100vw-3rem)]"
+                             :aria-label="'Column for ' + chip.roleLabel"
+                             @click.outside="chipMenu = null" @keydown.escape.window="chipMenu = null">
+                          <template x-for="choice in columnChoices()" :key="choice.index">
+                            <button type="button" class="combo-option" role="option"
+                                    :aria-selected="choice.index === chip.index ? 'true' : 'false'"
+                                    :class="choice.index === chip.index ? 'active' : ''"
+                                    @click="setColumn(chip.role, choice.index)">
+                              <span class="mono" x-text="choice.label"></span>
+                              <span class="text-[0.68rem] text-neutral-500" x-text="'column ' + (choice.index + 1)"></span>
+                            </button>
+                          </template>
+                        </div>
+                      </div>
+                    </template>
+
+                    <button type="button" class="chip" x-show="reviewed.columns?.combined === null" x-cloak
+                            @click="swapNames()">⇄ swap first and last</button>
+                    <button type="button" class="chip" x-show="reviewed.columns?.combined === null" x-cloak
+                            @click="setNameShape('combined')">the name is one column</button>
+                    <button type="button" class="chip" x-cloak
+                            x-show="reviewed.columns?.combined !== null && nameShapedFree().length"
+                            @click="setNameShape('split')">the name is two columns</button>
+                  </div>
+                </div>
+
+                <p class="text-xs text-sky-800/80">
+                  An override is obeyed exactly as given, right or wrong — if the verdict
+                  above stops describing the list, change it back.
+                  <button type="button" class="underline underline-offset-2 font-semibold" @click="clearOverrides()">
+                    Read it again from scratch
+                  </button>
+                </p>
+              </div>
+            </div>
+
+            <!-- Blockers. Each is data: a title, a detail and the lines it is
+                 about. None of them carries a function, which is what makes
+                 the #54 render-tick bug unreachable from here. -->
+            <div aria-live="polite">
+            <template x-for="b in reviewed.blockers" :key="b.key">
+              <div class="rounded-xl px-3.5 py-2.5 text-sm mb-2 border"
+                   :class="b.severity === 'block' ? 'bg-rose-50 border-rose-200 text-rose-800' : 'bg-amber-50 border-amber-200 text-amber-800'">
+                <div class="flex items-start justify-between gap-3 flex-wrap">
+                  <div>
+                    <div class="font-semibold" x-text="b.title"></div>
+                    <div class="text-xs mt-0.5 opacity-90" x-text="b.detail"></div>
+                  </div>
+                  <!-- One loop, because the blocker carries the controls it
+                       offers. Six `b.kind === '…'` tests here plus a matching
+                       list in the component meant a kind added in steps.js
+                       could arrive with no way out of it, and a gate nobody
+                       can clear is a stuck run. The re-declare is in this list
+                       too, and steps.js is what decides whether to include it
+                       — see canRedeclare(): ungated it is a one-click
+                       dismissal of the gate it escapes. -->
+                  <div class="flex items-center gap-2 shrink-0 flex-wrap">
+                    <template x-for="action in b.actions" :key="action.key">
+                      <button type="button"
+                              class="rounded-lg border px-3 py-1.5 text-xs font-semibold"
+                              :class="b.severity === 'block' ? 'border-rose-300 hover:bg-rose-100' : 'border-amber-300 hover:bg-amber-100'"
+                              @click="answerBlocker(action)" x-text="action.label"></button>
+                    </template>
+                  </div>
+                </div>
+              </div>
+            </template>
+            </div>
+
+            <div x-show="reviewed.ready" x-cloak
+                 class="rounded-xl bg-emerald-50 border border-emerald-200 text-emerald-800 px-3.5 py-2.5 text-sm mb-2">
+              Every line is accounted for.
+            </div>
+
+            <!-- ── The rows ─────────────────────────────────────────────── -->
+            <div class="rounded-card border border-neutral-200 overflow-hidden bg-white mt-4"
+                 x-show="reviewed.rows.length" x-cloak>
+              <div class="overflow-x-auto">
+              <table class="w-full">
+                <thead>
+                  <tr class="border-b border-neutral-100 bg-neutral-50/70">
+                    <th scope="col" class="text-left px-4 py-2.5 text-[0.67rem] font-semibold text-neutral-500 uppercase tracking-wider">Student</th>
+                    <th scope="col" class="text-left px-4 py-2.5 text-[0.67rem] font-semibold text-neutral-500 uppercase tracking-wider">Date of birth</th>
+                    <th scope="col" class="text-left px-4 py-2.5 text-[0.67rem] font-semibold text-neutral-500 uppercase tracking-wider">Read</th>
+                  </tr>
+                </thead>
+                <template x-for="r in reviewed.rows" :key="r.key">
+                  <tbody class="divide-y divide-neutral-50">
+                    <tr class="lane" :class="[laneFor(r), r.needsHuman ? 'row-hit' : '']"
+                        @click="r.needsHuman && toggleRow(r.key)">
+                      <td class="px-4 py-2.5">
+                        <div class="text-sm font-medium"
+                             :class="r.bucket === 'error' ? 'text-rose-700 mono' : 'text-neutral-800'"
+                             x-text="r.bucket === 'error' ? r.raw : nameOf(r)"></div>
+                        <div x-show="r.note" class="text-xs mt-0.5"
+                             :class="r.bucket === 'error' ? 'text-rose-600' : 'text-amber-700'" x-text="r.note"></div>
+                        <div class="text-[0.66rem] text-neutral-500 mono mt-0.5"
+                             x-text="'line ' + r.lineNumbers.join(', ')"></div>
+                      </td>
+                      <td class="px-4 py-2.5 text-sm mono text-neutral-600" x-text="r.dob || '—'"></td>
+                      <td class="px-4 py-2.5">
+                        <div class="flex items-center gap-2">
+                          <span class="pill" :class="stateTone(r)" x-text="r.state"></span>
+                          <button x-show="r.needsHuman" type="button"
+                                  class="text-xs font-semibold text-uj underline underline-offset-2"
+                                  :aria-expanded="expandedRow === r.key ? 'true' : 'false'"
+                                  :aria-label="(expandedRow === r.key ? 'Close ' : 'Sort out ') + nameOf(r)"
+                                  @click.stop="toggleRow(r.key)"
+                                  x-text="expandedRow === r.key ? 'close' : 'sort it out'"></button>
+                          <button x-show="!r.needsHuman" type="button"
+                                  class="text-xs text-neutral-500 hover:text-neutral-800 underline underline-offset-2"
+                                  :aria-expanded="expandedRow === r.key ? 'true' : 'false'"
+                                  :aria-label="(expandedRow === r.key ? 'Close ' : 'Change ') + nameOf(r)"
+                                  @click.stop="toggleRow(r.key)"
+                                  x-text="expandedRow === r.key ? 'close' : 'change'"></button>
+                        </div>
+                      </td>
+                    </tr>
+
+                    <!-- The row expands in place. A single-column stepper has
+                         nowhere to put a detail panel, and a modal would be a
+                         gate inside a gate (§9). -->
+                    <tr x-show="expandedRow === r.key" x-cloak>
+                      <td colspan="3" class="bg-neutral-50/70 border-t border-neutral-100 px-4 py-4">
+                        <div class="max-w-2xl">
+                          <div class="text-[0.67rem] font-semibold uppercase tracking-[0.05em] text-neutral-400 mb-2">Sort it out</div>
+
+                          <template x-if="r.bucket === 'error'">
+                            <div class="space-y-2">
+                              <p class="text-xs text-rose-700" x-text="r.note"></p>
+                              <div class="flex gap-2 flex-wrap">
+                                <input x-model="draftFor(r.key).firstName" placeholder="First name" aria-label="First name"
+                                       class="flex-1 min-w-[120px] rounded-xl border border-neutral-200 px-3 py-2 text-sm">
+                                <input x-model="draftFor(r.key).lastName" placeholder="Surname" aria-label="Surname"
+                                       class="flex-1 min-w-[120px] rounded-xl border border-neutral-200 px-3 py-2 text-sm">
+                                <input x-model="draftFor(r.key).dob" placeholder="dd/mm/yyyy" aria-label="Date of birth"
+                                       class="w-32 rounded-xl border border-neutral-200 px-3 py-2 text-sm mono">
+                              </div>
+                              <div class="flex gap-2 flex-wrap">
+                                <button type="button" class="rounded-xl bg-uj text-white px-3.5 py-2 text-sm font-semibold"
+                                        @click="acceptRow(r.key)">This is a student</button>
+                                <button type="button" class="rounded-xl border border-neutral-300 px-3.5 py-2 text-sm font-semibold"
+                                        @click="dismissRow(r.key)">Not a student</button>
+                              </div>
+                              <p class="text-xs text-neutral-400">
+                                Dismissing does not delete the line — it moves to the ignored list, where
+                                the counts can still see it.
+                              </p>
+                            </div>
+                          </template>
+
+                          <template x-if="r.bucket === 'record'">
+                            <div class="space-y-2">
+                              <p class="text-xs text-amber-700" x-show="r.note" x-text="r.note"></p>
+                              <div class="flex gap-2 flex-wrap">
+                                <input x-model="draftFor(r.key).firstName" aria-label="First name"
+                                       class="flex-1 min-w-[120px] rounded-xl border border-neutral-200 px-3 py-2 text-sm">
+                                <input x-model="draftFor(r.key).lastName" aria-label="Surname"
+                                       class="flex-1 min-w-[120px] rounded-xl border border-neutral-200 px-3 py-2 text-sm">
+                              </div>
+                              <div class="flex gap-2 flex-wrap">
+                                <button type="button" class="rounded-xl bg-amber-50 border border-amber-200 text-amber-800 px-3.5 py-2 text-sm font-semibold hover:bg-amber-100"
+                                        @click="confirmRow(r.key)">Confirm and include</button>
+                                <button type="button" class="rounded-xl border border-neutral-300 px-3.5 py-2 text-sm font-semibold"
+                                        @click="dismissRow(r.key)">Not a student</button>
+                                <button type="button" x-show="r.resolution" x-cloak
+                                        class="rounded-xl border border-neutral-300 px-3.5 py-2 text-sm font-semibold"
+                                        @click="undoRow(r.key)">Undo</button>
+                              </div>
+                            </div>
+                          </template>
+                        </div>
+                      </td>
+                    </tr>
+                  </tbody>
+                </template>
+              </table>
+              </div>
+
+              <!-- The ignored count is always on screen; the lines themselves
+                   stay in a drawer. Six struck-through header lines above the
+                   data on every paste trains staff to stop reading that
+                   region, which is the region a real student can hide in. -->
+              <div class="px-4 py-2.5 border-t border-neutral-100 bg-neutral-50/50 text-xs text-neutral-500">
+                <button type="button" class="hover:text-neutral-800" @click="showIgnored = !showIgnored">
+                  <span x-text="showIgnored ? '▾' : '▸'"></span>
+                  <span x-text="ignoredSummary()"></span>
+                </button>
+                <div x-show="showIgnored" x-cloak class="mt-2 space-y-1">
+                  <template x-for="entry in reviewed.ignored" :key="entry.lineNumbers.join('-')">
+                    <div class="flex items-center gap-2">
+                      <span class="mono text-[0.66rem] text-neutral-500" x-text="entry.lineNumbers.join(', ')"></span>
+                      <span class="mono text-[0.7rem] text-neutral-500 strike" x-text="entry.text || '(blank)'"></span>
+                      <span class="text-[0.66rem] text-neutral-500" x-text="entry.reason"></span>
+                      <button type="button" x-show="entry.reason === 'dismissed'" x-cloak
+                              class="text-[0.66rem] text-uj underline underline-offset-2"
+                              @click="undoRow(entry.lineNumbers[0])">put it back</button>
+                    </div>
+                  </template>
+                </div>
+              </div>
+            </div>
+
+            <div class="flex justify-between mt-6">
+              <button type="button" class="text-sm text-neutral-500 hover:text-neutral-800" @click="go(1)">← Back</button>
+              <!-- Step 4 is #72. Disabled rather than absent: the strip above
+                   shows six steps because six is the shape of the run, and a
+                   button that vanishes reads as "you are finished". -->
+              <button type="button" disabled title="The session picker is staff-site#72"
+                      class="rounded-xl px-5 py-2.5 text-sm font-semibold bg-neutral-100 text-neutral-400 cursor-not-allowed">
+                Choose sessions → (not built yet)
+              </button>
+            </div>
+          </div>
+        </template>
+      </section>
+
+    </div>
+  </main>
+
+  <footer class="max-w-[1100px] mx-auto w-full px-4 pb-8 text-xs text-neutral-500">
+    <div class="border-t border-neutral-200 pt-4 flex flex-wrap items-center justify-between gap-x-5 gap-y-1">
+      <span>Nothing on this page writes anything. Steps 4–6 are staff-site#72 and #73.</span>
+    </div>
+  </footer>
+
+<script>
+// The four roles a column can hold. Named once: the swap, the validity check
+// and the chips all have to agree about the list, and three copies would not.
+const COLUMN_ROLES = ['dob', 'firstName', 'lastName', 'combined'];
+
+function schoolBooking() {
+  return {
+    // Six steps, because six is the shape of the run (§9). The last three are
+    // not built; `built` is what the strip and the forward button read, so
+    // there is one place to change when #72 and #73 land.
+    STEPS: [
+      { key: 'school',   label: 'School',   built: true },
+      { key: 'paste',    label: 'Paste',    built: true },
+      { key: 'rows',     label: 'Rows',     built: true },
+      { key: 'sessions', label: 'Sessions', built: false },
+      { key: 'preview',  label: 'Preview',  built: false },
+      { key: 'result',   label: 'Result',   built: false },
+    ],
+    stepIndex: 0,
+    maxStepReached: 0,
+    bootstrapError: '',
+
+    // Step 1
+    schools: [],
+    schoolsState: 'idle',
+    schoolOpen: false,
+    schoolQuery: '',
+    tag: '',
+
+    // Step 2
+    rawPaste: '',
+    countValue: '',
+    countUnknown: false,
+    // The paste the current declaration was made about. P5's ordering is what
+    // the gate is made of, and a Back button reopens it: staff who cannot make
+    // the numbers agree return to a freely editable count box with the read
+    // count already on screen, which is the anchoring the ordering exists to
+    // prevent — two clicks instead of the one canRedeclare() refuses.
+    //
+    // So the declaration is locked to its paste. Change the paste and it is a
+    // declaration about a different list, and has to be made again.
+    declaredFor: null,
+
+    // Step 3
+    parsed: null,
+    reviewed: null,
+    resolutions: {},
+    parseOptions: {},
+    drafts: {},
+    expandedRow: null,
+    showIgnored: false,
+    showOverrides: false,
+    chipMenu: null,
+
+    init() {
+      // Both modules or neither. Every gate on this page is one of their
+      // exports, so a partial load is a page that looks like it is checking
+      // and is not — the single failure mode §16 says to make loud.
+      const missing = [];
+      if (!window.schoolListParser?.parseStudentList) missing.push('the list parser');
+      if (!window.schoolBookingSteps?.review) missing.push('the step rules');
+      if (missing.length) {
+        this.bootstrapError = `Could not load ${missing.join(' and ')}.`;
+        return;
+      }
+      this.loadSchools();
+    },
+
+    // --- step 1 ----------------------------------------------------------
+    async loadSchools() {
+      this.schoolsState = 'loading';
+      try {
+        const res = await fetch('/api/clubworx/schools', { headers: { accept: 'application/json' } });
+        const body = await res.json();
+        if (!res.ok || !body.ok) throw new Error(body.error || `HTTP ${res.status}`);
+        this.schools = body.schools ?? [];
+        this.schoolsState = 'ready';
+      } catch {
+        // A failed read must not block step 1. Typing a tag is a first-class
+        // route — it is how a school gets its first one — and the list is an
+        // aid to reusing an existing tag, not a permission to proceed.
+        this.schools = [];
+        this.schoolsState = 'error';
+      }
+    },
+
+    schoolsNote() {
+      if (this.schoolsState === 'loading') return 'Reading the schools Clubworx already knows about…';
+      if (this.schoolsState === 'error') {
+        return 'Could not read the existing schools. You can still type a tag — check the spelling twice.';
+      }
+      if (this.schools.length === 0) return 'No school-tagged contacts yet. Typing a tag creates the first.';
+      return `${this.schools.length} schools already tagged in Clubworx.`;
+    },
+
+    typedTag() {
+      return window.schoolBookingSteps.schoolTag(this.schoolQuery);
+    },
+
+    knownTag(tag) {
+      return this.schools.some((s) => s.tag === tag);
+    },
+
+    filteredSchools() {
+      const q = this.typedTag();
+      const list = q ? this.schools.filter((s) => s.tag.includes(q)) : this.schools;
+      return [...list].sort((a, b) => b.contacts - a.contacts);
+    },
+
+    useTypedTag() {
+      const tag = this.typedTag();
+      if (!tag) return;
+      this.tag = tag;
+      this.schoolOpen = false;
+    },
+
+    marker() {
+      return window.schoolBookingSteps.schoolMarker(this.tag) ?? '';
+    },
+
+    // --- step 2 ----------------------------------------------------------
+    // The parser's own line count, not a second implementation of it. A
+    // trailing newline is a terminator there and would be a line here, so two
+    // implementations put two different totals on the two screens whose whole
+    // job is agreeing about a number.
+    pastedLineCount() {
+      return this.rawPaste ? window.schoolListParser.countLines(this.rawPaste) : 0;
+    },
+
+    countLocked() {
+      return this.declaredFor !== null && this.rawPaste === this.declaredFor;
+    },
+
+    pasteChanged() {
+      if (this.declaredFor === null || this.rawPaste === this.declaredFor) return;
+      this.declaredFor = null;
+      this.countValue = '';
+      this.countUnknown = false;
+    },
+
+    declaration() {
+      return window.schoolBookingSteps.countDeclaration({
+        value: this.countValue,
+        unknown: this.countUnknown,
+      });
+    },
+
+    canRead() {
+      return Boolean(this.rawPaste.trim()) && this.declaration().ready;
+    },
+
+    readList() {
+      // Nothing changed since the last read, so this is a Back-then-forward and
+      // not a new one. Re-reading would silently throw away every row staff had
+      // already sorted out.
+      if (this.countLocked() && this.parsed) {
+        this.go(2);
+        return;
+      }
+      this.resolutions = {};
+      this.parseOptions = {};
+      this.drafts = {};
+      this.expandedRow = null;
+      this.declaredFor = this.rawPaste;
+      this.reparse();
+      this.go(2);
+    },
+
+    // --- step 3 ----------------------------------------------------------
+    reparse() {
+      this.parsed = window.schoolListParser.parseStudentList(this.rawPaste, this.parseOptions);
+      this.refresh();
+    },
+
+    refresh() {
+      this.reviewed = window.schoolBookingSteps.review(this.parsed, {
+        declaration: this.declaration(),
+        resolutions: this.resolutions,
+      });
+      this.syncDrafts();
+    },
+
+    // Edit buffers are seeded here, once per review, rather than lazily from
+    // `draftFor()`. The expanded row is rendered hidden rather than absent, so
+    // a lazy seed would run inside a render for every row on the page — a
+    // write during a render tick, which is the same family of fault as the
+    // `x-show="b.fix"` bug this page is built to avoid.
+    syncDrafts() {
+      const next = { ...this.drafts };
+      let added = false;
+      for (const row of this.reviewed?.rows ?? []) {
+        if (next[row.key]) continue;
+        next[row.key] = { firstName: row.firstName ?? '', lastName: row.lastName ?? '', dob: '' };
+        added = true;
+      }
+      if (added) this.drafts = next;
+    },
+
+    // Every override re-parses from the original paste rather than patching
+    // the last result. A parse is the only thing that knows what a different
+    // layout or column means for every downstream inference, and half a
+    // re-read is a list nobody chose.
+    override(patch) {
+      this.parseOptions = { ...this.parseOptions, ...patch };
+      this.reread();
+    },
+
+    clearOverrides() {
+      this.parseOptions = {};
+      this.reread();
+    },
+
+    reread() {
+      this.expandedRow = null;
+      this.chipMenu = null;
+      // Resolutions are keyed by source line, which survives a re-parse of the
+      // same paste — so they are deliberately kept. A staff member who fixed
+      // the column mapping has not un-dismissed the teacher they dismissed.
+      //
+      // Edit buffers are NOT. They were seeded from the rows the *previous*
+      // read produced, and `syncDrafts` only fills the gaps — so a buffer that
+      // outlived its parse would hand the confirm button the pre-override
+      // names and quietly undo the override for that one row. Nothing would
+      // error and the row would look confirmed. Cleared here so they re-seed
+      // from what is actually on screen; an acceptance already made keeps its
+      // values, because those live in the resolution rather than the buffer.
+      this.drafts = {};
+      this.reparse();
+    },
+
+    setLayout(layout) {
+      if (layout === 'vertical') {
+        this.override({ layout, blockSize: this.parseOptions.blockSize ?? this.reviewed?.blockSize ?? null });
+      } else {
+        this.override({ layout, blockSize: null });
+      }
+    },
+
+    // A refused value is put back, not just ignored. Leaving it in the box
+    // while the parse keeps the old block size is two plausible states
+    // contradicting each other with nothing thrown — the fault shape §16
+    // records, and the one this page exists to be careful about.
+    setBlockSize(value, input) {
+      const n = Number(String(value).trim());
+      if (!Number.isInteger(n) || n < 2) {
+        if (input) input.value = this.reviewed?.blockSize ?? '';
+        return;
+      }
+      this.override({ layout: 'vertical', blockSize: n });
+    },
+
+    setNameOrder(nameOrder) {
+      this.override({ nameOrder });
+    },
+
+    setDateOrientation(dateOrientation) {
+      this.override({ dateOrientation });
+    },
+
+    // The current mapping, whatever its source — an override once one is set,
+    // the parser's inference until then. Reading it back off `reviewed` rather
+    // than off `parseOptions` is what keeps a half-set override from writing
+    // `undefined` into the two columns nobody touched.
+    currentColumns() {
+      return this.reviewed?.columns ?? null;
+    },
+
+    columnChips() {
+      const c = this.currentColumns();
+      if (!c) return [];
+      const label = (i) => (i === null || i === undefined ? '—' : this.columnLabel(i));
+      if (c.combined !== null && c.combined !== undefined) {
+        return [
+          { role: 'combined', roleLabel: 'Name', index: c.combined, label: label(c.combined) },
+          { role: 'dob', roleLabel: 'Birthday', index: c.dob, label: label(c.dob) },
+        ];
+      }
+      return [
+        { role: 'firstName', roleLabel: 'First name', index: c.firstName, label: label(c.firstName) },
+        { role: 'lastName', roleLabel: 'Surname', index: c.lastName, label: label(c.lastName) },
+        { role: 'dob', roleLabel: 'Birthday', index: c.dob, label: label(c.dob) },
+      ];
+    },
+
+    columnLabel(index) {
+      const named = this.reviewed?.header?.[index];
+      return (named && String(named).trim()) || `Column ${index + 1}`;
+    },
+
+    // Columns holding a name in every record row, minus the ones already
+    // spoken for. Empty means the split control has no honest answer to give,
+    // and it is hidden rather than guessing one.
+    nameShapedFree() {
+      const c = this.currentColumns();
+      if (!c) return [];
+      return (this.reviewed?.nameShapedColumns ?? [])
+        .filter((index) => index !== c.combined && index !== c.dob);
+    },
+
+    columnChoices() {
+      const width = this.reviewed?.fieldCount ?? 0;
+      return Array.from({ length: width }, (_, index) => ({ index, label: this.columnLabel(index) }));
+    },
+
+    // A chip is set by naming the whole mapping, not by patching one role: the
+    // parser takes the override as a replacement (see readColumnOverride), and
+    // half an inferred mapping beside half a named one is a state nobody chose.
+    //
+    // Claiming a column another role holds **swaps** the two. Clearing the
+    // other role instead leaves a named pair with one half missing, which the
+    // parser refuses outright — and a refusal on the whole list is what a
+    // broken chip looks like from the front desk.
+    setColumn(role, index) {
+      const current = this.currentColumns();
+      if (!current) return;
+      const next = { ...current };
+      const displaced = next[role] ?? null;
+      for (const key of COLUMN_ROLES) if (key !== role && next[key] === index) next[key] = displaced;
+      next[role] = index;
+      this.applyColumns(next);
+    },
+
+    swapNames() {
+      const c = this.currentColumns();
+      if (!c || c.combined !== null) return;
+      this.applyColumns({ ...c, firstName: c.lastName, lastName: c.firstName });
+    },
+
+    setNameShape(shape) {
+      const c = this.currentColumns();
+      if (!c) return;
+      if (shape === 'combined') {
+        this.applyColumns({ dob: c.dob, firstName: null, lastName: null, combined: c.firstName });
+        return;
+      }
+      // Back to two columns. The second one is picked from the columns the
+      // parser found to hold a name in *every* row — never the next free
+      // index, which is how `Email` or `YearLevel` becomes somebody's
+      // permanent surname, obeyed literally with nothing to disagree with it.
+      const free = this.nameShapedFree();
+      if (free.length === 0) return;
+      this.applyColumns({ dob: c.dob, firstName: c.combined, lastName: free[0], combined: null });
+    },
+
+    // Nothing the chips can produce is allowed to reach the parser as a
+    // refusal. The parser refusing an override is correct — it is a caller bug
+    // and reading a different column than the chip names would write a
+    // permanent wrong contact — but the caller is this file, so the check
+    // belongs here, before the click does anything visible.
+    applyColumns(columns) {
+      if (!this.usableColumns(columns)) return;
+      this.override({ columns });
+    },
+
+    // The parser's rule, asked rather than restated. Two copies of "what is a
+    // usable mapping" drift, and the drift is silent: the page keeps offering
+    // a chip the parser has started refusing.
+    usableColumns(columns) {
+      return window.schoolListParser.usableColumns(columns, this.reviewed?.fieldCount ?? 0);
+    },
+
+    // --- rows ------------------------------------------------------------
+    toggleRow(key) {
+      this.expandedRow = this.expandedRow === key ? null : key;
+    },
+
+    draftFor(key) {
+      return this.drafts[key] ?? { firstName: '', lastName: '', dob: '' };
+    },
+
+    resolveRow(key, action) {
+      this.resolutions = window.schoolBookingSteps.resolve(this.resolutions, key, action);
+      this.expandedRow = null;
+      this.refresh();
+    },
+
+    acceptRow(key) {
+      const draft = this.draftFor(key);
+      this.resolveRow(key, { kind: 'accept', ...draft });
+    },
+
+    confirmRow(key) {
+      const draft = this.draftFor(key);
+      this.resolveRow(key, { kind: 'confirm', firstName: draft.firstName, lastName: draft.lastName });
+    },
+
+    dismissRow(key) {
+      this.resolveRow(key, { kind: 'dismiss' });
+    },
+
+    undoRow(key) {
+      this.resolveRow(key, null);
+    },
+
+    // A blocker says what answering it means; this dispatches on that and
+    // knows no blocker kinds. Adding one in steps.js therefore cannot arrive
+    // without its control — which is what a blocker with no way out of it
+    // would be: a gate staff are simply stuck behind.
+    answerBlocker(action) {
+      if (action.answers === 'nameOrder') this.override({ nameOrder: action.value });
+      else if (action.answers === 'dateOrientation') this.override({ dateOrientation: action.value });
+      else if (action.answers === 'acknowledge') this.acknowledge(action.value);
+      else if (action.answers === 'redeclare') this.redeclare(action.value);
+    },
+
+    acknowledge(kind) {
+      this.resolutions = window.schoolBookingSteps.resolve(this.resolutions, `list:${kind}`, { kind: 'acknowledge' });
+      this.refresh();
+    },
+
+    redeclare(count) {
+      this.countValue = String(count);
+      this.countUnknown = false;
+      this.declaredFor = this.rawPaste;
+      this.refresh();
+    },
+
+    // --- rendering helpers, all of them returning strings ----------------
+    nameOf(row) {
+      return [row.firstName, row.lastName].filter(Boolean).join(' ') || '(no name)';
+    },
+
+    countLine() {
+      return window.schoolBookingSteps.countLine(this.reviewed);
+    },
+
+    reconciliationLine() {
+      return window.schoolBookingSteps.reconciliationLine(this.reviewed);
+    },
+
+    ignoredColumnsLine() {
+      return window.schoolBookingSteps.ignoredColumnsLine(this.reviewed);
+    },
+
+    ignoredSummary() {
+      return window.schoolBookingSteps.ignoredSummary(this.reviewed);
+    },
+
+    countTone() {
+      const mismatched = this.reviewed?.blockers.some((b) => b.kind === 'count-mismatch');
+      return mismatched
+        ? 'bg-rose-50 border border-rose-200 text-rose-800'
+        : 'bg-emerald-50 border border-emerald-200 text-emerald-800';
+    },
+
+    laneFor(row) {
+      if (row.bucket === 'error') return 'lane-bad';
+      if (row.needsHuman) return 'lane-need';
+      return 'lane-ok';
+    },
+
+    stateTone(row) {
+      if (row.bucket === 'error') return 'text-rose-700 bg-rose-50';
+      if (row.needsHuman) return 'text-amber-700 bg-amber-50';
+      return 'text-emerald-700 bg-emerald-50';
+    },
+
+    go(index) {
+      this.stepIndex = index;
+      this.maxStepReached = Math.max(this.maxStepReached, index);
+    },
+  };
+}
+</script>
+</body>
+</html>

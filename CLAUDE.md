@@ -95,10 +95,34 @@ cloudflare-clubworx/probes/ - read-only probes against the live Clubworx API, an
                           what they found. Start with probes/README.md — it carries
                           the rules (no production data recorded, pace under
                           75 req/min) that any new probe has to follow.
+school-booking.html     - the school booking page, steps 1-3 (#71): school,
+                          paste + declare the count, then the parse result with
+                          inline row resolution. Variant A of §9, decided on
+                          #54. NOT in tools.json and unreachable from the hub
+                          until #46's last step — §17's order, because `main`
+                          is production. Steps 4-6 are #72 and #73; nothing on
+                          this page writes anything.
 school-booking/parse.js - turns a pasted school student list into rows plus the
                           list-level inferences (layout, column mapping, date
                           orientation). Pure and unit tested; §7 of the design
-                          spec. Nothing imports it yet — see #64/#71.
+                          spec. #71 added the layout and column OVERRIDES the
+                          page's affordances need — obeyed literally, including
+                          where the inference was right, because an override
+                          the parser may discard is not an override.
+school-booking/steps.js - the gates of steps 1-3: the school tag and its
+                          permanent marker, the count declaration (P5), and one
+                          review() turning a parse plus a log of staff
+                          resolutions into rows, the P1 reconciliation and the
+                          blockers. Nothing it returns is ever a function —
+                          that is what makes §16's `x-show="b.fix"` bug
+                          unreachable, and a test asserts it. P1 is re-asserted
+                          after every dismissal, not only after a parse.
+school-booking/test/alpine-bindings.test.js - reads school-booking.html and
+                          fails on any Alpine directive naming a function
+                          without calling it (#78). A text check, because the
+                          fault is a property of the text: it is not a logic
+                          fault, so a unit test cannot see it, and it throws
+                          nothing, so runtime does not report it.
 school-booking/identity.js - the matching rule: surname + DOB narrows, first name
                           breaks ties, variance is surfaced never merged. §5 of
                           the design spec. Imports the two name forms from

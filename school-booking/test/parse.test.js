@@ -803,3 +803,165 @@ describe('P1 — the reconciliation holds through the messy cases', () => {
     expectReconciled(result);
   });
 });
+
+// ---------------------------------------------------------------------------
+// #71 — the overrides behind the page's two affordances
+// ---------------------------------------------------------------------------
+// §7 P4 gives the layout verdict a one-click override and P6 gives the column
+// mapping three swappable chips. Both are *inferences with an affordance*
+// rather than questions, which is why they arrive as overrides rather than
+// through `needs` — the distinction this module's docblock draws and defers to
+// this ticket. The tests below are what "the override wins" has to mean: the
+// parse obeys it even when the inference was right, because a staff member who
+// disagrees with the verdict has no other way to say so.
+
+describe('#71 — the layout override', () => {
+  const VERTICAL_THREE = [
+    'Katie',
+    'Fernsby',
+    '23/4/2010',
+    'Tomas',
+    'Oakhill',
+    '7/11/2010',
+    'Priya',
+    'Van Dermeer',
+    '3/5/2011',
+  ].join('\n');
+
+  test('a forced block size overrides a verdict the anchor got wrong', () => {
+    // One missing date is all it takes: the stride breaks, the fallback offset
+    // reads the whole list as a single six-field student, and nothing errors.
+    // That is P4's failure mode from the other direction — 1 student out of 3
+    // rather than 126 out of 21 — and the override is the only way to say so.
+    const brokenStride = [
+      'Katie', 'Fernsby', '23/4/2010',
+      'Tomas', 'Oakhill', 'unknown',
+      'Priya', 'Van Dermeer', '3/5/2011',
+    ].join('\n');
+
+    const detected = parseStudentList(brokenStride);
+    expect(detected.blockSize).toBe(6);
+    expect(detected.records).toHaveLength(1);
+
+    const forced = parseStudentList(brokenStride, { layout: 'vertical', blockSize: 3 });
+    expect(forced.blockSize).toBe(3);
+    expect(forced.verdict).toContain('3 fields per student');
+    expect(forced.records.map((r) => r.write.lastName)).toEqual(['Fernsby', 'Van Dermeer']);
+    // The dateless block is the one Tomas is hiding in. It sits after a good
+    // record, so it blocks Apply (P15) rather than being quietly ignored.
+    expect(forced.errors.map((e) => e.reason)).toEqual(['unparseable', 'unparseable', 'unparseable']);
+    expectReconciled(forced);
+  });
+
+  test('forcing horizontal on a vertical list refuses rather than falling back', () => {
+    const forced = parseStudentList(VERTICAL_THREE, { layout: 'horizontal' });
+    expect(forced.layout).toBeNull();
+    expect(forced.refusal).not.toBeNull();
+    expect(forced.records).toHaveLength(0);
+    expectReconciled(forced);
+  });
+
+  test('a forced block size still finds the header and reconciles', () => {
+    // Fixture 1 opens with a blank line and six header lines; the anchor finds
+    // that offset on its own. Forcing the same block size must not lose it —
+    // the header block is before the first record, so P9 calls it a header,
+    // not six unparseable lines blocking the run.
+    const forced = parseStudentList(VERTICAL, { layout: 'vertical', blockSize: 6 });
+    expect(forced.records).toHaveLength(5);
+    expect(forced.header).toEqual(['PreferredName', 'LastName', 'Dob', 'FormGroup', 'YearLevel', 'Email']);
+    expect(forced.errors).toHaveLength(0);
+    expectReconciled(forced);
+  });
+
+  test('a block carrying no date is bucketed by position, never dropped', () => {
+    // P1 is the assertion everything leans on, and it is a forced block size
+    // that can put a dateless block among the records — the anchor cannot.
+    const withTrailingNote = `${VERTICAL_THREE}\nplus Otto\nif there is room\nplease`;
+    const forced = parseStudentList(withTrailingNote, { layout: 'vertical', blockSize: 3 });
+    expect(forced.records).toHaveLength(3);
+    expect(forced.errors).toHaveLength(3);
+    expect(forced.errors.every((e) => e.reason === 'unparseable')).toBe(true);
+    expectReconciled(forced);
+  });
+
+  test('a block size that cannot describe a list refuses', () => {
+    const forced = parseStudentList(VERTICAL_THREE, { layout: 'vertical', blockSize: 1 });
+    expect(forced.refusal?.code).toBe('override-out-of-range');
+    expectReconciled(forced);
+  });
+
+  test('forcing vertical without a block size falls back to the anchor', () => {
+    const forced = parseStudentList(VERTICAL_THREE, { layout: 'vertical' });
+    expect(forced.blockSize).toBe(3);
+    expect(forced.records).toHaveLength(3);
+    expectReconciled(forced);
+  });
+});
+
+describe('#71 — the column override', () => {
+  const TWO_DATE_COLUMNS = [
+    ['First name', 'Surname', 'DOB', 'Enrolled'].join('\t'),
+    ['Katie', 'Fernsby', '23/4/2010', '1/2/2024'].join('\t'),
+    ['Tomas', 'Oakhill', '7/11/2010', '3/3/2024'].join('\t'),
+  ].join('\n');
+
+  const HEADERLESS = [
+    ['Katie', 'Fernsby', '23/4/2010'].join('\t'),
+    ['Tomas', 'Oakhill', '7/11/2010'].join('\t'),
+  ].join('\n');
+
+  test('naming the DOB column resolves an ambiguity the parser refuses on', () => {
+    expect(parseStudentList(TWO_DATE_COLUMNS).refusal?.code).toBe('dob-column-ambiguous');
+
+    const fixed = parseStudentList(TWO_DATE_COLUMNS, { columns: { dob: 2 } });
+    expect(fixed.refusal).toBeNull();
+    expect(fixed.records).toHaveLength(2);
+    expect(fixed.columns.dob).toBe(2);
+    expect(fixed.records[0].write.dob).toBe('2010-04-23');
+    expect(fixed.ignoredColumns.map((c) => c.label)).toEqual(['Enrolled']);
+    expectReconciled(fixed);
+  });
+
+  test('swapping the name chips reverses the names and settles the order question', () => {
+    const inferred = parseStudentList(HEADERLESS);
+    expect(inferred.records[0].write).toMatchObject({ firstName: 'Katie', lastName: 'Fernsby' });
+    expect(inferred.needs.map((n) => n.kind)).toContain('name-order');
+
+    // Naming the columns *is* the answer to P7's question — a chip labelled
+    // "First name" says which one it is. Leaving the question standing would
+    // ask staff the same thing twice and let the two answers disagree.
+    const swapped = parseStudentList(HEADERLESS, { columns: { firstName: 1, lastName: 0 } });
+    expect(swapped.records[0].write).toMatchObject({ firstName: 'Fernsby', lastName: 'Katie' });
+    expect(swapped.needs.map((n) => n.kind)).not.toContain('name-order');
+    expectReconciled(swapped);
+  });
+
+  test('naming one column as the whole name reads it as a combined name', () => {
+    const withClassCode = [
+      ['Katie Fernsby', 'HARLOW', '23/4/2010'].join('\t'),
+      ['Tomas Oakhill', 'HARLOW', '7/11/2010'].join('\t'),
+    ].join('\n');
+
+    const inferred = parseStudentList(withClassCode);
+    expect(inferred.records[0].write).toMatchObject({ firstName: 'Katie Fernsby', lastName: 'HARLOW' });
+
+    const combined = parseStudentList(withClassCode, { columns: { combined: 0 } });
+    expect(combined.columns.combined).toBe(0);
+    expect(combined.records[0].write).toMatchObject({ firstName: 'Katie', lastName: 'Fernsby' });
+    expect(combined.ignoredColumns.map((c) => c.index)).toEqual([1]);
+    expectReconciled(combined);
+  });
+
+  test('an out-of-range column refuses rather than being quietly ignored', () => {
+    const bad = parseStudentList(SPREADSHEET, { columns: { dob: 9 } });
+    expect(bad.refusal?.code).toBe('override-out-of-range');
+    expect(bad.records).toHaveLength(0);
+    expectReconciled(bad);
+  });
+
+  test('a column named twice refuses — one column cannot be two fields', () => {
+    const bad = parseStudentList(SPREADSHEET, { columns: { firstName: 0, lastName: 0 } });
+    expect(bad.refusal?.code).toBe('override-out-of-range');
+    expectReconciled(bad);
+  });
+});
