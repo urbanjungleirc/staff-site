@@ -305,12 +305,52 @@ describe('the re-declare escape hatch, and the gate surviving it', () => {
     expect(canRedeclare(r)).toBe(true);
   });
 
-  test('dismissing a student unlocks it too — the number moved either way', () => {
+  test('dismissing a student unlocks it too', () => {
     const r = reviewOf(SPREADSHEET, declared(6), resolve({}, 2, { kind: 'dismiss' }));
     expect(canRedeclare(r)).toBe(true);
   });
 
-  test('confirming a row does not unlock it — nothing about the count changed', () => {
+  test('putting the last row back keeps it unlocked — the rows were still read', () => {
+    // The gate is "staff have edited rows themselves", not "the count is
+    // currently different from what the parser read". Tying it to the current
+    // count dead-ends: re-declare to 5, realise the dismissal was wrong, put
+    // the row back, and the count matches the parse again — so the button
+    // vanishes and the only way out of the mismatch is re-pasting the list.
+    const dismissed = resolve({}, 2, { kind: 'dismiss' });
+    const restored = resolve(dismissed, 2, null);
+    const r = reviewOf(SPREADSHEET, declared(21), restored);
+    expect(r.counts.records).toBe(6); // back to what the parser read
+    expect(canRedeclare(r)).toBe(true);
+  });
+
+  test('the dead end it was built to escape', () => {
+    // The whole sequence, as one test: declare wrong, dismiss, re-declare to
+    // the new number, then undo the dismissal. Staff must not be stranded.
+    const dismissed = resolve({}, 2, { kind: 'dismiss' });
+    const afterRedeclare = reviewOf(SPREADSHEET, declared(5), dismissed);
+    expect(afterRedeclare.ready).toBe(true);
+
+    const undone = reviewOf(SPREADSHEET, declared(5), resolve(dismissed, 2, null));
+    expect(undone.blockers.some((b) => b.kind === 'count-mismatch')).toBe(true);
+    expect(canRedeclare(undone)).toBe(true);
+  });
+
+  test('dismissing an unreadable line unlocks it as well', () => {
+    // Gating on a *moved count* pushes staff who have decided the list really
+    // is what the parser read toward dismissing a real student to unlock the
+    // button. Sorting out an unreadable line is reading the rows, which is
+    // what the gate is there to make them do.
+    const withStray = [
+      ['First name', 'Surname', 'DOB'].join('\t'),
+      ['Katie', 'Fernsby', '23/4/2010'].join('\t'),
+      'and Otto if there is room',
+    ].join('\n');
+    const r = reviewOf(withStray, declared(9), resolve({}, 3, { kind: 'dismiss' }));
+    expect(r.counts.records).toBe(1);
+    expect(canRedeclare(r)).toBe(true);
+  });
+
+  test('confirming a row does not unlock it — that is agreeing with the parser', () => {
     const headerless = [
       ['Katie Fernsby van Aalst', 'HARLOW', '23/4/2010'].join('\t'),
       ['Tomas Oakhill', 'HARLOW', '7/11/2010'].join('\t'),
@@ -326,13 +366,12 @@ describe('the re-declare escape hatch, and the gate surviving it', () => {
     expect(canRedeclare(confirmed)).toBe(false);
   });
 
-  test('dismissing an unreadable line does not unlock it either', () => {
-    // It moves a line from `errors` to `ignored`. Nobody was ever asked to
-    // count either bucket, so the declared number has no reason to move.
-    const dismissed = resolve({}, 3, { kind: 'dismiss' });
-    const r = reviewOf(WITH_STRAY_LINE, declared(1), dismissed);
-    expect(r.counts.records).toBe(1);
-    expect(canRedeclare(r)).toBe(false);
+  test('nothing but reading the list leaves it locked', () => {
+    // The first read, untouched: the gate has not done its job yet, and an
+    // ungated button here is the one-click agreement with the parser that P5's
+    // ordering exists to prevent.
+    expect(canRedeclare(reviewOf(WITH_STRAY_LINE, declared(1)))).toBe(false);
+    expect(canRedeclare(reviewOf(SPREADSHEET, declared(21)))).toBe(false);
   });
 });
 
