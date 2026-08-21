@@ -43,10 +43,20 @@
 // are different problems with different fixes — widen the window, or check the
 // id — and the second sends staff to correct something that is already correct.
 
-// The picker's opening window. A term, near enough: the tool is used to book a
-// school's term of sessions, and a window this wide holds one comfortably while
-// staying far short of `MAX_PAGES` in the Worker.
-const WINDOW_DAYS = 90;
+// The picker's opening window — a fortnight, and deliberately not a term.
+//
+// Nothing loads until the operator presses Search, so this is a *starting
+// point* they widen to the last session, not a guess at the run. It is short
+// because the cheap thing has to be the default one: a term-wide window is
+// ~900 events at this gym, five requests of a gym-wide allowance and a table
+// nobody can scan, and a default that expensive is one an operator pays for
+// every time they arrive at this step without meaning to.
+//
+// Narrowing the dates is also the *only* lever on that cost. The name filter
+// runs in the Worker's memory after the window has been walked (listEvents, and
+// the paragraph there explains why it is not sent upstream), so it shortens the
+// table and never the request count.
+const WINDOW_DAYS = 14;
 
 // Everything this system does is in Perth, so the run day is the Perth day.
 // Same constant and the same reasoning as `cloudflare-clubworx/src/duration.js`;
@@ -290,8 +300,9 @@ const removal = (event) => ({
  * @param {Array<string>} opts.selected Ticked event ids.
  * @param {number} opts.studentCount Students the run would book.
  * @param {boolean} [opts.truncated] Whether the Worker said it could not read the window to the end.
+ * @param {string} [opts.windowTo] The last day loaded, so a series running past it can be named.
  */
-export function selectionReport({ events, selected, studentCount = 0, truncated = false } = {}) {
+export function selectionReport({ events, selected, studentCount = 0, truncated = false, windowTo = '' } = {}) {
   const picked = selectedEvents(events, selected);
   const blockers = [];
 
@@ -351,6 +362,18 @@ export function selectionReport({ events, selected, studentCount = 0, truncated 
     }
   }
 
+  const reach = seriesReach({ events, selected, windowTo });
+  if (!reach.complete) {
+    blockers.push({
+      key: 'series-reach',
+      kind: 'series-reach',
+      severity: 'warn',
+      title: 'This series may run past the dates loaded',
+      detail: reach.message,
+      actions: [],
+    });
+  }
+
   if (truncated) {
     blockers.push({
       key: 'truncated',
@@ -376,6 +399,67 @@ export function selectionReport({ events, selected, studentCount = 0, truncated 
     // What the pass has to cover (§10 D4, ADR 0005) — the **last** selected
     // session, not today.
     lastSession: days[days.length - 1] ?? null,
+  };
+}
+
+/**
+ * Could the ticked series continue past the dates that were loaded?
+ *
+ * Nothing loads until the operator names a window, so the window is theirs to
+ * get wrong — and `preTicked` can only tick what the window holds. A `to` that
+ * stops mid-term therefore books a partial series, silently, which is the one
+ * thing deferring the load makes *worse* rather than better.
+ *
+ * The projection is the honest form of the question. Two ticked sessions give
+ * an interval, so the next one in the series is predictable; if that date falls
+ * **inside** the loaded window then the walk would have found it, and its
+ * absence is evidence the series has ended. If it falls **past** the window, the
+ * walk never looked there and nothing on this page knows either way.
+ *
+ * The **median** gap, not the last one: a cancelled week leaves a 14-day hole,
+ * and projecting from that alone pushes the expectation a fortnight out and
+ * hides a real edge.
+ *
+ * One session is not a series. With no interval there is nothing to project,
+ * and inventing one would warn about a session nobody has evidence for.
+ *
+ * @returns {{complete: boolean, nextExpected: string|null, message: string}}
+ */
+export function seriesReach({ events, selected, windowTo } = {}) {
+  const settled = { complete: true, nextExpected: null, message: '' };
+
+  const picked = selectedEvents(events, selected);
+  if (picked.length < 2 || !windowTo) return settled;
+
+  const days = picked.map((e) => perthDay(e.event_start_at)).filter(Boolean);
+  if (days.length < 2) return settled;
+
+  const gaps = [];
+  for (let i = 1; i < days.length; i += 1) {
+    gaps.push(Math.round((Date.parse(`${days[i]}T00:00:00Z`) - Date.parse(`${days[i - 1]}T00:00:00Z`)) / 86_400_000));
+  }
+  gaps.sort((a, b) => a - b);
+  // The **lower** middle on an even count, which is the safe direction: a
+  // shorter gap projects the next session sooner, so the doubt is raised rather
+  // than suppressed. Taking the upper middle lets one cancelled week — a single
+  // 14-day hole among sevens — push the expectation past the window edge and
+  // silence the warning at exactly the moment it is right.
+  const gap = gaps[Math.floor((gaps.length - 1) / 2)];
+  if (!Number.isFinite(gap) || gap <= 0) return settled;
+
+  const last = days[days.length - 1];
+  const next = new Date(`${last}T00:00:00Z`);
+  next.setUTCDate(next.getUTCDate() + gap);
+  const nextExpected = next.toISOString().slice(0, 10);
+
+  if (nextExpected <= windowTo) return settled;
+
+  return {
+    complete: false,
+    nextExpected,
+    message: `If this series runs on, the next session would be about ${nextExpected} — past `
+      + `${windowTo}, the last date loaded. Widen the dates and search again to be sure the whole `
+      + 'term is ticked.',
   };
 }
 
