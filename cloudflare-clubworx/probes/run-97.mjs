@@ -78,6 +78,16 @@ const flag = name => args.find(a => a.startsWith(`${name}=`))?.split('=').slice(
 const PAGE_SIZE = 50;
 
 /**
+ * How far ahead to look for one real future event.
+ *
+ * Short by default. This probe needs *an* id, not a timetable, and a window
+ * wide enough to fill a page is a window whose listing is truncated — which
+ * costs the `collectionIds` that `echoesCollection` checks against. Widen it
+ * only if the gym has nothing on.
+ */
+const DAYS = Number(flag('--days') ?? 14);
+
+/**
  * An id that should not exist, for call 3.
  *
  * Numeric on purpose. A non-numeric id would test whether Clubworx can *parse*
@@ -145,7 +155,7 @@ async function findRealEventId(get, window) {
 }
 
 async function main() {
-  const window = { event_starts_after: perthDate(-1), event_ends_before: perthDate(60) };
+  const window = { event_starts_after: perthDate(-1), event_ends_before: perthDate(DAYS) };
 
   if (DRY_RUN) {
     // The key is loaded *after* this branch, so a dry run works on a machine
@@ -203,6 +213,7 @@ async function main() {
 
   console.log('\n── The answer ────────────────────────────────────────────────');
   line('verdict', finding.summary);
+  line('what it said', finding.refusal ?? '(no message)');
   line('events/:id is a route', String(finding.isRoute));
   line(
     '#67 resolveEvent survives it',
@@ -210,16 +221,24 @@ async function main() {
   );
   line('fields returned', finding.fields.length ? finding.fields.join(', ') : '(none)');
   line('rows returned', String(finding.returnedIds.length));
-  line('answered with the collection', String(finding.echoesCollection));
-  line(
-    'told apart from the collection',
-    finding.confounded === null
-      ? 'UNCORROBORATED — cannot tell a resolution from a one-row collection read'
-      : String(!finding.confounded),
-  );
   line('a made-up id answers', `${finding.missingBehaviour} (HTTP ${finding.missingStatus})`);
-  line('tells real from made-up', String(finding.discriminates));
-  line('date window required', `${finding.windowRequired} (HTTP ${finding.windowlessStatus})`);
+
+  // The corroboration questions only mean anything if something resolved. On a
+  // flat 404 they would each print a confident-looking value about a route that
+  // is not there — which is the shape of mistake this whole probe is against.
+  if (finding.isRoute === false && finding.verdict === 'not-found') {
+    line('corroboration', 'n/a — nothing resolved, so there is nothing to corroborate');
+  } else {
+    line('answered with the collection', String(finding.echoesCollection));
+    line(
+      'told apart from the collection',
+      finding.confounded === null
+        ? 'UNCORROBORATED — cannot tell a resolution from a one-row collection read'
+        : String(!finding.confounded),
+    );
+    line('tells real from made-up', String(finding.discriminates));
+    line('date window required', `${finding.windowRequired} (HTTP ${finding.windowlessStatus})`);
+  }
 
   const record = {
     probe: 'staff-site#97',

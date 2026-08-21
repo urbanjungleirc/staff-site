@@ -1022,4 +1022,49 @@ describe('describeEventById', () => {
 
     expect(out.windowRequired).toBeNull();
   });
+
+  it('leaves the window question open when nothing resolved at all', () => {
+    // Measured 2026-08-21: every addressed call 404s. "Is the window required?"
+    // only means something if addressing works *with* one — against a route
+    // that does not exist, both calls fail for the same reason and reporting
+    // `true` would invent a requirement out of an absence.
+    const notFound = { status: 404, body: { status: 404, error: 'Not Found' }, error: null };
+    const out = describeEventById({ wantedId, direct: notFound, windowless: notFound });
+
+    expect(out.verdict).toBe('not-found');
+    expect(out.windowRequired).toBeNull();
+  });
+
+  it('will not claim a made-up id was told apart when the real one 404d too', () => {
+    // Measured 2026-08-21: both ids answered 404. "It distinguished them" is
+    // not a thing that can be true when neither resolved — they got the same
+    // answer, and that answer was the absence of a route.
+    const notFound = { status: 404, body: { status: 404, error: 'Not Found' }, error: null };
+    const out = describeEventById({
+      wantedId,
+      missingId: 999999999,
+      direct: notFound,
+      missing: notFound,
+    });
+
+    expect(out.missingBehaviour).toBe('not-found');
+    expect(out.discriminates).toBeNull();
+  });
+
+  it('reads the refusal message, which is the answer when the route is absent', () => {
+    const out = describeEventById({
+      wantedId,
+      direct: { status: 404, body: { status: 404, error: 'Not Found' }, error: null },
+    });
+
+    expect(out.refusal).toBe('Not Found');
+  });
+
+  it('reads no message out of a body that carries an event', () => {
+    // `errorMessageOf` is bounded to error-shaped fields; a row must not leak
+    // through it.
+    const out = describeEventById({ wantedId, direct: ok(row()) });
+
+    expect(out.refusal).toBeNull();
+  });
 });

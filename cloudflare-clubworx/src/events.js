@@ -307,31 +307,62 @@ export async function listEvents({ client, from, to, q = '', now = new Date().to
  * human agrees it is the right class before it can be selected.
  *
  * ---------------------------------------------------------------------------
- * What this does and does not survive — stated precisely, because the loose
- * version of this sentence was wrong
+ * What this was *designed* to survive — kept because it is the argument #54
+ * still has to answer, not because this code delivers it
  * ---------------------------------------------------------------------------
- * It survives the **search** being unhelpful: a name `?q=` filtered out, a
- * window that truncated, a timetable too long to scan.
+ * The paste field was meant to survive the **search** being unhelpful: a name
+ * `?q=` filtered out, a window that truncated, a timetable too long to scan.
  *
- * It does **not** survive Clubworx enforcing the `contact_key` its reference
- * documents. That would take `/events` down as a whole, and this route is on the
- * same endpoint — there is no path here that outlives its own API. Claiming
- * otherwise (an earlier draft of this header did) would have made a real outage
- * look like a covered case.
+ * It was never going to survive Clubworx enforcing the `contact_key` its
+ * reference documents. That would take `/events` down as a whole, and this route
+ * is on the same endpoint — there is no path here that outlives its own API.
+ * Claiming otherwise (an earlier draft of this header did) would have made a
+ * real outage look like a covered case.
+ *
+ * As measured below, **this implementation delivers none of it**, because the
+ * endpoint it was written against does not exist. The paragraph stays because
+ * the requirement it describes is still live and still has to be met some other
+ * way — see the #54 decision at the end of this header.
  *
  * ---------------------------------------------------------------------------
- * One request, and `GET /events/:id` is unmeasured
+ * MEASURED, AND IT DOES NOT WORK — `GET /events/:id` is not a route
  * ---------------------------------------------------------------------------
- * Every probe so far has read the collection. Path addressing exists in this API
- * — `DELETE /bookings/:id` was measured in #60 — but `events/:id` has never been
- * exercised, so **whether this route works at all against production is an open
- * question a probe should close** — filed as #97.
+ * #97 probed it against production on **2026-08-21**: `GET /api/v2/events/<id>`
+ * answers **HTTP 404** `{"status": 404, "error": "Not Found"}` — for a real
+ * event id, for an invented one, with the date window and without it. The 404
+ * arrives in ~285ms against ~1,950ms for the collection read beside it, and is
+ * identical for a real id and a made-up one: Clubworx is declining to route the
+ * request, not failing to find the record. See
+ * `../probes/97-events-by-id.md`.
+ *
+ * So **nothing below this line can succeed.** The function is correct — it
+ * refuses, and it refuses for the right reason — but there is no request it can
+ * make that Clubworx will answer. Every call returns `upstream-error` with
+ * Clubworx's own `"Not Found"`, which a staff member reads as *"that event does
+ * not exist"* rather than *"this has never worked"*.
+ *
+ * Path addressing does exist here — `DELETE /bookings/:id` was measured in #60
+ * — which is why `events/:id` was the guess. The API is simply inconsistent
+ * between resources, and the reference does not say so. That is #50's lesson
+ * charged a second time: a pattern from a neighbouring resource is not evidence
+ * about this one.
+ *
+ * **This is left in place deliberately, pending the #54 decision** that #97
+ * hands over: either the pasted id is resolved *page-side* from the window the
+ * picker already holds, or the field is dropped. Both are #54's call, and
+ * deleting the route ahead of it would decide the question by removing one
+ * option. What is not an option is leaving a paste field wired to this in front
+ * of staff — a dead escape hatch looks like a working one until somebody needs
+ * it.
  *
  * An earlier draft fell back to re-walking `from`/`to` when the direct call
  * failed. That was dropped: it spends up to `MAX_PAGES` requests of a gym-wide
  * 75/min allowance to find an id that, being inside the window, the page already
  * has on screen from the listing it just made. #67 asks for the id resolved
- * *directly*; the window is the page's own to search.
+ * *directly*; the window is the page's own to search. That reasoning survives
+ * the measurement — it is the argument for resolving page-side rather than
+ * re-walking server-side, and #97 has now removed the alternative it was
+ * weighed against.
  *
  * @param {object} opts
  * @param {{get: (path: string, params: object) => Promise<object>}} opts.client

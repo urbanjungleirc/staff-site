@@ -9,6 +9,8 @@
  * gitignore rule somebody has to remember.
  */
 
+import { errorMessageOf } from '../../src/errors.js';
+
 /** Nearest-rank percentile. Null for an empty set, so it never prints as NaN. */
 export function percentile(values, p) {
   if (!values.length) return null;
@@ -902,7 +904,13 @@ export function describeEventById({
   // `wantedId` would make a *resolved* fake id look unrecognisable, and report
   // the route as discriminating on exactly the case that proves it does not.
   const missingBehaviour = shapeOf(missing, missingId);
-  const discriminates = missingBehaviour === null ? null : DISCRIMINATION[missingBehaviour] ?? null;
+  // Only askable if the real id resolved. When neither did, the two calls got
+  // the *same* answer and it was the absence of a route — which is not the
+  // route distinguishing them, however much a `404` on a fake id looks like it.
+  const discriminates =
+    missingBehaviour === null || !RESOLVING.has(verdict)
+      ? null
+      : DISCRIMINATION[missingBehaviour] ?? null;
 
   // Is the answer to a real id distinguishable from the collection, or from the
   // answer to an id that does not exist?
@@ -915,10 +923,15 @@ export function describeEventById({
   const narrowerThanCollection =
     Array.isArray(collectionIds) && collectionIds.length > 1 && returnedIds.length < collectionIds.length;
 
-  const confounded =
-    discriminates === false || echoesCollection === true ? true
-    : discriminates === true || narrowerThanCollection || verdict === 'single-object' ? false
-    : null;
+  // Gated on the direct call having resolved at all, like `discriminates` and
+  // `windowRequired` below it. Nothing came back to be told apart from the
+  // collection when nothing came back — and an empty 404 body is trivially
+  // "narrower than the collection", which would otherwise print as corroboration.
+  const confounded = !RESOLVING.has(verdict)
+    ? null
+    : discriminates === false || echoesCollection === true ? true
+      : discriminates === true || narrowerThanCollection || verdict === 'single-object' ? false
+        : null;
 
   // Three states, and the third is the point. `false` is a measured absence;
   // `null` is "this run did not find out" — a refusal, a dropped connection, a
@@ -936,7 +949,14 @@ export function describeEventById({
     : verdict === 'unrecognised' ? null
     : false;
 
-  const windowRequired = windowlessShape === null ? null : !RESOLVING.has(windowlessShape);
+  // Only meaningful if addressing works *with* a window. Against a route that
+  // does not exist both calls fail for the same reason, and reporting `true`
+  // would invent a window requirement out of a plain absence — measured
+  // 2026-08-21, when every addressed call came back 404.
+  const windowRequired =
+    windowlessShape === null || !RESOLVING.has(verdict)
+      ? null
+      : !RESOLVING.has(windowlessShape);
 
   return {
     verdict,
@@ -944,6 +964,11 @@ export function describeEventById({
     resolvesFallback,
     fallbackBasis,
     status: direct?.status ?? null,
+    // The server's complaint about *our own request*, which is the whole answer
+    // when there is no route to describe. `errorMessageOf` is the one bounded
+    // way into a body here — error-shaped fields only, never the record fields
+    // where names and dates of birth live.
+    refusal: errorMessageOf(direct?.body),
     fields: fieldNamesOf(direct?.body),
     returnedIds,
     echoesCollection,
