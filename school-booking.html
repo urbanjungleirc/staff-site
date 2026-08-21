@@ -1,15 +1,22 @@
 <!--
-  School group booking — steps 1 to 5.
+  School group booking — steps 1 to 6.
 
-  staff-site#71 and #72, map #46. Design:
-  docs/superpowers/specs/2026-08-19-school-group-booking-design.md §7, §8 and §9.
+  staff-site#71, #72 and #73, map #46. Design:
+  docs/superpowers/specs/2026-08-19-school-group-booking-design.md §7 to §12.
   Variant A, the gated stepper, decided on #54 against three built prototypes.
 
   NOT LINKED FROM tools.json. That is deliberate and is the last step of #46
   (§17): `main` is production here, so every step before the hub entry lands is
-  deployed but invisible to staff. Step 6 — Apply, the run engine and the result
-  table — is #73, and nothing on this page can write anything: every route it
-  calls is a GET.
+  deployed but invisible to staff.
+
+  STEPS 1-5 READ. STEP 6 WRITES, and two of the three records it writes cannot
+  be deleted through the Clubworx API at all — a contact and a School Pass are
+  permanent, and only a booking can be taken back (§12). The run engine itself
+  is `school-booking/run.js`, deliberately outside this file and taking an
+  injected caller (#78): the retry policy, the circuit breaker, the throttle
+  halt and the cancel interlock all run when things are already going wrong,
+  which is exactly the code that gets no cover if it lives in an Alpine
+  component in a repo with no DOM test infrastructure.
 
   Steps 4 and 5 read Clubworx and nothing more. The Clubworx check between them
   is strictly serial, one student at a time, because the 75-requests-a-minute
@@ -67,12 +74,16 @@
   import * as events from './school-booking/events.js?v=2';
   import * as preview from './school-booking/preview.js?v=2';
   import * as calendar from './school-booking/calendar.js?v=2';
+  import * as outcome from './school-booking/outcome.js?v=2';
+  import * as run from './school-booking/run.js?v=2';
   window.schoolListParser = parser;
   window.schoolBookingSteps = steps;
   window.schoolBookingIdentity = identity;
   window.schoolBookingEvents = events;
   window.schoolBookingPreview = preview;
   window.schoolBookingCalendar = calendar;
+  window.schoolBookingOutcome = outcome;
+  window.schoolBookingRun = run;
 </script>
 <script defer src="https://cdn.jsdelivr.net/npm/alpinejs@3.x.x/dist/cdn.min.js"></script>
 
@@ -412,6 +423,24 @@
         <b>This page is not safe to use.</b>
         <span x-text="bootstrapError"></span>
         Reload with a hard refresh; if that does not fix it, the page has shipped against a stale module.
+      </div>
+
+      <!-- D10 — the run this browser is still holding. Offered, never opened
+           for you: a saved run may be from yesterday, and a result table that
+           appears unbidden is one an operator can mistake for the run they
+           just did. The specific failure being defended against is a reload
+           destroying the only record of creations that cannot be undone. -->
+      <div x-show="restored" x-cloak
+           class="rounded-xl bg-sky-50 border border-sky-200 text-sky-900 px-4 py-3 text-sm mb-5">
+        <div class="font-semibold" x-text="restoredLine()"></div>
+        <div class="text-xs mt-1 opacity-90">
+          Contacts and School Passes cannot be deleted, so this is the only record of what that run
+          created. Keep a copy before discarding it.
+        </div>
+        <div class="flex gap-2 mt-2">
+          <button type="button" class="chip" @click="openRestored()">Open it</button>
+          <button type="button" class="chip" @click="discardRestored()">Discard it</button>
+        </div>
       </div>
 
       <!-- ── Step strip ──────────────────────────────────────────────────── -->
@@ -1204,18 +1233,193 @@
               </div>
             </div>
 
+            <!-- The confirm step. What is being confirmed is not "are you
+                 sure" — the permanence line above already says what will be
+                 written — but the COST, which nothing else on the page can
+                 tell them: several minutes of an allowance the whole gym
+                 shares (§6). Staff who know that pick a quiet moment. -->
+            <div x-show="confirming" x-cloak
+                 class="rounded-xl bg-amber-50 border border-amber-300 text-amber-900 px-3.5 py-3 text-sm mt-6">
+              <div class="font-semibold">Before this starts</div>
+              <div class="mt-1" x-text="runCost()"></div>
+              <div class="mt-1" x-text="permanenceLine()"></div>
+              <div class="text-xs mt-1 opacity-90">
+                Leave this tab open. Every student is written one at a time, and closing the page
+                mid-run loses the record of what was created.
+              </div>
+              <div class="flex gap-2 mt-3">
+                <button type="button"
+                        class="bg-uj hover:bg-uj-dark text-white rounded-xl px-4 py-2 text-sm font-semibold"
+                        @click="apply()">Start the run</button>
+                <button type="button" class="chip" @click="standDown()">Not now</button>
+              </div>
+            </div>
+
             <div class="flex justify-between mt-6">
               <button type="button" class="text-sm text-neutral-500 hover:text-neutral-800" @click="go(3)">← Back</button>
-              <!-- Apply is staff-site#73. Gated here anyway: the gates are the
-                   deliverable of this step, and a button wired to nothing is
-                   safer than a button wired to half a write chain. -->
-              <button type="button" disabled
-                      :title="preview.ready ? 'Every gate is clear. The run engine is staff-site#73' : 'Something above is still blocking'"
-                      class="rounded-xl px-5 py-2.5 text-sm font-semibold bg-neutral-100 text-neutral-400 cursor-not-allowed"
-                      x-text="preview.ready ? 'Apply (not built yet)' : 'Apply — blocked'"></button>
+              <button type="button" :disabled="!preview.ready || running || confirming"
+                      :title="preview.ready ? 'Nothing above is blocking' : 'Something above is still blocking'"
+                      :class="preview.ready && !running && !confirming
+                        ? 'bg-uj hover:bg-uj-dark text-white'
+                        : 'bg-neutral-100 text-neutral-400 cursor-not-allowed'"
+                      class="rounded-xl px-5 py-2.5 text-sm font-semibold"
+                      @click="askApply()"
+                      x-text="preview.ready ? 'Apply' : 'Apply — blocked'"></button>
             </div>
           </div>
         </template>
+      </section>
+
+      <!-- ── 6 · Result ──────────────────────────────────────────────────── -->
+      <!-- D11 — the same rows in the same order, in past tense. Not a new
+           screen with a new mental model: the sentence above the preview table
+           and the sentence above this one are the same sentence, before and
+           after, which is the only way to check that what happened is what was
+           agreed to. -->
+      <section x-show="stepIndex === 5">
+        <h2 class="text-lg font-bold mb-1">What happened</h2>
+        <p class="text-sm text-neutral-500 mb-5 max-w-2xl">
+          Contacts and School Passes are permanent — the Clubworx API has no delete for either.
+          Bookings are the one thing that can be taken back.
+        </p>
+
+        <div class="rounded-xl bg-sky-50 border border-sky-200 text-sky-900 px-3.5 py-2.5 text-sm mb-3"
+             x-show="runState === 'running'" x-cloak>
+          <span x-text="runProgress"></span>
+          One student at a time — the Clubworx allowance is shared with the whole gym. Leave this tab open.
+        </div>
+
+        <!-- A halt says why, and says that what is above it is untouched. -->
+        <div class="rounded-xl bg-rose-50 border border-rose-200 text-rose-800 px-3.5 py-2.5 text-sm mb-3"
+             x-show="runState === 'halted'" x-cloak>
+          <div class="font-semibold">The run stopped early</div>
+          <div class="text-xs mt-1 opacity-90" x-text="runMessage"></div>
+          <div class="text-xs mt-1 opacity-90">
+            Re-running the same list is safe and is how this is finished: students already done come
+            back as <span class="mono">already booked</span>.
+          </div>
+        </div>
+
+        <div class="rounded-xl px-3.5 py-3 text-sm mb-3 bg-amber-50 border border-amber-300 text-amber-900"
+             x-show="resultLine()" x-cloak>
+          <div class="font-semibold" x-text="resultLine()"></div>
+          <div class="mt-1.5" x-show="strandedWarning()" x-cloak x-text="strandedWarning()"></div>
+        </div>
+
+        <div class="rounded-card border border-neutral-200 overflow-hidden bg-white"
+             x-show="runRecords.length > 0" x-cloak>
+          <div class="overflow-x-auto">
+          <table class="w-full text-sm">
+            <thead class="bg-neutral-50 border-b border-neutral-200">
+              <tr class="text-left text-[0.68rem] uppercase tracking-wider text-neutral-500">
+                <th scope="col" class="px-4 py-2">#</th>
+                <th scope="col" class="px-4 py-2">Student</th>
+                <th scope="col" class="px-4 py-2">DOB</th>
+                <th scope="col" class="px-4 py-2">Result</th>
+                <th scope="col" class="px-4 py-2">What happened</th>
+              </tr>
+            </thead>
+            <template x-for="(record, index) in runRecords" :key="record.key">
+              <tbody>
+                <tr class="border-b border-neutral-100 row-hit lane"
+                    :class="record.state === 'booked' || record.state === 'already booked' ? 'lane-ok' : 'lane-need'"
+                    @click="toggleResultRow(record.key)">
+                  <td class="px-4 py-2 mono text-[0.7rem] text-neutral-400" x-text="index + 1"></td>
+                  <td class="px-4 py-2">
+                    <span class="mono text-[0.66rem] text-neutral-400 mr-1"
+                          x-text="expandedResult === record.key ? '▾' : '▸'"></span>
+                    <span x-text="record.name"></span>
+                  </td>
+                  <td class="px-4 py-2 mono text-[0.75rem]" x-text="record.dob || '—'"></td>
+                  <td class="px-4 py-2">
+                    <span class="px-1.5 py-0.5 rounded text-[0.68rem] font-medium"
+                          :class="resultTone(record)" x-text="record.state"></span>
+                  </td>
+                  <td class="px-4 py-2 text-[0.8rem] text-neutral-600" x-text="record.label"></td>
+                </tr>
+
+                <tr x-show="expandedResult === record.key" x-cloak class="border-b border-neutral-100 bg-neutral-50/60">
+                  <td colspan="5" class="px-4 py-3">
+                    <div class="text-[0.78rem] text-neutral-600 mb-2">└ <span x-text="record.detail"></span></div>
+
+                    <!-- The booking ids, because a stranded or half-cancelled
+                         student is finished by hand in Clubworx and this is
+                         what a human needs to find them. -->
+                    <div x-show="record.bookings.length > 0" x-cloak>
+                      <span class="field-label">Bookings</span>
+                      <div class="space-y-1">
+                        <template x-for="b in record.bookings" :key="b.event_id">
+                          <div class="flex items-center gap-2 flex-wrap text-[0.78rem]">
+                            <span class="mono text-[0.7rem] text-neutral-500" x-text="b.event_id"></span>
+                            <span x-text="b.state"></span>
+                            <span class="mono text-[0.7rem] text-neutral-400" x-text="b.booking_id || ''"></span>
+                            <span class="text-amber-800" x-show="b.shown" x-cloak x-text="b.shown"></span>
+                          </div>
+                        </template>
+                      </div>
+                    </div>
+
+                    <div class="text-[0.78rem] text-neutral-600 mt-2" x-show="record.cancel" x-cloak>
+                      <span class="field-label">Cancel</span>
+                      <span x-text="cancelLine(record)"></span>
+                    </div>
+                  </td>
+                </tr>
+              </tbody>
+            </template>
+          </table>
+          </div>
+        </div>
+
+        <!-- D12 — there is no button called "Undo". The permanence of the two
+             records this cannot touch is stated BESIDE the control, not in a
+             footnote, and the count is what the interlock allows: rows this
+             run booked, never a row that was already there. -->
+        <div class="rounded-xl border border-neutral-200 bg-white px-3.5 py-3 text-sm mt-4"
+             x-show="runRecords.length > 0 && runState !== 'running'" x-cloak>
+          <div class="font-semibold">Taking it back</div>
+          <div class="text-xs text-neutral-500 mt-1">
+            Only bookings can be cancelled. The contacts and School Passes this run created stay in
+            Clubworx — the API has no delete for either, and cancelling does not restore what was
+            there before.
+          </div>
+          <div class="text-xs text-neutral-500 mt-1" x-show="cancellableCount() === 0" x-cloak>
+            Nothing here was booked by this run, so there is nothing to cancel. Bookings that were
+            already there are never touched.
+          </div>
+
+          <div class="flex gap-2 mt-3 items-center flex-wrap" x-show="!cancelConfirming" x-cloak>
+            <button type="button" :disabled="cancellableCount() === 0 || running"
+                    class="rounded-xl px-4 py-2 text-sm font-semibold border border-rose-300 text-rose-700 disabled:opacity-40"
+                    @click="askCancel()"
+                    x-text="`Cancel ${cancellableCount()} booking${cancellableCount() === 1 ? '' : 's'} from this run`"></button>
+            <button type="button" class="chip" @click="copyRecord()"
+                    x-text="copied ? 'Copied' : 'Copy the record'"></button>
+            <button type="button" class="chip" @click="downloadRecord()">Download the record</button>
+          </div>
+
+          <div class="mt-3" x-show="cancelConfirming" x-cloak>
+            <div class="text-[0.82rem] text-rose-800 font-semibold"
+                 x-text="`Cancel ${cancellableCount()} booking${cancellableCount() === 1 ? '' : 's'}?`"></div>
+            <div class="text-xs text-neutral-500 mt-1">
+              The contacts and passes stay. Bookings that were already in Clubworx before this run
+              are not touched.
+            </div>
+            <div class="flex gap-2 mt-2">
+              <button type="button" class="rounded-xl px-4 py-2 text-sm font-semibold bg-rose-600 text-white"
+                      @click="cancelRun()">Yes, cancel them</button>
+              <button type="button" class="chip" @click="standDownCancel()">Keep them</button>
+            </div>
+          </div>
+
+          <div class="text-xs mt-2" x-show="cancelState === 'running'" x-cloak>Cancelling, one student at a time…</div>
+          <div class="text-xs mt-2 text-rose-700" x-show="cancelState === 'halted'" x-cloak x-text="cancelMessage"></div>
+        </div>
+
+        <div class="flex justify-between mt-6">
+          <button type="button" class="text-sm text-neutral-500 hover:text-neutral-800"
+                  :disabled="running" @click="go(4)">← Back to the preview</button>
+        </div>
       </section>
 
     </div>
@@ -1223,7 +1427,10 @@
 
   <footer class="max-w-[1100px] mx-auto w-full px-4 pb-8 text-xs text-neutral-500">
     <div class="border-t border-neutral-200 pt-4 flex flex-wrap items-center justify-between gap-x-5 gap-y-1">
-      <span>Nothing on this page writes anything. Apply and the result table are staff-site#73.</span>
+      <span>
+        Steps 1–5 read only. <b>Apply writes</b>: contacts and School Passes are permanent, bookings
+        can be cancelled. The record of a run is kept in this browser only.
+      </span>
     </div>
   </footer>
 
@@ -1234,16 +1441,15 @@ const COLUMN_ROLES = ['dob', 'firstName', 'lastName', 'combined'];
 
 function schoolBooking() {
   return {
-    // Six steps, because six is the shape of the run (§9). The last three are
-    // not built; `built` is what the strip and the forward button read, so
-    // there is one place to change when #72 and #73 land.
+    // Six steps, because six is the shape of the run (§9). `built` is what the
+    // strip and the forward button read; all six are built as of #73.
     STEPS: [
       { key: 'school',   label: 'School',   built: true },
       { key: 'paste',    label: 'Paste',    built: true },
       { key: 'rows',     label: 'Rows',     built: true },
       { key: 'sessions', label: 'Sessions', built: true },
       { key: 'preview',  label: 'Preview',  built: true },
-      { key: 'result',   label: 'Result',   built: false },
+      { key: 'result',   label: 'Result',   built: true },
     ],
     stepIndex: 0,
     maxStepReached: 0,
@@ -1325,6 +1531,31 @@ function schoolBooking() {
     decisions: {},
     expandedPreview: null,
 
+    // Step 6 — the run
+    // The confirm panel between Apply and the first write. §6 sizes a run at
+    // ~4 minutes of a gym-wide allowance, and staff are told that before it
+    // starts rather than discovering it as a slow afternoon.
+    confirming: false,
+    // The single-flight lock (D13). A double-click on Apply, or a resubmit
+    // mid-run, is the one re-run case that does need special handling.
+    running: false,
+    runRecords: [],
+    runState: 'idle',
+    runReason: null,
+    runMessage: '',
+    runProgress: '',
+    runAt: null,
+    runSessionLabels: [],
+    expandedResult: null,
+    cancelState: 'idle',
+    cancelMessage: '',
+    cancelConfirming: false,
+    // A run found in this browser's storage at load — D10's whole purpose. It
+    // is offered, never auto-opened: it may be yesterday's, and the operator
+    // has to know which run they are looking at.
+    restored: null,
+    copied: false,
+
     init() {
       // Both modules or neither. Every gate on this page is one of their
       // exports, so a partial load is a page that looks like it is checking
@@ -1336,10 +1567,15 @@ function schoolBooking() {
       if (!window.schoolBookingEvents?.selectionReport) missing.push('the session rules');
       if (!window.schoolBookingPreview?.buildPreview) missing.push('the preview rules');
       if (!window.schoolBookingCalendar?.monthGrid) missing.push('the calendar');
+      if (!window.schoolBookingOutcome?.studentRecord) missing.push('the outcome rules');
+      if (!window.schoolBookingRun?.runStudents) missing.push('the run engine');
       if (missing.length) {
         this.bootstrapError = `Could not load ${missing.join(' and ')}.`;
         return;
       }
+      // D10 — before anything else. A reload mid-run is the failure this
+      // defends against, so the record has to be found on the way back in.
+      this.restored = this.store().load();
       this.loadSchools();
     },
 
@@ -2228,6 +2464,285 @@ function schoolBooking() {
       if (line.clubworx === 'new') return 'text-sky-700 bg-sky-50';
       if (line.clubworx === '') return 'text-neutral-500 bg-neutral-100';
       return 'text-amber-700 bg-amber-50';
+    },
+
+    // --- step 6, the run --------------------------------------------------
+    // The engine itself is `school-booking/run.js`, taking an injected caller
+    // (#78). Everything below is the page's half: the gate, the lock, the
+    // storage and the rendering. Nothing here decides a retry, a halt or the
+    // cancel interlock — those have tests, and this does not.
+
+    /** D10's store. A private window has no `localStorage`; `runStore` copes. */
+    store() {
+      return window.schoolBookingRun.runStore(
+        (typeof window !== 'undefined' && window.localStorage) || null,
+        'uj-school-booking-run',
+      );
+    },
+
+    /**
+     * What the run costs, said before it starts.
+     *
+     * §6: the Clubworx allowance is 75 a minute and **gym-wide** — the roster
+     * Worker and the automations spend it unseen. A school import is therefore
+     * a several-minute gym-wide slowdown, and staff who are told that can pick
+     * a quiet moment. Staff who are not told it report a broken roster.
+     */
+    runCost() {
+      const students = this.preview?.totals?.students ?? 0;
+      const sessions = this.preview?.sessions?.length ?? 0;
+      if (students === 0) return '';
+      const requests = students * (4 + sessions);
+      const minutes = Math.max(1, Math.ceil(requests / 75));
+      return `About ${requests} Clubworx requests — roughly ${minutes} minute${minutes === 1 ? '' : 's'} `
+        + 'at the 75-a-minute allowance, which is shared with the whole gym. The roster and the '
+        + 'automations will be slow while this runs.';
+    },
+
+    askApply() {
+      if (!this.preview?.ready || this.running) return;
+      this.confirming = true;
+    },
+
+    standDown() {
+      this.confirming = false;
+    },
+
+    /**
+     * Apply.
+     *
+     * The lock is D13's: a re-paste needs no warning — it is the recovery path —
+     * but a double-click or a mid-run resubmit does, because it would run the
+     * same student twice concurrently and spend the allowance racing itself.
+     */
+    async apply() {
+      if (!this.preview?.ready || this.running) return;
+
+      const students = window.schoolBookingRun.runList({
+        preview: this.preview,
+        rows: this.reviewed?.rows ?? [],
+        email: this.marker(),
+      });
+      if (students.length === 0) return;
+
+      this.confirming = false;
+      this.running = true;
+      this.runState = 'running';
+      this.runReason = null;
+      this.runMessage = '';
+      this.runRecords = [];
+      this.cancelState = 'idle';
+      this.cancelMessage = '';
+      this.runAt = new Date().toISOString();
+      this.runSessionLabels = (this.preview.sessions ?? []).map((e) => e.event_start_at);
+      this.expandedResult = null;
+      this.runProgress = `Starting ${students.length} student${students.length === 1 ? '' : 's'}…`;
+      this.guardUnload(true);
+      this.go(5);
+
+      const result = await window.schoolBookingRun.runStudents({
+        students,
+        call: (payload) => this.callWorker('/api/clubworx/student', payload),
+        onRow: (record, records) => {
+          // Published and stored per student. An end-of-run write is the one
+          // that is missing when the tab is closed on student 19.
+          this.runRecords = [...records];
+          this.runProgress = `${records.length} of ${students.length} done…`;
+          this.saveRun();
+        },
+      });
+
+      this.runRecords = [...result.records];
+      this.runState = result.state;
+      this.runReason = result.reason;
+      this.runMessage = result.message;
+      this.runProgress = '';
+      this.running = false;
+      this.guardUnload(false);
+      this.saveRun();
+    },
+
+    /**
+     * One Worker call, as the engine wants it: a status and a parsed body, and
+     * a throw only when the request itself failed.
+     *
+     * A non-200 is **not** thrown. On these two routes the body IS the record
+     * of what was written (§12), and throwing is how a client ends up
+     * discarding it.
+     */
+    async callWorker(path, payload) {
+      const res = await fetch(path, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json', accept: 'application/json' },
+        body: JSON.stringify(payload),
+      });
+      let body = null;
+      try {
+        body = await res.json();
+      } catch {
+        body = null;
+      }
+      return { status: res.status, body };
+    },
+
+    saveRun() {
+      this.store().save({
+        at: this.runAt,
+        school: this.tag,
+        sessions: this.runSessionLabels,
+        state: this.runState,
+        records: this.runRecords,
+      });
+    },
+
+    /**
+     * The `beforeunload` warning — D13's other half.
+     *
+     * Only while a run is in flight. A permanent contact that has been created
+     * and not yet recorded on this page is the one thing a reload can destroy
+     * for good.
+     */
+    guardUnload(on) {
+      if (typeof window?.addEventListener !== 'function') return;
+      if (on) {
+        this.unloadGuard = (event) => { event.preventDefault(); event.returnValue = ''; };
+        window.addEventListener('beforeunload', this.unloadGuard);
+      } else if (this.unloadGuard) {
+        window.removeEventListener('beforeunload', this.unloadGuard);
+        this.unloadGuard = null;
+      }
+    },
+    unloadGuard: null,
+
+    resultLine() {
+      return window.schoolBookingOutcome.resultLine(this.runRecords);
+    },
+
+    strandedWarning() {
+      return window.schoolBookingOutcome.strandedWarning(this.runRecords);
+    },
+
+    resultTone(record) {
+      if (record.state === 'booked') return 'text-emerald-700 bg-emerald-50';
+      if (record.state === 'already booked') return 'text-sky-700 bg-sky-50';
+      if (record.state === 'stranded' || record.state === 'failed') return 'text-rose-700 bg-rose-50';
+      if (record.state === 'not run') return 'text-neutral-500 bg-neutral-100';
+      return 'text-amber-700 bg-amber-50';
+    },
+
+    toggleResultRow(key) {
+      this.expandedResult = this.expandedResult === key ? null : key;
+    },
+
+    /** How many bookings the cancel control would act on — D12's interlock. */
+    cancellableCount() {
+      return this.runRecords.reduce(
+        (total, record) => total + window.schoolBookingOutcome.cancellable(record).length,
+        0,
+      );
+    },
+
+    askCancel() {
+      if (this.cancellableCount() === 0 || this.running) return;
+      this.cancelConfirming = true;
+    },
+
+    standDownCancel() {
+      this.cancelConfirming = false;
+    },
+
+    /**
+     * "Cancel bookings from this run" — never "Undo".
+     *
+     * It reaches bookings and nothing else. The contacts and the School Passes
+     * this run created stay, because the API has no delete for either, and the
+     * button's own label plus the sentence beside it are where staff read that
+     * — not a footnote after the fact.
+     */
+    async cancelRun() {
+      if (this.running) return;
+      this.cancelConfirming = false;
+      this.running = true;
+      this.cancelState = 'running';
+      this.cancelMessage = '';
+      this.guardUnload(true);
+
+      const result = await window.schoolBookingRun.cancelStudents({
+        records: this.runRecords,
+        call: (payload) => this.callWorker('/api/clubworx/unbook', payload),
+        onRow: (record, records) => {
+          this.runRecords = [...records];
+          this.saveRun();
+        },
+      });
+
+      this.runRecords = [...result.records];
+      this.cancelState = result.state === 'halted' ? 'halted' : 'done';
+      this.cancelMessage = result.message;
+      this.running = false;
+      this.guardUnload(false);
+      this.saveRun();
+    },
+
+    /** The line a cancelled row shows, in the Worker's own words. */
+    cancelLine(record) {
+      if (!record.cancel) return '';
+      const c = record.cancel;
+      const head = `${c.cancelled ?? 0} cancelled`;
+      return c.message ? `${head} — ${c.message}` : head;
+    },
+
+    recordText() {
+      return window.schoolBookingOutcome.runRecordText(this.runRecords, {
+        school: this.tag,
+        at: this.runAt,
+        sessions: this.runSessionLabels,
+      });
+    },
+
+    async copyRecord() {
+      try {
+        await navigator.clipboard.writeText(this.recordText());
+        this.copied = true;
+        setTimeout(() => { this.copied = false; }, 2000);
+      } catch {
+        this.copied = false;
+      }
+    },
+
+    downloadRecord() {
+      const blob = new Blob([this.recordText()], { type: 'application/json' });
+      const url = URL.createObjectURL(blob);
+      const link = document.createElement('a');
+      link.href = url;
+      link.download = `school-booking-${this.tag || 'run'}-${(this.runAt || '').slice(0, 10)}.json`;
+      link.click();
+      URL.revokeObjectURL(url);
+    },
+
+    // --- the run this browser was already holding -------------------------
+    openRestored() {
+      if (!this.restored) return;
+      this.runRecords = this.restored.records ?? [];
+      this.runAt = this.restored.at ?? null;
+      this.runSessionLabels = this.restored.sessions ?? [];
+      this.runState = this.restored.state ?? 'complete';
+      this.restored = null;
+      this.maxStepReached = 5;
+      this.go(5);
+    },
+
+    discardRestored() {
+      this.store().clear();
+      this.restored = null;
+    },
+
+    restoredLine() {
+      if (!this.restored) return '';
+      const count = (this.restored.records ?? []).length;
+      const when = (this.restored.at ?? '').slice(0, 16).replace('T', ' ');
+      return `A run of ${count} student${count === 1 ? '' : 's'}${this.restored.school ? ` for ${this.restored.school}` : ''}`
+        + `${when ? `, started ${when}` : ''}, is saved in this browser.`;
     },
 
     go(index) {

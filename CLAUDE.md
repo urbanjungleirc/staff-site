@@ -100,7 +100,7 @@ cloudflare-clubworx/probes/ - read-only probes against the live Clubworx API, an
                           what they found. Start with probes/README.md — it carries
                           the rules (no production data recorded, pace under
                           75 req/min) that any new probe has to follow.
-school-booking.html     - the school booking page, steps 1-5 (#71, #72, #106):
+school-booking.html     - the school booking page, steps 1-6 (#71, #72, #73, #106):
                           school, paste + declare the count, the parse result
                           with inline row resolution, the session picker, and
                           the preview. Step 4 reads NOTHING until the operator
@@ -114,9 +114,11 @@ school-booking.html     - the school booking page, steps 1-5 (#71, #72, #106):
                           (calendar.js), not the browser's. Variant A of §9, decided on #54. NOT in
                           tools.json and unreachable from the hub until #46's
                           last step — §17's order, because `main` is production.
-                          Step 6 (Apply, the run engine, the result table) is
-                          #73; every route this page calls is a GET, and a
-                          component test asserts that.
+                          Steps 1-5 READ; step 6 WRITES (#73). The page holds
+                          only the confirm gate, the single-flight lock, the
+                          storage and the rendering — the run itself is run.js
+                          (#78's seam), and a component test asserts that steps
+                          1-5 issue no POST.
 school-booking/events.js - what a SELECTION of sessions is: the same-name,
                           same-location pre-tick (no recurrence field exists,
                           so any automatic rule is a guess), the lead-time and
@@ -160,6 +162,26 @@ school-booking/preview.js - step 5: the STUDENT/DOB/READ/CLUBWORX/OUTCOME table,
                           Apply" rather than "pass already active". An absent
                           answer is `pending`, never `new` — `new` writes a
                           contact Clubworx cannot delete.
+school-booking/run.js   - step 6's engine: Apply's per-student loop, D8's retry
+                          policy, D7's circuit breaker, the throttle halt, the
+                          cancel loop, and D10's browser-only store. Takes an
+                          INJECTED caller (#78) — everything in it runs when
+                          things are already going wrong, and inside an Alpine
+                          component none of it would have cover. A throttle
+                          pauses the WHOLE run, detected on the `reason` field
+                          and not the status: once a call has written something
+                          the Worker answers 200 carrying `reason: "throttled"`,
+                          because the body is then the only record of the write.
+school-booking/outcome.js - what one `POST /student` answer means, and what a
+                          run of them adds up to. Two exports are safety rules
+                          rather than presentation: isFailure() feeds the
+                          circuit breaker (a `needs-confirmation` is data about
+                          one student, not a systemic condition), and
+                          cancellable() is D12's interlock — an `already booked`
+                          row was NOT made by this run, so cancelling it may
+                          delete a booking a real member made themselves. The
+                          three permanence classes are counted apart, never
+                          collapsed into a success total.
 school-booking/parse.js - turns a pasted school student list into rows plus the
                           list-level inferences (layout, column mapping, date
                           orientation). Pure and unit tested; §7 of the design
