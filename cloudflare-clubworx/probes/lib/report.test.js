@@ -17,6 +17,7 @@ import {
   describeCancellation,
   describeMemberCreation,
   describeCreatedPass,
+  describeEventById,
 } from './report.mjs';
 
 // What a probe is allowed to write down. Everything here is counts, ids, status
@@ -736,5 +737,166 @@ describe('describeCreatedPass', () => {
     expect(r.granted).toBe(true);
     expect(r.spanDays).toBeNull();
     expect(r.startsOnCreationDay).toBe(false);
+  });
+});
+
+describe('describeEventById', () => {
+  const wantedId = 12345;
+  const ok = body => ({ status: 200, body, error: null });
+
+  const row = (event_id = wantedId) => ({
+    event_id,
+    event_name: 'a class',
+    event_start_at: '2026-09-01T10:00:00+08:00',
+    spaces_available: 4,
+  });
+
+  it('reads a bare object carrying the asked-for id as a resolving route', () => {
+    const out = describeEventById({ wantedId, direct: ok(row()) });
+
+    expect(out.verdict).toBe('single-object');
+    expect(out.isRoute).toBe(true);
+    expect(out.resolvesFallback).toBe(true);
+  });
+
+  it('reads a one-element array carrying the asked-for id as a resolving route', () => {
+    const out = describeEventById({ wantedId, direct: ok([row()]) });
+
+    expect(out.verdict).toBe('one-element-array');
+    expect(out.isRoute).toBe(true);
+    expect(out.resolvesFallback).toBe(true);
+  });
+
+  it('matches the id as text, because a pasted id is a string and Clubworx sends a number', () => {
+    const out = describeEventById({ wantedId: '12345', direct: ok(row(12345)) });
+
+    expect(out.verdict).toBe('single-object');
+    expect(out.resolvesFallback).toBe(true);
+  });
+
+  it('calls a multi-row answer the collection, not a resolution', () => {
+    const out = describeEventById({ wantedId, direct: ok([row(), row(999)]) });
+
+    expect(out.verdict).toBe('collection');
+    expect(out.isRoute).toBe(false);
+    expect(out.resolvesFallback).toBe(false);
+  });
+
+  it('calls a single row that is not the asked-for event the collection', () => {
+    // The path segment was ignored and the gym happened to have one event in
+    // the window. Taking row one would put the wrong class in front of staff.
+    const out = describeEventById({ wantedId, direct: ok([row(999)]) });
+
+    expect(out.verdict).toBe('collection');
+    expect(out.resolvesFallback).toBe(false);
+  });
+
+  it('names the collection when the ids returned are the ids the listing held', () => {
+    const out = describeEventById({
+      wantedId,
+      direct: ok([row(), row(999)]),
+      collectionIds: [wantedId, 999],
+    });
+
+    expect(out.verdict).toBe('collection');
+    expect(out.echoesCollection).toBe(true);
+  });
+
+  it('reports an empty array as a filter that matched nothing, not as a route', () => {
+    const out = describeEventById({ wantedId, direct: ok([]) });
+
+    expect(out.verdict).toBe('empty');
+    expect(out.isRoute).toBe(false);
+    expect(out.resolvesFallback).toBe(false);
+  });
+
+  it('reads a 404 on a real id as no such route', () => {
+    const out = describeEventById({ wantedId, direct: { status: 404, body: null, error: null } });
+
+    expect(out.verdict).toBe('not-found');
+    expect(out.isRoute).toBe(false);
+  });
+
+  it('refuses to conclude anything from a 401 — #50 is what that costs', () => {
+    const out = describeEventById({ wantedId, direct: { status: 401, body: null, error: null } });
+
+    expect(out.verdict).toBe('refused');
+    expect(out.isRoute).toBeNull();
+    expect(out.resolvesFallback).toBe(false);
+    expect(out.summary).toMatch(/parameters/i);
+  });
+
+  it('reports a network failure as unmeasured rather than as an absent route', () => {
+    const out = describeEventById({
+      wantedId,
+      direct: { status: null, body: null, error: 'ECONNRESET' },
+    });
+
+    expect(out.verdict).toBe('error');
+    expect(out.isRoute).toBeNull();
+  });
+
+  it('records field names, never values', () => {
+    const out = describeEventById({ wantedId, direct: ok(row()) });
+
+    expect(out.fields).toEqual(['event_id', 'event_name', 'event_start_at', 'spaces_available']);
+    expect(JSON.stringify(out)).not.toContain('a class');
+  });
+
+  it('counts the row a bare object carries — one row, not none', () => {
+    const out = describeEventById({ wantedId, direct: ok(row()) });
+
+    expect(out.returnedIds).toEqual([wantedId]);
+  });
+
+  it('describes what a made-up id answered', () => {
+    const out = describeEventById({
+      wantedId,
+      direct: ok(row()),
+      missing: { status: 404, body: null, error: null },
+    });
+
+    expect(out.missingBehaviour).toBe('not-found');
+    expect(out.discriminates).toBe(true);
+  });
+
+  it('flags a made-up id that answers with rows anyway — the route would confirm any paste', () => {
+    const out = describeEventById({
+      wantedId,
+      direct: ok(row()),
+      missing: ok([row(999), row(1000)]),
+    });
+
+    expect(out.missingBehaviour).toBe('collection');
+    expect(out.discriminates).toBe(false);
+  });
+
+  it('leaves the made-up id unknown when that call was not made', () => {
+    const out = describeEventById({ wantedId, direct: ok(row()) });
+
+    expect(out.missingBehaviour).toBeNull();
+    expect(out.discriminates).toBeNull();
+  });
+
+  it('reports the date window as not required when the windowless call resolves', () => {
+    const out = describeEventById({ wantedId, direct: ok(row()), windowless: ok(row()) });
+
+    expect(out.windowRequired).toBe(false);
+  });
+
+  it('reports the date window as required when the windowless call is refused', () => {
+    const out = describeEventById({
+      wantedId,
+      direct: ok(row()),
+      windowless: { status: 422, body: null, error: null },
+    });
+
+    expect(out.windowRequired).toBe(true);
+  });
+
+  it('leaves the window question open when that call was not made', () => {
+    const out = describeEventById({ wantedId, direct: ok(row()) });
+
+    expect(out.windowRequired).toBeNull();
   });
 });

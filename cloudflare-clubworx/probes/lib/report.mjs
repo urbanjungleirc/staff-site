@@ -741,3 +741,155 @@ export function describeCreatedPass({ states = [], on, requested = null } = {}) 
       ` · active ${Boolean(state.active)}`,
   };
 }
+
+/** A bare object and a one-element array are the same one row, read the same way. */
+const rowsOf = body => (Array.isArray(body) ? body : body && typeof body === 'object' ? [body] : []);
+
+/** Field names of whatever came back, in first-seen order. Names only, never values. */
+const fieldNamesOf = body => {
+  const names = new Set();
+  for (const row of rowsOf(body)) for (const name of Object.keys(row ?? {})) names.add(name);
+  return [...names];
+};
+
+/** A pasted id is a string and Clubworx sends a number. Compare as text or nothing matches. */
+const sameEventId = (row, wanted) => String(row?.event_id) === String(wanted);
+
+/**
+ * What a `GET /events/:id` response *is* — a resolved event, or the collection
+ * wearing its clothes.
+ *
+ * Shared by the direct call, the made-up id and the windowless call, so all
+ * three are read by one set of rules rather than three sets that drift.
+ */
+function shapeOf(res, wanted) {
+  if (!res) return null;
+  if (res.error) return 'error';
+
+  const { status, body } = res;
+
+  // #50 is the standing reminder of what reading a 401 as a wall costs: a
+  // malformed request answered "Authorization failed", it was written up as a
+  // permissions problem, and an architectural route was lost for a week.
+  if (status === 401 || status === 403) return 'refused';
+  if (status === 404) return 'not-found';
+  if (status === 422) return 'rejected';
+  if (typeof status !== 'number' || status < 200 || status >= 300) return 'error-status';
+
+  if (Array.isArray(body)) {
+    if (body.length === 0) return 'empty';
+    // One row that is not the row asked for means the path segment was ignored
+    // and the window happened to hold a single event — the collection, not a
+    // resolution.
+    if (body.length === 1 && sameEventId(body[0], wanted)) return 'one-element-array';
+    return 'collection';
+  }
+
+  if (body && typeof body === 'object') {
+    return sameEventId(body, wanted) ? 'single-object' : 'unrecognised';
+  }
+
+  return 'unrecognised';
+}
+
+/** The shapes `resolveEvent` in `../src/events.js` accepts as one confirmed event. */
+const RESOLVING = new Set(['single-object', 'one-element-array']);
+
+const SHAPE_SUMMARY = {
+  'single-object': 'a bare object carrying the id asked for — events/:id resolves',
+  'one-element-array': 'a one-element array carrying the id asked for — events/:id resolves',
+  collection: 'the /events collection — the path segment is ignored, not addressed',
+  empty: 'an empty array — read as a filter that matched nothing, not as an address',
+  'not-found': '404 — there is no events/:id route',
+  rejected: '422 — the request was refused, not the id',
+  refused:
+    'a 401/403. Nothing follows from it: read the endpoint\'s parameters before ' +
+    'concluding a route is absent (#50)',
+  error: 'the request never completed — unmeasured, not absent',
+  'error-status': 'an unexpected status',
+  unrecognised: 'a 2xx body that is neither an event nor a list of them',
+};
+
+/**
+ * staff-site#97 — is `GET /api/v2/events/:id` a route, and does the shipped
+ * paste-the-id fallback survive whatever it is?
+ *
+ * `resolveEvent` was written against both plausible shapes and shipped on #67
+ * without ever being called: every probe up to here read the `/events`
+ * collection. Path addressing does exist in this API (`DELETE /bookings/:id`,
+ * #60), which is why `events/:id` was the guess — but a guess is what #50 cost a
+ * week on, so it gets measured.
+ *
+ * `isRoute` and `resolvesFallback` are separate answers on purpose.
+ * `resolvesFallback` is the one #54 depends on: it is true only for the two
+ * shapes `resolveEvent` accepts *and* only when the row carries the id that was
+ * asked for. A route that answers with the collection is still "a 200", and
+ * reading it as success is exactly how the wrong class would reach an operator
+ * to confirm.
+ *
+ * Nothing here records a row: field **names**, ids and statuses only.
+ *
+ * @param {object} opts
+ * @param {string|number} opts.wantedId The real event id the direct call asked for.
+ * @param {{status: number|null, body: unknown, error: string|null}} opts.direct
+ *   `GET events/<real id>`, inside the date window.
+ * @param {{status: number|null, body: unknown, error: string|null}} [opts.missing]
+ *   `GET events/<an id that does not exist>`. Omitted when that call was not made.
+ * @param {{status: number|null, body: unknown, error: string|null}} [opts.windowless]
+ *   `GET events/<real id>` with no date window. Omitted when that call was not made.
+ * @param {Array<string|number>} [opts.collectionIds] Ids the listing walk held, to
+ *   tell "answered with the collection" from "answered with an event".
+ */
+export function describeEventById({
+  wantedId,
+  direct = null,
+  missing = null,
+  windowless = null,
+  collectionIds = null,
+} = {}) {
+  const verdict = shapeOf(direct, wantedId) ?? 'error';
+  const resolvesFallback = RESOLVING.has(verdict);
+
+  // Three states, and the third is the point. `false` is a measured absence;
+  // `null` is "this run did not find out", which a refusal or a dropped
+  // connection is. Collapsing them would write an unmeasured "no" into the
+  // findings.
+  const isRoute =
+    resolvesFallback ? true
+    : verdict === 'refused' || verdict === 'error' || verdict === 'error-status' ? null
+    : false;
+
+  const returnedIds = rowsOf(direct?.body)
+    .map(r => r?.event_id)
+    .filter(id => id !== null && id !== undefined);
+  const echoesCollection =
+    Array.isArray(collectionIds) && collectionIds.length > 0 && returnedIds.length > 0
+      ? sameIds(returnedIds, collectionIds)
+      : false;
+
+  const missingBehaviour = shapeOf(missing, `${wantedId}-does-not-exist`);
+  // A route that answers a made-up id the same way it answers a real one tells
+  // an operator nothing, and a paste field built on it would confirm anything
+  // typed into it.
+  const discriminates =
+    missingBehaviour === null ? null : !RESOLVING.has(missingBehaviour) && missingBehaviour !== 'collection';
+
+  const windowlessShape = shapeOf(windowless, wantedId);
+  const windowRequired = windowlessShape === null ? null : !RESOLVING.has(windowlessShape);
+
+  return {
+    verdict,
+    isRoute,
+    resolvesFallback,
+    status: direct?.status ?? null,
+    fields: fieldNamesOf(direct?.body),
+    returnedIds,
+    echoesCollection,
+    missingBehaviour,
+    missingStatus: missing?.status ?? null,
+    discriminates,
+    windowRequired,
+    windowlessStatus: windowless?.status ?? null,
+    summary: `HTTP ${direct?.status ?? 'n/a'} · ${SHAPE_SUMMARY[verdict] ?? verdict}`,
+  };
+}
