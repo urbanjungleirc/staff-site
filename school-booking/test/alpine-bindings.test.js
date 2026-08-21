@@ -184,24 +184,41 @@ describe('school-booking.html', () => {
     expect(offenders, `\n${detail}\n`).toHaveLength(0);
   });
 
-  test('every module in the page\'s import chain is version-busted', () => {
+  test('every module in the page\'s import chain is version-busted, at one version', () => {
     // A stale cached copy of a gate module breaks every check on the page at
     // once and in silence — the one failure the ?v= exists to prevent.
-    expect(html).toMatch(/import \* as parser from '\.\/school-booking\/parse\.js\?v=\d+'/);
-    expect(html).toMatch(/import \* as steps from '\.\/school-booking\/steps\.js\?v=\d+'/);
+    //
+    // Walked rather than listed. #72 added three modules to this chain and one
+    // of them, identity.js, arrived carrying an unversioned `./parse.js` that
+    // had been harmless only because no page imported it yet. A hand-written
+    // list of files to check is a list that goes stale exactly when a module
+    // joins the chain — which is the moment the check matters.
+    const imports = [...html.matchAll(/from '\.\/school-booking\/([\w.-]+)\?v=(\d+)'/g)];
+    expect(imports.length, 'the page imports its modules with a ?v=').toBeGreaterThan(1);
 
-    // Including the imports *inside* those modules. A specifier is a URL, so an
-    // unversioned `./parse.js` in steps.js is a second module the page's bump
-    // never reaches — leaving the file that holds every gate running against a
-    // parser the page has already moved on from.
-    const stepsSource = readFileSync(new URL('../steps.js', import.meta.url), 'utf8');
-    expect(stepsSource).not.toMatch(/from '\.\/parse\.js'/);
+    // Every page-side import at the same version, or the browser instantiates
+    // two copies of a module the page has already moved on from.
+    const versions = new Set(imports.map(([, , version]) => version));
+    expect([...versions], 'bump every ?v= on the page together').toHaveLength(1);
+    const pageVersion = [...versions][0];
 
-    // And at the same version, or the page loads the parser twice.
-    const pageVersion = html.match(/school-booking\/parse\.js\?v=(\d+)/)[1];
-    const stepsVersion = stepsSource.match(/from '\.\/parse\.js\?v=(\d+)'/)[1];
-    expect(stepsVersion, 'bump parse.js\'s ?v= in the page and in steps.js together')
-      .toBe(pageVersion);
+    // Unversioned page imports would slip past the walk above, so they are
+    // named separately rather than counted.
+    expect(html, 'a page import with no ?v= is a module the bump never reaches')
+      .not.toMatch(/from '\.\/school-booking\/[\w.-]+'/);
+
+    // And the imports *inside* those modules. A specifier is a URL, so an
+    // unversioned `./parse.js` inside steps.js is a second module the page's
+    // bump never reaches — leaving the file that holds every gate running
+    // against a parser the page has already moved on from.
+    for (const [, file] of imports) {
+      const source = readFileSync(new URL(`../${file}`, import.meta.url), 'utf8');
+      for (const [, target, version] of source.matchAll(/from '\.\/([\w.-]+)\?v=(\d+)'/g)) {
+        expect(version, `bump ${target}'s ?v= in ${file} and on the page together`).toBe(pageVersion);
+      }
+      expect(source, `${file} imports a sibling module with no ?v=`)
+        .not.toMatch(/from '\.\/[\w.-]+\.js'/);
+    }
   });
 
   test('the page is not reachable from the hub yet', () => {

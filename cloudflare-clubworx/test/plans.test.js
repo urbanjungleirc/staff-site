@@ -230,3 +230,37 @@ describe('lookupPlan', () => {
     expect(result.requests).toBe(2);
   });
 });
+
+describe('lookupPlan — the coverage end (staff-site#72)', () => {
+  it('says when a pass granted today runs out, so the page never re-derives it', () => {
+    // The page has to hard-stop a run whose last session falls outside the
+    // pass (§11, ADR 0005), and the calendar arithmetic that answers that lives
+    // here, tested, beside `parsePlanDuration`. A second copy in the browser is
+    // the drift that decides a run is safe when it is not.
+    const client = clientWith({ 1: [plan()] });
+    return lookupPlan({ client, name: 'School Pass', today: '2026-08-21' }).then(result => {
+      // 26 weeks = 182 days, inclusive at both ends: 21 Aug + 181 days.
+      expect(result.plan.coverage_end).toBe('2027-02-18');
+    });
+  });
+
+  it('leaves the coverage end null when the duration will not parse', async () => {
+    // Never a plausible-looking date. Null is what makes the page warn out
+    // loud instead of checking a number nobody computed.
+    const client = clientWith({ 1: [plan({ membership_duration: 'one school term' })] });
+    const result = await lookupPlan({ client, name: 'School Pass', today: '2026-08-21' });
+
+    expect(result.plan.coverage_end).toBe(null);
+    expect(result.plan.duration.ok).toBe(false);
+  });
+
+  it('defaults the run day to the Perth day, not the UTC one', async () => {
+    // 23:30 UTC on the 21st is 07:30 on the 22nd in Perth. Counting a pass
+    // from the wrong day shortens or lengthens its coverage by one, which is
+    // exactly the size of the last-session edge case this check exists for.
+    const client = clientWith({ 1: [plan()] });
+    const result = await lookupPlan({ client, name: 'School Pass', now: new Date('2026-08-21T23:30:00Z') });
+
+    expect(result.plan.coverage_end).toBe('2027-02-19');
+  });
+});

@@ -14,6 +14,9 @@ import { beforeEach, describe, expect, test, vi } from 'vitest';
 import { readFileSync } from 'node:fs';
 import * as parser from '../parse.js';
 import * as steps from '../steps.js';
+import * as identity from '../identity.js';
+import * as events from '../events.js';
+import * as preview from '../preview.js';
 
 const html = readFileSync(new URL('../../school-booking.html', import.meta.url), 'utf8');
 const fixture = (name) =>
@@ -40,12 +43,86 @@ const SCHOOLS = [
   { tag: 'harlow', email: 'noreply+harlow@urbanjungleirc.com', contacts: 4 },
 ];
 
-function component({ schools = SCHOOLS, schoolsFail = false } = {}) {
-  globalThis.window = { schoolListParser: parser, schoolBookingSteps: steps };
+// The four routes steps 1–5 read, all of them GETs. Nothing on this page has a
+// write path yet — Apply is #73 — so a component test that ever sees a POST is
+// a test that has caught the page doing something it must not.
+const EVENTS = [
+  {
+    event_id: 'e1', event_name: 'School Session — Newman', event_start_at: '2026-09-01T09:00:00+08:00',
+    event_end_at: '2026-09-01T10:30:00+08:00', location_id: 'loc-1', location_name: 'Urban Jungle',
+    free_class: false, event_full: false, spaces_available: 30,
+    lead: { hoursAhead: 240, past: false, withinLeadTime: false, minLeadHours: 24, unreadable: false },
+    bookable: true,
+  },
+  {
+    event_id: 'e2', event_name: 'School Session — Newman', event_start_at: '2026-09-08T09:00:00+08:00',
+    event_end_at: '2026-09-08T10:30:00+08:00', location_id: 'loc-1', location_name: 'Urban Jungle',
+    free_class: false, event_full: false, spaces_available: 30,
+    lead: { hoursAhead: 408, past: false, withinLeadTime: false, minLeadHours: 24, unreadable: false },
+    bookable: true,
+  },
+  {
+    event_id: 'e3', event_name: 'Open Climb', event_start_at: '2026-09-02T17:00:00+08:00',
+    event_end_at: '2026-09-02T19:00:00+08:00', location_id: 'loc-1', location_name: 'Urban Jungle',
+    free_class: false, event_full: false, spaces_available: 4,
+    lead: { hoursAhead: 260, past: false, withinLeadTime: false, minLeadHours: 24, unreadable: false },
+    bookable: true,
+  },
+];
+
+const PLAN = {
+  ok: true,
+  plan: {
+    membership_plan_id: 'mp-school',
+    name: 'School Pass',
+    membership_duration: '26 weeks',
+    duration: { ok: true, count: 26, unit: 'week', raw: '26 weeks' },
+    coverage_end: '2027-02-18',
+  },
+};
+
+function component({
+  schools = SCHOOLS,
+  schoolsFail = false,
+  eventList = EVENTS,
+  eventsFail = false,
+  plan = PLAN,
+  candidatesFor = () => [],
+  contactsFail = false,
+} = {}) {
+  globalThis.window = {
+    schoolListParser: parser,
+    schoolBookingSteps: steps,
+    schoolBookingIdentity: identity,
+    schoolBookingEvents: events,
+    schoolBookingPreview: preview,
+  };
   globalThis.fetch = vi.fn(async (url) => {
-    if (String(url).includes('/api/clubworx/schools')) {
+    const target = String(url);
+    if (target.includes('/api/clubworx/schools')) {
       if (schoolsFail) return { ok: false, status: 502, json: async () => ({ error: 'upstream' }) };
       return { ok: true, status: 200, json: async () => ({ ok: true, schools }) };
+    }
+    if (target.includes('/api/clubworx/events')) {
+      if (eventsFail) return { ok: false, status: 502, json: async () => ({ error: 'the Clubworx read failed' }) };
+      const query = new URL(target, 'https://example.test').searchParams.get('q') ?? '';
+      const matched = query
+        ? eventList.filter((e) => e.event_name.toLowerCase().includes(query.toLowerCase()))
+        : eventList;
+      return { ok: true, status: 200, json: async () => ({ ok: true, events: matched, total: eventList.length, truncated: false }) };
+    }
+    if (target.includes('/api/clubworx/plan')) {
+      if (plan.ok) return { ok: true, status: 200, json: async () => plan };
+      return { ok: false, status: 502, json: async () => ({ error: plan.message, reason: plan.reason }) };
+    }
+    if (target.includes('/api/clubworx/contacts')) {
+      if (contactsFail) return { ok: false, status: 429, json: async () => ({ error: 'Clubworx is busy' }) };
+      const params = new URL(target, 'https://example.test').searchParams;
+      return {
+        ok: true,
+        status: 200,
+        json: async () => ({ candidates: candidatesFor(params.get('last_name'), params.get('dob')) }),
+      };
     }
     return { ok: true, status: 200, json: async () => ({ email: 'staff@urbanjungleirc.com' }) };
   });
@@ -102,7 +179,12 @@ describe('bootstrap', () => {
   });
 
   test('a missing module refuses out loud instead of pretending to check', async () => {
-    globalThis.window = { schoolBookingSteps: steps };
+    globalThis.window = {
+      schoolBookingSteps: steps,
+      schoolBookingIdentity: identity,
+      schoolBookingEvents: events,
+      schoolBookingPreview: preview,
+    };
     globalThis.fetch = vi.fn();
     const app = await settled(makeComponent());
     expect(app.bootstrapError).toContain('list parser');
@@ -482,5 +564,310 @@ describe('step 3 — resolving a row', () => {
       expect(app.laneFor(row)).toMatch(/^lane-/);
       expect(typeof app.stateTone(row)).toBe('string');
     }
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Steps 4 and 5 (#72)
+// ---------------------------------------------------------------------------
+
+// Six students on three columns, so the counts below are the fixture's own.
+const upToSessions = async (app, opts = {}) => {
+  await upToStepThree(app, opts);
+  app.toSessions();
+  await new Promise((resolve) => setTimeout(resolve, 0));
+  return app;
+};
+
+const upToPreview = async (app, opts = {}) => {
+  await upToSessions(app, opts);
+  app.pickSeries('e1');
+  await app.toPreview();
+  return app;
+};
+
+describe('step 4 — the session picker', () => {
+  test('going forward opens a window and reads the timetable once', async () => {
+    const app = await upToSessions(component());
+    expect(app.stepIndex).toBe(3);
+    expect(app.eventsFrom).toMatch(/^\d{4}-\d{2}-\d{2}$/);
+    expect(app.eventsTo > app.eventsFrom).toBe(true);
+
+    const reads = globalThis.fetch.mock.calls.map(([url]) => String(url));
+    expect(reads.filter((u) => u.includes('/api/clubworx/events'))).toHaveLength(1);
+    // The window is a request parameter, not a filter: Clubworx refuses
+    // `/events` with no window at all (#51), so the page always names one.
+    expect(reads.find((u) => u.includes('/events'))).toContain('from=');
+    expect(app.events).toHaveLength(3);
+  });
+
+  test('step 3’s gates still hold the door', async () => {
+    // A row nobody has sorted out must not reach a screen that books it.
+    const app = await upToStepThree(component(), { count: '99' });
+    expect(app.reviewed.ready).toBe(false);
+    app.toSessions();
+    expect(app.stepIndex).toBe(2);
+  });
+
+  test('picking the first session ticks its series and nothing else', async () => {
+    const app = await upToSessions(component());
+    app.pickSeries('e1');
+    expect(app.picked).toEqual(['e1', 'e2']); // Open Climb is a different series
+    expect(app.selection.ready).toBe(true);
+    expect(app.selection.bookings).toBe(12); // 2 sessions × 6 students
+    expect(app.sessionsLine()).toBe('2 sessions × 6 students = 12 bookings.');
+  });
+
+  test('a tick can be taken off again, and the numbers follow', async () => {
+    const app = await upToSessions(component());
+    app.pickSeries('e1');
+    app.togglePick('e2');
+    expect(app.picked).toEqual(['e1']);
+    expect(app.selection.bookings).toBe(6);
+  });
+
+  test('nothing picked keeps the forward button dark', async () => {
+    const app = await upToSessions(component());
+    expect(app.selection.ready).toBe(false);
+    expect(app.selection.blockers.map((b) => b.kind)).toContain('no-events');
+  });
+
+  test('a session inside the lead time blocks, and its removal clears it', async () => {
+    // D9: the fix is offered, never taken. The page removes the session when
+    // the operator says so and never on its own initiative.
+    const soon = {
+      ...EVENTS[0],
+      event_id: 'soon',
+      lead: { hoursAhead: 3, past: false, withinLeadTime: true, minLeadHours: 24, unreadable: false },
+      bookable: false,
+    };
+    const app = await upToSessions(component({ eventList: [...EVENTS, soon] }));
+    app.togglePick('e1');
+    app.togglePick('soon');
+    const blocker = app.selection.blockers.find((b) => b.kind === 'lead-time');
+    expect(blocker).toBeTruthy();
+    expect(app.selection.ready).toBe(false);
+
+    app.answerSelection(blocker.actions[0]);
+    expect(app.picked).toEqual(['e1']);
+    expect(app.selection.ready).toBe(true);
+  });
+
+  test('an unbookable session is still shown, with its reason', async () => {
+    const past = {
+      ...EVENTS[0],
+      event_id: 'gone',
+      lead: { hoursAhead: -10, past: true, withinLeadTime: false, minLeadHours: 24, unreadable: false },
+      bookable: false,
+    };
+    const app = await upToSessions(component({ eventList: [past] }));
+    expect(app.events).toHaveLength(1); // annotated, never filtered
+    expect(app.eventLane(past)).toBe('lane-bad');
+    expect(app.eventWarning(past)).toBe('Already started.');
+  });
+
+  test('too few spaces warns without blocking', async () => {
+    const app = await upToSessions(component());
+    app.togglePick('e3'); // Open Climb reports 4 spaces for 6 students
+    expect(app.selection.blockers.some((b) => b.kind === 'spaces' && b.severity === 'warn')).toBe(true);
+    expect(app.selection.ready).toBe(true);
+  });
+
+  test('searching by name re-reads and drops ticks the new window no longer holds', async () => {
+    const app = await upToSessions(component());
+    app.togglePick('e3');
+    app.eventsQuery = 'School Session';
+    await app.loadEvents();
+    expect(app.events.map((e) => e.event_id)).toEqual(['e1', 'e2']);
+    // e3 is gone from the window, so the tick goes with it — a count that
+    // disagrees with the table is how a group is booked into a session nobody
+    // can see.
+    expect(app.picked).toEqual([]);
+  });
+
+  test('a failed events read says so and leaves the picker empty rather than stale', async () => {
+    const app = await upToSessions(component({ eventsFail: true }));
+    expect(app.eventsState).toBe('error');
+    expect(app.eventsNote()).toContain('Could not read');
+    expect(app.events).toEqual([]);
+    expect(app.selection.ready).toBe(false);
+  });
+
+  test('a pasted id resolves against the loaded window and ticks its series', async () => {
+    const app = await upToSessions(component());
+    app.pastedEventId = ' e1 ';
+    app.usePastedId();
+    expect(app.pastedIdOk).toBe(true);
+    expect(app.picked).toEqual(['e1', 'e2']);
+    expect(app.pastedIdNote).toContain('School Session');
+  });
+
+  test('an id outside the window never claims the id is wrong', async () => {
+    // #97: `GET /events/:id` answers 404 for a real id and an invented one
+    // alike, so nothing can tell them apart — and "no such event" sends staff
+    // to re-check an id that is fine.
+    const app = await upToSessions(component());
+    app.pastedEventId = '999999';
+    app.usePastedId();
+    expect(app.pastedIdOk).toBe(false);
+    expect(app.pastedIdNote).toMatch(/window/i);
+    expect(app.pastedIdNote).not.toMatch(/not found|no such/i);
+    expect(app.picked).toEqual([]);
+    // And it costs no request: the answer is already on screen.
+    expect(globalThis.fetch.mock.calls.filter(([u]) => String(u).includes('event_id'))).toHaveLength(0);
+  });
+});
+
+describe('the Clubworx check between 4 and 5', () => {
+  test('it reads the plan once and each student once, and writes nothing', async () => {
+    const app = await upToPreview(component());
+    const reads = globalThis.fetch.mock.calls.map(([url]) => String(url));
+    expect(reads.filter((u) => u.includes('/api/clubworx/plan'))).toHaveLength(1);
+    expect(reads.filter((u) => u.includes('/api/clubworx/contacts'))).toHaveLength(6);
+
+    // Every call a GET. Apply is #73; a POST from this page would be a write
+    // nobody asked for, against records Clubworx cannot delete.
+    for (const [, options] of globalThis.fetch.mock.calls) {
+      expect(options?.method ?? 'GET').toBe('GET');
+    }
+  });
+
+  test('the search is asked with both halves of the identity key', async () => {
+    // A surname-less query walks ~60,000 contacts and concludes nothing; a
+    // query with no birthday cannot tell siblings apart (§5).
+    const app = await upToPreview(component());
+    const contacts = globalThis.fetch.mock.calls
+      .map(([url]) => String(url))
+      .filter((u) => u.includes('/api/clubworx/contacts'));
+    for (const url of contacts) {
+      const params = new URL(url, 'https://example.test').searchParams;
+      expect(params.get('last_name')).toBeTruthy();
+      expect(params.get('dob')).toMatch(/^\d{4}-\d{2}-\d{2}$/);
+    }
+    expect(app.preview.rows.every((r) => r.clubworx === 'new')).toBe(true);
+  });
+
+  test('an existing contact comes back matched and creates nothing', async () => {
+    const app = await upToPreview(component({
+      candidatesFor: (lastName, dob) => (lastName === 'Fernsby'
+        ? [{ contact_key: 'ck-1', first_name: 'Katie', last_name: 'Fernsby', dob, status_view: 'members' }]
+        : []),
+    }));
+    const matched = app.preview.rows.filter((r) => r.clubworx === 'matched');
+    expect(matched).toHaveLength(1);
+    expect(matched[0].contactKey).toBe('ck-1');
+    expect(app.preview.totals.contacts).toBe(5);
+    expect(app.preview.totals.returning).toBe(1);
+  });
+
+  test('a failed search blocks that student rather than reporting them new', async () => {
+    // `new` writes a contact Clubworx cannot delete. A request that failed must
+    // never come out the other side as one.
+    const app = await upToPreview(component({ contactsFail: true }));
+    expect(app.preview.rows.every((r) => r.clubworx === 'error')).toBe(true);
+    expect(app.preview.ready).toBe(false);
+    expect(app.preview.totals.contacts).toBe(0);
+  });
+
+  test('an unresolved plan blocks the whole run', async () => {
+    const app = await upToPreview(component({
+      plan: { ok: false, reason: 'plan-ambiguous', message: '2 membership plans are named "School Pass"' },
+    }));
+    const blocker = app.preview.blockers.find((b) => b.kind === 'plan');
+    expect(blocker.severity).toBe('block');
+    expect(blocker.detail).toContain('2 membership plans');
+    expect(app.preview.ready).toBe(false);
+  });
+});
+
+describe('step 5 — the preview', () => {
+  test('the permanence line counts the two permanent records apart from the bookings', async () => {
+    const app = await upToPreview(component());
+    expect(app.permanenceLine()).toBe(
+      'This will create 6 contacts (permanent) and 6 School Passes (permanent), '
+      + 'and make 12 bookings (cancellable).',
+    );
+    expect(app.preview.ready).toBe(true);
+  });
+
+  test('a re-run over students who all exist says it writes nothing permanent', async () => {
+    // D13: the preview is the guard for a deliberate re-paste, so it has to be
+    // readable as "this creates nothing" or the recovery path D5 prescribes
+    // looks identical to a mistake.
+    const app = await upToPreview(component({
+      candidatesFor: (lastName, dob) => [{ contact_key: `ck-${lastName}`, first_name: null, last_name: lastName, dob }],
+    }));
+    // No first name on the candidate, so these come back as variants, not
+    // matches — resolve them all the way a human would.
+    for (const line of app.preview.rows) app.useContact(line.key, line.candidates[0].contact_key);
+    expect(app.permanenceLine()).toContain('create no contacts and no new School Passes');
+    expect(app.preview.ready).toBe(true);
+  });
+
+  test('a name variant blocks Apply until it is decided, either way', async () => {
+    const app = await upToPreview(component({
+      candidatesFor: (lastName, dob) => (lastName === 'Fernsby'
+        ? [{ contact_key: 'ck-1', first_name: 'Katherine', last_name: 'Fernsby', dob, status_view: 'members' }]
+        : []),
+    }));
+    const variant = app.preview.rows.find((r) => r.clubworx === 'name-variant');
+    expect(variant.needsHuman).toBe(true);
+    expect(app.preview.ready).toBe(false);
+
+    app.useContact(variant.key, 'ck-1');
+    expect(app.preview.rows.find((r) => r.key === variant.key).clubworx).toBe('matched');
+    expect(app.preview.ready).toBe(true);
+
+    app.undoMatch(variant.key);
+    expect(app.preview.ready).toBe(false);
+
+    app.createAnyway(variant.key);
+    expect(app.preview.rows.find((r) => r.key === variant.key).clubworx).toBe('new');
+    expect(app.preview.ready).toBe(true);
+  });
+
+  test('the row helpers describe every preview row without throwing', async () => {
+    const app = await upToPreview(component({
+      candidatesFor: (lastName, dob) => (lastName === 'Fernsby'
+        ? [{ contact_key: 'ck-1', first_name: 'Katherine', last_name: 'Fernsby', dob, status_view: 'members' }]
+        : []),
+    }));
+    for (const line of app.preview.rows) {
+      expect(typeof app.consequenceLine(line)).toBe('string');
+      expect(typeof app.clubworxTone(line)).toBe('string');
+      app.togglePreviewRow(line.key);
+      expect(app.expandedPreview).toBe(line.key);
+      app.togglePreviewRow(line.key);
+      expect(app.expandedPreview).toBe(null);
+    }
+  });
+
+  test('going back to the sessions and forward again re-checks rather than trusting stale answers', async () => {
+    const app = await upToPreview(component());
+    const before = globalThis.fetch.mock.calls.length;
+    app.go(3);
+    app.togglePick('e2');
+    await app.toPreview();
+    expect(globalThis.fetch.mock.calls.length).toBeGreaterThan(before);
+    expect(app.preview.totals.bookings).toBe(6); // one session now
+  });
+});
+
+describe('the check does not leave stale answers on screen', () => {
+  test('a second run clears the first run’s preview before it moves', async () => {
+    // Step 5 is the screen an operator reads to approve permanent writes. A
+    // preview belonging to a different selection, on screen for even one
+    // render, is the wrong sentence at the one moment it is being trusted.
+    const app = await upToPreview(component());
+    expect(app.preview.totals.bookings).toBe(12);
+
+    app.go(3);
+    app.togglePick('e2');
+    const running = app.toPreview();
+    expect(app.preview).toBe(null);
+    expect(app.checkState).toBe('running');
+    await running;
+    expect(app.checkState).toBe('done');
+    expect(app.preview.totals.bookings).toBe(6);
   });
 });
