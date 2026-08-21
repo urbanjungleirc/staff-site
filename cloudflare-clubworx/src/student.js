@@ -85,6 +85,7 @@ import {
   cancelRunBookings,
   readBookings,
 } from './bookings.js';
+import { countedClient } from './clubworx.js';
 import { PAGE_SIZE } from './contacts.js';
 import { MIN_LEAD_HOURS } from './events.js';
 import { isRetryable, upstreamMessage, upstreamReason } from './upstream.js';
@@ -125,29 +126,6 @@ const MEMBER_FIELDS = ['first_name', 'last_name', 'dob', 'email'];
 /** Case- and whitespace-insensitive, for comparing a field against what we sent. */
 const same = (a, b) => String(a ?? '').trim().toLowerCase() === String(b ?? '').trim().toLowerCase();
 
-/**
- * Wrap the client so every call it makes is counted.
- *
- * The allowance is gym-wide (one key per gym, #47) and a school import is
- * already a four-minute slowdown for everyone else, so the number a student
- * costs is worth reporting rather than estimating.
- */
-function counted(client) {
-  const state = { requests: 0 };
-  const tick = fn => (...args) => {
-    state.requests += 1;
-    return fn(...args);
-  };
-  return {
-    state,
-    client: {
-      get: tick(client.get.bind(client)),
-      post: tick(client.post.bind(client)),
-      postForm: tick(client.postForm.bind(client)),
-      del: tick(client.del.bind(client)),
-    },
-  };
-}
 
 /**
  * Find the contact this run just created, by re-reading `/members`.
@@ -404,7 +382,7 @@ export async function runStudentChain({
   now = new Date().toISOString(),
   sleep = ms => new Promise(resolve => setTimeout(resolve, ms)),
 }) {
-  const { client, state } = counted(rawClient);
+  const { client, state } = countedClient(rawClient);
   const warnings = [];
 
   const result = over => ({
@@ -634,7 +612,14 @@ export async function runStudentChain({
     // with no human present — so it honours the same interlock: act on `booked`,
     // never on `already booked`.
     const rollback = await cancelRunBookings({ client, contactKey: key, rows });
-    const leftover = rollback.failed.length;
+    // A cancel Clubworx accepted and did not apply leaves a booking behind just
+    // as surely as one it refused, so `stillBooked` counts toward the leftover
+    // rather than being reported separately. The re-read is what finds them.
+    const leftover = rollback.failed.length + rollback.stillBooked.length;
+    // Cancels were sent and nothing here knows whether they took — a throttled
+    // or truncated verifying read. Saying "no bookings from this run" on the
+    // strength of that would be the 200 being trusted all over again.
+    const unconfirmed = rollback.cancelled > 0 && !rollback.verified;
 
     return result({
       outcome: 'abandoned',
@@ -650,7 +635,10 @@ export async function runStudentChain({
         ? 'This student has a contact and a School Pass and no bookings from this run' +
           (leftover > 0
             ? `, and ${leftover} booking(s) could not be cancelled — they need removing by hand.`
-            : '. Finish them by hand, or fix the session and run the list again.')
+            : unconfirmed
+              ? ', as far as can be told — the cancellations were accepted but could not be ' +
+                'confirmed by re-reading. Check this student in Clubworx.'
+              : '. Finish them by hand, or fix the session and run the list again.')
         : null,
       requests: state.requests,
     });

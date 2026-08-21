@@ -53,7 +53,19 @@
  */
 
 import { errorMessageOf } from './errors.js';
+import { pageThrough } from './paging.js';
 import { isRetryable, upstreamReason, upstreamMessage } from './upstream.js';
+
+/**
+ * How far a contact's own booking list is walked before it is called truncated.
+ *
+ * 5 pages of 200. A school student holds a handful, so this is never reached in
+ * the normal case — it exists because "a full page is an unfinished list, never
+ * an answer" is a rule this API has already broken twice (`paging.js`), and on
+ * THIS list an unfinished read is what makes a booking that is still there look
+ * cancelled.
+ */
+const MAX_BOOKING_PAGES = 5;
 
 /**
  * The row states, as constants rather than as literals typed twice.
@@ -297,7 +309,7 @@ export async function cancelBooking({ client, bookingId, contactKey }) {
 }
 
 /**
- * Cancel the bookings **this run** made for one student.
+ * Cancel the bookings **this run** made for one student, and confirm they went.
  *
  * The interlock: acts on `booked`, never on `already booked`. See the header.
  * There is no flag to relax it, because D3's rollback runs this with no human
@@ -305,7 +317,26 @@ export async function cancelBooking({ client, bookingId, contactKey }) {
  *
  * One failed cancel does not stop the rest. A student half-rolled-back is worse
  * than one fully rolled back, and the failures are reported so a human can
- * finish it.
+ * finish it. **A `429` is the exception** — §11 pauses the *whole run* on a
+ * throttle rather than one row, so the remaining rows are reported un-attempted
+ * instead of fired into a window that is already refusing. Spending the rest of
+ * a gym-wide allowance to be told the same thing six more times would also
+ * report six cancellable bookings as needing a human.
+ *
+ * **The verification lives here rather than in the route**, because both callers
+ * need it and only one of them is a route: the human "Cancel bookings from this
+ * run" control, and D3's automatic rollback inside `student.js` — the one with
+ * no human present to notice a cancel that did not take. #60 established the
+ * reversal **by re-count**, 1 booking before and 0 after, precisely because a
+ * `200` cannot show a `DELETE` that was accepted and changed nothing.
+ *
+ * The re-read is checked on **both** the booking id and the event id. The event
+ * is the load-bearing half: `bookingIdOf` tolerates several shapes because the
+ * create response's shape was never documented, so if a list row carries an id
+ * under none of them `bookingIds` comes back empty and an id-only check passes
+ * having proved nothing. `student.js` verifies bookings *landed* by event id
+ * (`held.eventIds`) for the same reason — that is the field measured to work on
+ * this endpoint.
  *
  * @param {object} opts
  * @param {{del: Function}} opts.client
@@ -317,10 +348,21 @@ export async function cancelBooking({ client, bookingId, contactKey }) {
  */
 export async function cancelRunBookings({ client, contactKey = null, rows = [] }) {
   const failed = [];
-  let cancelled = 0;
+  // The ids, not only the count. A cancel is confirmed by re-reading the
+  // contact's bookings and finding them gone (§12, #70), and a count cannot say
+  // *which* ids to look for. The events travel alongside because the event is
+  // the half of that check known to work on this endpoint.
+  const cancelledIds = [];
+  const cancelledEvents = [];
   let skipped = 0;
+  let throttled = false;
+  // The contact to re-read afterwards, taken from a row this call actually
+  // cancelled — never from the caller, for the same reason the DELETE's own key
+  // is not taken from the caller.
+  let verifyKey = null;
+  let stoppedAt = rows.length;
 
-  for (const row of rows) {
+  for (const [index, row] of rows.entries()) {
     if (row?.state !== BOOKED) {
       // Includes `already booked`, `refused` and anything else. Only a row this
       // run put there may be taken away.
@@ -335,6 +377,7 @@ export async function cancelRunBookings({ client, contactKey = null, rows = [] }
         reason:
           'booked, but Clubworx returned no booking id, so there is no booking id to cancel — ' +
           'this one has to be undone by hand',
+        upstreamStatus: null,
       });
       continue;
     }
@@ -352,6 +395,7 @@ export async function cancelRunBookings({ client, contactKey = null, rows = [] }
         reason:
           'this booking carries no contact_key of its own, and a cancel will not be sent on a ' +
           'contact key supplied from outside the row',
+        upstreamStatus: null,
       });
       continue;
     }
@@ -365,16 +409,103 @@ export async function cancelRunBookings({ client, contactKey = null, rows = [] }
         reason:
           'this booking belongs to a different contact than the one being rolled back, so it ' +
           'has not been cancelled',
+        upstreamStatus: null,
       });
       continue;
     }
 
     const res = await cancelBooking({ client, bookingId: row.booking_id, contactKey: rowKey });
-    if (res.ok) cancelled += 1;
-    else failed.push({ event_id: row.event_id, booking_id: row.booking_id, reason: res.reason });
+    if (res.ok) {
+      cancelledIds.push(String(row.booking_id));
+      cancelledEvents.push(String(row.event_id));
+      verifyKey = verifyKey ?? rowKey;
+      continue;
+    }
+
+    failed.push({
+      event_id: row.event_id,
+      booking_id: row.booking_id,
+      reason: res.reason,
+      // Carried so a caller can tell a throttle from a refusal without
+      // re-parsing the sentence. §11 pauses the whole run on a 429, and a
+      // reason string is the wrong thing to switch a run on.
+      upstreamStatus: res.upstreamStatus ?? null,
+      attempted: true,
+    });
+
+    if (res.upstreamStatus === 429) {
+      // §11 — stop. The allowance is gym-wide, so the rows after this one would
+      // spend the same refusing window and come back reported as needing a
+      // human, for bookings that are still perfectly cancellable.
+      throttled = true;
+      stoppedAt = index + 1;
+      break;
+    }
   }
 
-  return { cancelled, skipped, failed };
+  for (const row of rows.slice(stoppedAt)) {
+    if (row?.state !== BOOKED) {
+      skipped += 1;
+      continue;
+    }
+    failed.push({
+      event_id: row.event_id,
+      booking_id: row.booking_id ?? null,
+      reason:
+        'not attempted — Clubworx began throttling partway through, and the allowance is shared ' +
+        'with every other system on this key, so the rest of the run stopped rather than spending ' +
+        'it. These bookings are still there and can be cancelled again shortly',
+      upstreamStatus: null,
+      attempted: false,
+    });
+  }
+
+  const tally = { cancelled: cancelledIds.length, cancelledIds, skipped, failed, throttled };
+
+  // Nothing was cancelled, so there is no claim to check — and the read costs a
+  // request against the same gym-wide allowance.
+  if (cancelledIds.length === 0) {
+    return { ...tally, verified: false, verifyReason: 'nothing-cancelled', stillBooked: [] };
+  }
+
+  const held = await readBookings({ client, contactKey: verifyKey });
+
+  if (!held.ok) {
+    return {
+      ...tally,
+      verified: false,
+      verifyReason: 'bookings-unread',
+      verifyMessage: upstreamMessage(held) ?? `HTTP ${held.upstreamStatus}`,
+      stillBooked: [],
+    };
+  }
+
+  if (held.truncated) {
+    // A list that was not read to the end cannot prove anything is absent from
+    // it. Saying so is the whole point of `truncated`.
+    return {
+      ...tally,
+      verified: false,
+      verifyReason: 'bookings-truncated',
+      verifyMessage:
+        'this contact holds more bookings than the re-read walked, so their absence from it ' +
+        'proves nothing',
+      stillBooked: [],
+    };
+  }
+
+  const heldBookings = new Set(held.bookingIds.map(String));
+  const heldEvents = new Set(held.eventIds.map(String));
+  const stillBooked = cancelledIds.filter(
+    (id, i) => heldBookings.has(id) || heldEvents.has(cancelledEvents[i]),
+  );
+
+  return {
+    ...tally,
+    verified: stillBooked.length === 0,
+    verifyReason: stillBooked.length === 0 ? null : 'cancel-not-applied',
+    stillBooked,
+  };
 }
 
 /**
@@ -390,27 +521,29 @@ export async function cancelRunBookings({ client, contactKey = null, rows = [] }
  * @param {string} opts.contactKey
  */
 export async function readBookings({ client, contactKey }) {
-  const res = await client.get('bookings', { contact_key: contactKey });
+  // Walked, not fetched once. Clubworx sends no total and no next-page link, so
+  // a full default page is indistinguishable from a complete list — and on this
+  // particular list, reading an unfinished page as the whole truth reports a
+  // booking that is still there as gone. `paging.js` carries the two occasions
+  // that trap has already cost this effort real time.
+  const walk = await pageThrough({
+    client,
+    path: 'bookings',
+    params: { contact_key: contactKey },
+    maxPages: MAX_BOOKING_PAGES,
+    what: 'bookings',
+  });
 
-  if (!res.ok) {
+  if (!walk.ok) {
     return {
       ok: false,
-      reason: upstreamReason(res),
-      message: upstreamMessage(res),
-      upstreamStatus: res.status,
+      reason: walk.reason,
+      message: walk.message,
+      upstreamStatus: walk.upstreamStatus,
       eventIds: [],
       bookingIds: [],
-    };
-  }
-
-  if (!Array.isArray(res.body)) {
-    return {
-      ok: false,
-      reason: 'upstream-error',
-      message: `bookings answered ${res.status} with a body that is not a list`,
-      upstreamStatus: res.status,
-      eventIds: [],
-      bookingIds: [],
+      truncated: false,
+      requests: walk.requests,
     };
   }
 
@@ -419,8 +552,13 @@ export async function readBookings({ client, contactKey }) {
     // Strings on both sides of every later comparison — Clubworx has sent ids
     // as numbers and as strings, and `42 !== '42'` would report a booking that
     // landed as one that did not.
-    eventIds: res.body.map(r => (r?.event_id === undefined ? null : String(r.event_id))),
-    bookingIds: res.body.map(r => bookingIdOf(r)).filter(Boolean),
-    count: res.body.length,
+    eventIds: walk.rows.map(r => (r?.event_id === undefined ? null : String(r.event_id))),
+    bookingIds: walk.rows.map(r => bookingIdOf(r)).filter(Boolean),
+    count: walk.rows.length,
+    // Never interpreted here — what a ceiling MEANS is the caller's (`paging.js`).
+    // On the cancel path it is a refusal to claim anything; a list that was not
+    // read to the end cannot prove a booking is absent from it.
+    truncated: walk.truncated,
+    requests: walk.requests,
   };
 }
