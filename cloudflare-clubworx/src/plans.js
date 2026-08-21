@@ -46,7 +46,7 @@
  * needed no code change at all.
  */
 
-import { parsePlanDuration } from './duration.js';
+import { parsePlanDuration, passCoverageEnd, perthDay } from './duration.js';
 import { PAGE_SIZE, pageThrough } from './paging.js';
 
 /**
@@ -121,11 +121,17 @@ const failure = ({ reason, message, upstreamStatus = null, requests, matches = 0
  * @param {{get: (path: string, params: object) => Promise<object>}} opts.client
  *   A `createClubworxClient` instance. Everything it sends is paced.
  * @param {string} opts.name The plan name, as the page asked for it.
+ * @param {string} [opts.today] The run day, `YYYY-MM-DD`, for `coverage_end`.
+ *   Defaults to the Perth day — everything this system does is in Perth, and a
+ *   pass counted from the UTC day is one day out for the eight hours a day the
+ *   two disagree. That is exactly the size of the edge this check exists for.
+ * @param {Date} [opts.now] The instant the run day is read from, when `today`
+ *   is not given. Injected so the answer is not clock-dependent in tests.
  * @returns {Promise<{ok: true, plan: object, plans: number, pages: number, requests: number}
  *                 | {ok: false, reason: string, message: string|null, upstreamStatus: number|null,
  *                    matches: number, plan: null, requests: number}>}
  */
-export async function lookupPlan({ client, name }) {
+export async function lookupPlan({ client, name, today = null, now = new Date() }) {
   const wanted = String(name ?? '').trim();
   if (!wanted) {
     return failure({
@@ -194,6 +200,8 @@ export async function lookupPlan({ client, name }) {
   }
 
   const rawDuration = found.plan.membership_duration ?? null;
+  const duration = parsePlanDuration(rawDuration);
+  const runDay = today ?? perthDay(now);
 
   return {
     ok: true,
@@ -209,7 +217,14 @@ export async function lookupPlan({ client, name }) {
       // Best-effort, and `ok: false` is a warning for the page, not a failure
       // here. A duration this cannot parse also cannot be guessed: a wrong
       // default is indistinguishable from a right one until a term is half over.
-      duration: parsePlanDuration(rawDuration),
+      duration,
+      // The last day a pass granted **today** still covers, so the page can
+      // hard-stop a run whose last selected session falls outside it (§11, ADR
+      // 0005) without re-deriving the calendar arithmetic in the browser. Null
+      // whenever it cannot be computed — `passCoverageEnd` returns null rather
+      // than a plausible date for exactly this reason, and the page turns the
+      // null into a named warning rather than a check quietly skipped.
+      coverage_end: passCoverageEnd(runDay, duration),
     },
     plans: rows.length,
     pages,

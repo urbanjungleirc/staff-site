@@ -712,6 +712,40 @@ name, or a window edge). The id is resolved and shown with its name, date and
 `spaces_available` for confirmation before it can be selected — it is a shortcut
 past the search, never past the confirmation.
 
+### The fallback resolves page-side — amended on #72
+
+#67 built the fallback on `GET /events/:id`. #97 then measured that route against
+production on 2026-08-21: it answers **404 for every id**, real or invented, with
+the date window and without it. A real currently-listed id and `999999999` come
+back identical, so nothing there reads the id at all.
+
+The Worker route survives only as an honest refusal — every call is a 502
+carrying Clubworx's own `"Not Found"` — and that message is the problem: it reads
+to a staff member as *this id does not exist* when the truth is *this endpoint
+does not exist*. A working id would look like a typo, and the person would go and
+"fix" something already correct.
+
+So **#72 resolves the pasted id in the page**, against the window the picker has
+already walked. `resolveEvent` is left in place, unreachable from the page, for
+the reason its own header gives: deleting it would decide a question #97 handed
+over rather than answering it.
+
+Two consequences, both accepted:
+
+- **The fallback cannot reach outside the loaded window.** It therefore says
+  *not in this window — widen the dates*, and **never** *no such event*. Those
+  are different problems with different fixes, and only one of them is knowable
+  here.
+- **It costs no request.** An id inside the window is already on screen, so the
+  lookup is a array scan rather than up to `MAX_PAGES` requests of a gym-wide
+  75-a-minute allowance — which is what the re-walking alternative would have
+  spent to find a row the page was already holding.
+
+What the paste still does not survive is Clubworx enforcing the `contact_key` its
+reference documents. That would take `/events` down as a whole, and the window
+this resolves against comes from the same endpoint. No page-side arrangement
+outlives its own API.
+
 ---
 
 ## 9. The page

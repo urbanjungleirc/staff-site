@@ -1,14 +1,20 @@
 <!--
-  School group booking — steps 1 to 3.
+  School group booking — steps 1 to 5.
 
-  staff-site#71, map #46. Design:
-  docs/superpowers/specs/2026-08-19-school-group-booking-design.md §7 and §9.
+  staff-site#71 and #72, map #46. Design:
+  docs/superpowers/specs/2026-08-19-school-group-booking-design.md §7, §8 and §9.
   Variant A, the gated stepper, decided on #54 against three built prototypes.
 
   NOT LINKED FROM tools.json. That is deliberate and is the last step of #46
   (§17): `main` is production here, so every step before the hub entry lands is
-  deployed but invisible to staff. Steps 4–6 — the session picker, the preview
-  and Apply — are #72 and #73, and nothing on this page can write anything.
+  deployed but invisible to staff. Step 6 — Apply, the run engine and the result
+  table — is #73, and nothing on this page can write anything: every route it
+  calls is a GET.
+
+  Steps 4 and 5 read Clubworx and nothing more. The Clubworx check between them
+  is strictly serial, one student at a time, because the 75-requests-a-minute
+  allowance is gym-wide and Clubworx publishes no rate-limit headers to throttle
+  from (§6).
 
   Two house rules this page is built around (§16):
 
@@ -55,10 +61,16 @@
      or missing module into a visible refusal rather than a page whose gates
      quietly do nothing. -->
 <script type="module">
-  import * as parser from './school-booking/parse.js?v=1';
-  import * as steps from './school-booking/steps.js?v=1';
+  import * as parser from './school-booking/parse.js?v=2';
+  import * as steps from './school-booking/steps.js?v=2';
+  import * as identity from './school-booking/identity.js?v=2';
+  import * as events from './school-booking/events.js?v=2';
+  import * as preview from './school-booking/preview.js?v=2';
   window.schoolListParser = parser;
   window.schoolBookingSteps = steps;
+  window.schoolBookingIdentity = identity;
+  window.schoolBookingEvents = events;
+  window.schoolBookingPreview = preview;
 </script>
 <script defer src="https://cdn.jsdelivr.net/npm/alpinejs@3.x.x/dist/cdn.min.js"></script>
 
@@ -622,13 +634,298 @@
 
             <div class="flex justify-between mt-6">
               <button type="button" class="text-sm text-neutral-500 hover:text-neutral-800" @click="go(1)">← Back</button>
-              <!-- Step 4 is #72. Disabled rather than absent: the strip above
-                   shows six steps because six is the shape of the run, and a
-                   button that vanishes reads as "you are finished". -->
-              <button type="button" disabled title="The session picker is staff-site#72"
-                      class="rounded-xl px-5 py-2.5 text-sm font-semibold bg-neutral-100 text-neutral-400 cursor-not-allowed">
-                Choose sessions → (not built yet)
+              <button type="button" :disabled="!reviewed.ready"
+                      :class="reviewed.ready ? 'bg-uj text-white hover:bg-uj-dark' : 'bg-neutral-100 text-neutral-400 cursor-not-allowed'"
+                      class="rounded-xl px-5 py-2.5 text-sm font-semibold transition-all"
+                      @click="toSessions()">
+                Choose sessions →
               </button>
+            </div>
+          </div>
+        </template>
+      </section>
+
+      <!-- ── 4 · Sessions ────────────────────────────────────────────────── -->
+      <section x-show="stepIndex === 3">
+        <h2 class="text-lg font-bold mb-1">Which sessions?</h2>
+        <p class="text-sm text-neutral-500 mb-5 max-w-2xl">
+          Pick the <b>first</b> session. Every session with the same name at the same
+          location after it is ticked with it — Clubworx has no idea which classes
+          belong to a series, so that guess is yours to correct.
+        </p>
+
+        <!-- The window, and the search. Both are sent to the Worker: the date
+             window is required by Clubworx (omitting it is a 422, not
+             "everything"), and the name filter runs Worker-side over the walked
+             rows because no name parameter on /events has ever been measured. -->
+        <div class="flex items-end gap-3 flex-wrap mb-4">
+          <label class="block">
+            <span class="field-label">From</span>
+            <input type="date" x-model="eventsFrom"
+                   class="rounded-xl border border-neutral-200 px-3 py-2 text-sm mono">
+          </label>
+          <label class="block">
+            <span class="field-label">To</span>
+            <input type="date" x-model="eventsTo"
+                   class="rounded-xl border border-neutral-200 px-3 py-2 text-sm mono">
+          </label>
+          <label class="block flex-1 min-w-[200px]">
+            <span class="field-label">Session name contains</span>
+            <input type="text" x-model="eventsQuery" placeholder="e.g. the school's name"
+                   @keydown.enter.prevent="loadEvents()"
+                   class="w-full rounded-xl border border-neutral-200 px-3 py-2 text-sm">
+          </label>
+          <button type="button" class="rounded-xl px-4 py-2 text-sm font-semibold bg-uj text-white hover:bg-uj-dark"
+                  :disabled="eventsState === 'loading'"
+                  @click="loadEvents()"
+                  x-text="eventsState === 'loading' ? 'Reading…' : 'Search'"></button>
+        </div>
+
+        <div class="text-xs text-neutral-500 mb-3" x-text="eventsNote()"></div>
+
+        <!-- The paste-an-id escape hatch. It resolves against the window
+             already loaded, NOT against Clubworx: GET /events/:id answers 404
+             for every id, real or invented (#97), so the Worker cannot tell a
+             good id from a bad one and neither can a message built on it. -->
+        <div class="rounded-xl bg-neutral-50 border border-neutral-200 px-3.5 py-2.5 mb-4">
+          <div class="flex items-end gap-2 flex-wrap">
+            <label class="block flex-1 min-w-[200px]">
+              <span class="field-label">Or paste a Clubworx event id</span>
+              <input type="text" x-model="pastedEventId" placeholder="event id"
+                     @keydown.enter.prevent="usePastedId()"
+                     class="w-full rounded-lg border border-neutral-200 px-3 py-1.5 text-sm mono">
+            </label>
+            <button type="button" class="rounded-lg px-3 py-1.5 text-sm font-semibold border border-neutral-300 hover:bg-white"
+                    @click="usePastedId()">Find it</button>
+          </div>
+          <div class="text-xs mt-2" :class="pastedIdTone()" x-show="pastedIdNote" x-cloak x-text="pastedIdNote"></div>
+
+          <!-- The confirmation. The picker rests on an undocumented Clubworx
+               behaviour, so a human agreeing this is the right class is the
+               safeguard — not the id resolving. -->
+          <div class="mt-2 rounded-lg bg-white border border-neutral-300 px-3 py-2"
+               x-show="pastedIdEvent" x-cloak>
+            <div class="text-[0.78rem] text-neutral-700" x-text="pastedIdConfirmLine()"></div>
+            <div class="flex gap-2 mt-2">
+              <button type="button" class="chip border-solid border-uj text-uj"
+                      @click="confirmPastedId()">Yes, use this session</button>
+              <button type="button" class="chip" @click="cancelPastedId()">Cancel</button>
+            </div>
+          </div>
+        </div>
+
+        <!-- Every event in the window, including the ones that cannot be
+             booked. §8 annotates and never filters: a session missing from the
+             picker is invisible and unexplained, where one greyed out with its
+             reason beside it is a decision a human can make. -->
+        <div class="rounded-card border border-neutral-200 overflow-hidden bg-white" x-show="events.length > 0" x-cloak>
+          <div class="overflow-x-auto">
+            <table class="w-full text-sm">
+              <thead class="bg-neutral-50 border-b border-neutral-200">
+                <tr class="text-left text-[0.68rem] uppercase tracking-wider text-neutral-500">
+                  <th scope="col" class="px-3 py-2 w-10"><span class="sr-only">Book</span></th>
+                  <th scope="col" class="px-3 py-2">Session</th>
+                  <th scope="col" class="px-3 py-2">Starts</th>
+                  <th scope="col" class="px-3 py-2">Spaces</th>
+                  <th scope="col" class="px-3 py-2">Series</th>
+                </tr>
+              </thead>
+              <tbody>
+                <template x-for="event in events" :key="event.event_id">
+                  <tr class="border-b border-neutral-100 last:border-0 lane"
+                      :class="eventLane(event)">
+                    <td class="px-3 py-2">
+                      <input type="checkbox" :checked="isPicked(event.event_id)"
+                             :aria-label="'Book into ' + (event.event_name || 'this session')"
+                             @change="togglePick(event.event_id)">
+                    </td>
+                    <td class="px-3 py-2">
+                      <div x-text="event.event_name || '(unnamed session)'"></div>
+                      <div class="text-[0.7rem] text-neutral-500" x-text="event.location_name || ''"></div>
+                      <div class="text-[0.7rem]" :class="eventWarningTone(event)"
+                           x-show="eventWarning(event)" x-cloak
+                           x-text="eventWarning(event)"></div>
+                    </td>
+                    <td class="px-3 py-2 mono text-[0.75rem]" x-text="eventWhen(event)"></td>
+                    <td class="px-3 py-2 mono text-[0.75rem]"
+                        x-text="event.spaces_available === null ? '—' : event.spaces_available"></td>
+                    <td class="px-3 py-2">
+                      <button type="button" class="text-[0.72rem] text-uj underline underline-offset-2"
+                              @click="pickSeries(event.event_id)">
+                        Pick this first
+                      </button>
+                    </td>
+                  </tr>
+                </template>
+              </tbody>
+            </table>
+          </div>
+        </div>
+
+        <div class="rounded-xl px-3.5 py-2.5 text-sm mt-4"
+             :class="selection.ready ? 'bg-emerald-50 border border-emerald-200 text-emerald-800' : 'bg-neutral-50 border border-neutral-200 text-neutral-600'">
+          <span x-text="sessionsLine()"></span>
+        </div>
+
+        <div class="space-y-2 mt-3">
+          <template x-for="blocker in selection.blockers" :key="blocker.key">
+            <div class="rounded-xl px-3.5 py-2.5 text-sm"
+                 :class="blocker.severity === 'block' ? 'bg-rose-50 border border-rose-200 text-rose-800' : 'bg-amber-50 border border-amber-200 text-amber-900'">
+              <div class="font-semibold" x-text="blocker.title"></div>
+              <div class="text-xs mt-1 opacity-90" x-text="blocker.detail"></div>
+              <div class="flex gap-2 mt-2" x-show="blocker.actions.length > 0" x-cloak>
+                <template x-for="action in blocker.actions" :key="action.key">
+                  <button type="button" class="chip" @click="answerSelection(action)" x-text="action.label"></button>
+                </template>
+              </div>
+            </div>
+          </template>
+        </div>
+
+        <div class="flex justify-between mt-6">
+          <button type="button" class="text-sm text-neutral-500 hover:text-neutral-800" @click="go(2)">← Back</button>
+          <button type="button" :disabled="!selection.ready || checkState === 'running'"
+                  :class="selection.ready && checkState !== 'running' ? 'bg-uj text-white hover:bg-uj-dark' : 'bg-neutral-100 text-neutral-400 cursor-not-allowed'"
+                  class="rounded-xl px-5 py-2.5 text-sm font-semibold transition-all"
+                  @click="toPreview()"
+                  x-text="checkState === 'running' ? 'Checking…' : 'Check Clubworx →'"></button>
+        </div>
+      </section>
+
+      <!-- ── 5 · Preview ─────────────────────────────────────────────────── -->
+      <section x-show="stepIndex === 4">
+        <h2 class="text-lg font-bold mb-1">What will happen</h2>
+        <p class="text-sm text-neutral-500 mb-5 max-w-2xl">
+          Two of the three records below cannot be taken back. Read the sentence, then
+          the columns: <b>READ</b> is what the paste said, <b>CLUBWORX</b> is what
+          Clubworx already holds.
+        </p>
+
+        <!-- The check is serial and a class of 25 takes minutes, so the count
+             says which student it is on. It lives here rather than on step 4's
+             button because the page has already moved: answers are published
+             per student, so a check that stalls on 19 shows eighteen rows. -->
+        <div class="rounded-xl bg-sky-50 border border-sky-200 text-sky-900 px-3.5 py-2.5 text-sm mb-3"
+             x-show="checkState === 'running'" x-cloak>
+          <span x-text="checkProgress"></span>
+          One student at a time — the Clubworx allowance is shared with the whole gym.
+        </div>
+
+        <template x-if="preview">
+          <div>
+            <!-- The run's whole consequence, once. It is the same sentence the
+                 result table will show in past tense (D11) — one place to read
+                 what this run did, in both directions. -->
+            <div class="rounded-xl px-3.5 py-3 text-sm mb-3 bg-amber-50 border border-amber-300 text-amber-900"
+                 x-show="permanenceLine()" x-cloak>
+              <div class="font-semibold" x-text="permanenceLine()"></div>
+            </div>
+
+            <div class="space-y-2 mb-3">
+              <template x-for="blocker in preview.blockers" :key="blocker.key">
+                <div class="rounded-xl px-3.5 py-2.5 text-sm"
+                     :class="blocker.severity === 'block' ? 'bg-rose-50 border border-rose-200 text-rose-800' : 'bg-amber-50 border border-amber-200 text-amber-900'">
+                  <div class="font-semibold" x-text="blocker.title"></div>
+                  <div class="text-xs mt-1 opacity-90" x-text="blocker.detail"></div>
+                  <div class="flex gap-2 mt-2" x-show="blocker.actions.length > 0" x-cloak>
+                    <template x-for="action in blocker.actions" :key="action.key">
+                      <button type="button" class="chip" @click="answerSelection(action)" x-text="action.label"></button>
+                    </template>
+                  </div>
+                </div>
+              </template>
+            </div>
+
+            <div class="rounded-card border border-neutral-200 overflow-hidden bg-white">
+              <div class="overflow-x-auto">
+              <table class="w-full text-sm">
+                <thead class="bg-neutral-50 border-b border-neutral-200">
+                  <tr class="text-left text-[0.68rem] uppercase tracking-wider text-neutral-500">
+                    <th scope="col" class="px-4 py-2">Student</th>
+                    <th scope="col" class="px-4 py-2">DOB</th>
+                    <th scope="col" class="px-4 py-2">Read</th>
+                    <th scope="col" class="px-4 py-2">Clubworx</th>
+                    <th scope="col" class="px-4 py-2">Outcome</th>
+                  </tr>
+                </thead>
+                <template x-for="line in preview.rows" :key="line.key">
+                  <tbody>
+                      <tr class="border-b border-neutral-100 row-hit lane"
+                          :class="line.needsHuman ? 'lane-need' : 'lane-ok'"
+                          @click="togglePreviewRow(line.key)">
+                        <td class="px-4 py-2">
+                          <span class="mono text-[0.66rem] text-neutral-400 mr-1"
+                                x-text="expandedPreview === line.key ? '▾' : '▸'"></span>
+                          <span x-text="line.name"></span>
+                        </td>
+                        <td class="px-4 py-2 mono text-[0.75rem]" x-text="line.dob || '—'"></td>
+                        <td class="px-4 py-2">
+                          <span class="px-1.5 py-0.5 rounded text-[0.68rem] font-medium"
+                                :class="line.read === 'clean' ? 'text-emerald-700 bg-emerald-50' : 'text-amber-700 bg-amber-50'"
+                                x-text="line.read"></span>
+                        </td>
+                        <td class="px-4 py-2">
+                          <span class="px-1.5 py-0.5 rounded text-[0.68rem] font-medium"
+                                :class="clubworxTone(line)" x-text="line.clubworx || '—'"></span>
+                        </td>
+                        <td class="px-4 py-2 text-[0.8rem]"
+                            :class="line.outcome === 'blocked' ? 'text-rose-700 font-medium' : 'text-neutral-600'"
+                            x-text="line.outcome"></td>
+                      </tr>
+
+                      <!-- The per-row consequence, and the resolution controls,
+                           in the row itself. A single-column stepper has nowhere
+                           to put a detail panel and a modal would be a gate
+                           inside a gate, so the row expands in place (§9). -->
+                      <tr x-show="expandedPreview === line.key" x-cloak class="border-b border-neutral-100 bg-neutral-50/60">
+                        <td colspan="5" class="px-4 py-3">
+                          <div class="text-[0.78rem] text-neutral-600 mb-2">
+                            └ <span x-text="consequenceLine(line)"></span>
+                          </div>
+
+                          <div class="text-[0.78rem] text-amber-800 mb-2" x-show="line.note" x-cloak x-text="line.note"></div>
+
+                          <div x-show="line.candidates.length > 0" x-cloak>
+                            <span class="field-label">Clubworx already holds</span>
+                            <div class="space-y-1.5">
+                              <template x-for="candidate in line.candidates" :key="candidate.contact_key">
+                                <div class="flex items-center gap-2 flex-wrap text-[0.78rem]">
+                                  <span x-text="(candidate.first_name || '?') + ' ' + (candidate.last_name || '')"></span>
+                                  <span class="mono text-[0.7rem] text-neutral-500" x-text="candidate.dob || 'no birthday'"></span>
+                                  <span class="text-[0.68rem] text-neutral-400" x-text="candidate.status_view"></span>
+                                  <button type="button" class="chip"
+                                          :class="line.contactKey === candidate.contact_key ? 'border-solid border-uj text-uj' : ''"
+                                          @click="useContact(line.key, candidate.contact_key)">
+                                    This is them
+                                  </button>
+                                </div>
+                              </template>
+                            </div>
+                            <div class="flex gap-2 mt-2">
+                              <button type="button" class="chip" @click="createAnyway(line.key)">
+                                None of these — create a new contact (permanent)
+                              </button>
+                              <button type="button" class="chip" x-show="line.resolution" x-cloak
+                                      @click="undoMatch(line.key)">Undo</button>
+                            </div>
+                          </div>
+                        </td>
+                      </tr>
+                  </tbody>
+                </template>
+              </table>
+              </div>
+            </div>
+
+            <div class="flex justify-between mt-6">
+              <button type="button" class="text-sm text-neutral-500 hover:text-neutral-800" @click="go(3)">← Back</button>
+              <!-- Apply is staff-site#73. Gated here anyway: the gates are the
+                   deliverable of this step, and a button wired to nothing is
+                   safer than a button wired to half a write chain. -->
+              <button type="button" disabled
+                      :title="preview.ready ? 'Every gate is clear. The run engine is staff-site#73' : 'Something above is still blocking'"
+                      class="rounded-xl px-5 py-2.5 text-sm font-semibold bg-neutral-100 text-neutral-400 cursor-not-allowed"
+                      x-text="preview.ready ? 'Apply (not built yet)' : 'Apply — blocked'"></button>
             </div>
           </div>
         </template>
@@ -639,7 +936,7 @@
 
   <footer class="max-w-[1100px] mx-auto w-full px-4 pb-8 text-xs text-neutral-500">
     <div class="border-t border-neutral-200 pt-4 flex flex-wrap items-center justify-between gap-x-5 gap-y-1">
-      <span>Nothing on this page writes anything. Steps 4–6 are staff-site#72 and #73.</span>
+      <span>Nothing on this page writes anything. Apply and the result table are staff-site#73.</span>
     </div>
   </footer>
 
@@ -657,8 +954,8 @@ function schoolBooking() {
       { key: 'school',   label: 'School',   built: true },
       { key: 'paste',    label: 'Paste',    built: true },
       { key: 'rows',     label: 'Rows',     built: true },
-      { key: 'sessions', label: 'Sessions', built: false },
-      { key: 'preview',  label: 'Preview',  built: false },
+      { key: 'sessions', label: 'Sessions', built: true },
+      { key: 'preview',  label: 'Preview',  built: true },
       { key: 'result',   label: 'Result',   built: false },
     ],
     stepIndex: 0,
@@ -697,6 +994,42 @@ function schoolBooking() {
     showOverrides: false,
     chipMenu: null,
 
+    // Step 4
+    events: [],
+    eventsState: 'idle',
+    eventsError: '',
+    eventsTotal: 0,
+    eventsTruncated: false,
+    eventsFrom: '',
+    eventsTo: '',
+    eventsQuery: '',
+    pastedEventId: '',
+    pastedIdNote: '',
+    pastedIdOk: false,
+    // The resolved session, waiting to be confirmed. Never a selection on its
+    // own — see usePastedId.
+    pastedIdEvent: null,
+    picked: [],
+    // Never null. The markup reads `selection.blockers` and `selection.ready`
+    // on every render of step 4, including the first, and an Alpine expression
+    // that throws leaves its `:disabled` unapplied — which would *enable* the
+    // forward button on the one render where nothing has been checked.
+    selection: { events: [], blockers: [], ready: false, sessions: 0, students: 0, bookings: 0, firstSession: null, lastSession: null },
+
+    // The check between 4 and 5
+    // The plan name, not its id: an id is a number nobody can check against the
+    // Clubworx UI and is silently wrong the day the plan is rebuilt (plans.js).
+    planName: 'School Pass',
+    plan: null,
+    matches: {},
+    checkState: 'idle',
+    checkProgress: '',
+
+    // Step 5
+    preview: null,
+    decisions: {},
+    expandedPreview: null,
+
     init() {
       // Both modules or neither. Every gate on this page is one of their
       // exports, so a partial load is a page that looks like it is checking
@@ -704,6 +1037,9 @@ function schoolBooking() {
       const missing = [];
       if (!window.schoolListParser?.parseStudentList) missing.push('the list parser');
       if (!window.schoolBookingSteps?.review) missing.push('the step rules');
+      if (!window.schoolBookingIdentity?.matchStudent) missing.push('the matching rule');
+      if (!window.schoolBookingEvents?.selectionReport) missing.push('the session rules');
+      if (!window.schoolBookingPreview?.buildPreview) missing.push('the preview rules');
       if (missing.length) {
         this.bootstrapError = `Could not load ${missing.join(' and ')}.`;
         return;
@@ -823,6 +1159,25 @@ function schoolBooking() {
         resolutions: this.resolutions,
       });
       this.syncDrafts();
+      // Any step-3 edit makes the preview a statement about a list that has
+      // changed underneath it — different rows, or the same rows with a gate
+      // reopened. Dropped rather than refreshed: the match states came from
+      // reads keyed on the *old* rows, so refreshing would keep answers about
+      // students who may no longer be on the list. The check is cheap to
+      // re-run and wrong to reuse.
+      this.discardPreview();
+    },
+
+    // The step strip lets staff jump to any step already reached, so this is
+    // also what stops a jump straight back to a preview whose list has moved.
+    // `x-if="preview"` renders nothing without it, and step 5's own forward
+    // button reads `preview.ready`.
+    discardPreview() {
+      if (!this.preview && Object.keys(this.matches).length === 0) return;
+      this.preview = null;
+      this.matches = {};
+      this.decisions = {};
+      this.checkState = 'idle';
     },
 
     // Edit buffers are seeded here, once per review, rather than lazily from
@@ -1098,6 +1453,328 @@ function schoolBooking() {
       if (row.bucket === 'error') return 'text-rose-700 bg-rose-50';
       if (row.needsHuman) return 'text-amber-700 bg-amber-50';
       return 'text-emerald-700 bg-emerald-50';
+    },
+
+
+    // --- step 4 ----------------------------------------------------------
+    // The picker's window is a request parameter, not a filter: Clubworx
+    // refuses `/events` with no date window (422, empty body — #51), so there
+    // is no "everything" to fall back to and the page always has to name one.
+    async loadEvents() {
+      this.eventsState = 'loading';
+      this.pastedIdNote = '';
+      const params = new URLSearchParams({ from: this.eventsFrom, to: this.eventsTo });
+      if (this.eventsQuery.trim()) params.set('q', this.eventsQuery.trim());
+      try {
+        const res = await fetch(`/api/clubworx/events?${params}`, { headers: { accept: 'application/json' } });
+        const body = await res.json();
+        if (!res.ok || !body.ok) throw new Error(body.error || `HTTP ${res.status}`);
+        this.events = body.events ?? [];
+        this.eventsTotal = body.total ?? this.events.length;
+        this.eventsTruncated = body.truncated === true;
+        this.eventsState = 'ready';
+        // A tick pointing at a session this window no longer holds is a tick
+        // nobody can see. Dropped rather than carried: `selectionReport` would
+        // drop it anyway, and a count that disagrees with the table is how a
+        // group ends up booked into a session nobody chose.
+        const present = new Set(this.events.map((e) => String(e.event_id)));
+        this.picked = this.picked.filter((id) => present.has(String(id)));
+      } catch (error) {
+        this.events = [];
+        this.eventsTotal = 0;
+        this.eventsTruncated = false;
+        this.eventsState = 'error';
+        this.eventsError = String(error.message || error);
+      }
+      this.refreshSelection();
+    },
+
+    eventsNote() {
+      if (this.eventsState === 'loading') return 'Reading the timetable…';
+      if (this.eventsState === 'error') return `Could not read the sessions: ${this.eventsError}`;
+      if (this.eventsState === 'idle') return 'Pick a date window and search.';
+      if (this.events.length === 0) return 'No sessions in this window.';
+      const shown = this.eventsQuery.trim()
+        ? `${this.events.length} of ${this.eventsTotal} sessions match "${this.eventsQuery.trim()}"`
+        : `${this.events.length} sessions`;
+      return this.eventsTruncated
+        ? `${shown} — the window holds more than could be read. Narrow the dates.`
+        : shown;
+    },
+
+    isPicked(id) {
+      return this.picked.includes(String(id));
+    },
+
+    togglePick(id) {
+      const key = String(id);
+      this.picked = this.isPicked(key) ? this.picked.filter((p) => p !== key) : [...this.picked, key];
+      this.refreshSelection();
+    },
+
+    // §8's one-click series. The rule is same name, same location, ahead of the
+    // anchor — the whole of what "the same weekly class" can mean, since no
+    // recurrence field exists. Replaces the selection rather than adding to it:
+    // "pick this first" is a statement about which session is first.
+    pickSeries(id) {
+      this.picked = window.schoolBookingEvents.preTicked(this.events, id);
+      this.refreshSelection();
+    },
+
+    // Resolved, then confirmed — never selected outright. §8: the paste is a
+    // shortcut past the *search*, never past the *confirmation*. The picker is
+    // built on an undocumented behaviour that contradicts Clubworx's own
+    // reference, so a human agreeing this is the right class is the whole
+    // safeguard, and `spaces_available` travels because it is one of the three
+    // facts they agree on.
+    usePastedId() {
+      const found = window.schoolBookingEvents.resolvePastedId(this.events, this.pastedEventId);
+      this.pastedIdEvent = null;
+      if (!found.ok) {
+        this.pastedIdNote = found.message;
+        this.pastedIdOk = false;
+        return;
+      }
+      this.pastedIdOk = true;
+      this.pastedIdNote = '';
+      this.pastedIdEvent = found.event;
+    },
+
+    // Name, date and spaces, in one sentence — plus what confirming costs.
+    // Confirming ticks the series from this session, which *replaces* whatever
+    // is ticked now, because pasting an id is the same statement as "pick this
+    // first". Discarding six already-ticked sessions in silence is what would
+    // make that surprising, so the count is named before the click.
+    pastedIdConfirmLine() {
+      const event = this.pastedIdEvent;
+      if (!event) return '';
+      const spaces = event.spaces_available === null
+        ? 'no space count'
+        : `${event.spaces_available} spaces`;
+      const line = `${window.schoolBookingEvents.sessionLabel(event)} — ${spaces}.`;
+      if (this.picked.length === 0) return line;
+      return `${line} Taking it will replace the ${this.picked.length} session`
+        + `${this.picked.length === 1 ? '' : 's'} already ticked.`;
+    },
+
+    confirmPastedId() {
+      const event = this.pastedIdEvent;
+      if (!event) return;
+      this.pickSeries(event.event_id);
+      this.pastedIdEvent = null;
+      this.pastedEventId = '';
+      this.pastedIdNote = `Ticked from the pasted id: ${window.schoolBookingEvents.sessionLabel(event)}.`;
+    },
+
+    cancelPastedId() {
+      this.pastedIdEvent = null;
+      this.pastedIdNote = '';
+    },
+
+    pastedIdTone() {
+      return this.pastedIdOk ? 'text-emerald-700' : 'text-rose-700';
+    },
+
+    eventWhen(event) {
+      return String(event.event_start_at ?? '').replace('T', ' ').slice(0, 16);
+    },
+
+    // Both of these ask `sessionRefusal` rather than reading `bookable`. The
+    // Worker's flag folds "no room" in with "too close to the start", and only
+    // the second refuses a booking — so a row with an unknown space count was
+    // being painted the same red as a lead-time hard-stop, with no reason
+    // beside it, against §11's "warn, never block".
+    eventLane(event) {
+      const refusal = window.schoolBookingEvents.sessionRefusal(event);
+      if (refusal?.severity === 'block') return 'lane-bad';
+      if (refusal) return 'lane-need';
+      return this.isPicked(event.event_id) ? 'lane-ok' : 'lane';
+    },
+
+    // Why a session is flagged, in the words that name the cause. Clubworx's
+    // own refusal — "Sorry! This class is now closed for bookings." — names
+    // none of them and reads like a capacity problem (D9).
+    eventWarning(event) {
+      return window.schoolBookingEvents.sessionRefusal(event)?.message ?? '';
+    },
+
+    eventWarningTone(event) {
+      return window.schoolBookingEvents.sessionRefusal(event)?.severity === 'block'
+        ? 'text-rose-700'
+        : 'text-amber-700';
+    },
+
+    refreshSelection() {
+      this.selection = window.schoolBookingEvents.selectionReport({
+        events: this.events,
+        selected: this.picked,
+        studentCount: this.reviewed?.counts.records ?? 0,
+        truncated: this.eventsTruncated,
+      });
+    },
+
+    sessionsLine() {
+      return window.schoolBookingEvents.sessionsLine(this.selection)
+        || 'No sessions picked yet.';
+    },
+
+    // The one-click removal D9 asks for. Removing is the only thing a blocker
+    // here can do, and the page dispatches on `answers` exactly as step 3 does,
+    // so a blocker kind added in the module cannot arrive without its control.
+    answerSelection(action) {
+      if (action.answers === 'remove') this.togglePick(action.value);
+    },
+
+    toSessions() {
+      if (!this.reviewed?.ready) return;
+      if (this.eventsState === 'idle') {
+        const window_ = window.schoolBookingEvents.defaultWindow();
+        this.eventsFrom = window_.from;
+        this.eventsTo = window_.to;
+        this.loadEvents();
+      }
+      this.refreshSelection();
+      this.go(3);
+    },
+
+    // --- the check between steps 4 and 5 ---------------------------------
+    // Strictly serial, one student at a time. The 75-a-minute allowance is
+    // gym-wide and Clubworx sends no rate-limit headers at all, so pacing is a
+    // design constant rather than something a client can read off a response
+    // (§6). Concurrency here would spend the whole gym's allowance at once.
+    async toPreview() {
+      if (!this.selection.ready || this.checkState === 'running') return;
+      this.checkState = 'running';
+      this.matches = {};
+      this.decisions = {};
+      // The previous run's answers are about a different selection, and this
+      // screen is one the operator reads to approve permanent writes. Cleared
+      // before the move, so nothing stale is on screen for even one render.
+      this.preview = null;
+      this.go(4);
+
+      this.plan = await this.lookupPlan();
+
+      // The plan first, and nothing else if it did not resolve. §11 hard-stops
+      // the *run* on an unresolved or ambiguous plan, and the dedup reads are
+      // three requests a student out of an allowance the whole gym shares —
+      // spent on answers nothing caches, for a run that cannot proceed, before
+      // an operator who has to go and fix a Clubworx plan either way. The
+      // preview is still built, so the refusal has a screen to be read on.
+      if (!this.plan.ok) {
+        this.checkState = 'done';
+        this.checkProgress = '';
+        this.refreshPreview();
+        return;
+      }
+
+      const students = (this.reviewed?.rows ?? []).filter((r) => r.bucket === 'record' && !r.needsHuman);
+      const found = {};
+      for (let i = 0; i < students.length; i += 1) {
+        const row = students[i];
+        this.checkProgress = `Checking ${i + 1} of ${students.length}…`;
+        found[row.key] = await this.checkStudent(row);
+        // Published per student rather than at the end, so a check that stalls
+        // on student 19 shows eighteen answers instead of an empty table.
+        this.matches = { ...found };
+        this.refreshPreview();
+      }
+
+      this.checkState = 'done';
+      this.checkProgress = '';
+      this.refreshPreview();
+    },
+
+    async lookupPlan() {
+      try {
+        const res = await fetch(`/api/clubworx/plan?name=${encodeURIComponent(this.planName)}`,
+          { headers: { accept: 'application/json' } });
+        const body = await res.json();
+        if (!res.ok || !body.ok) {
+          return { ok: false, reason: body.reason ?? 'upstream-error', message: body.error ?? `HTTP ${res.status}` };
+        }
+        return body;
+      } catch (error) {
+        return { ok: false, reason: 'network', message: String(error.message || error) };
+      }
+    },
+
+    // One student's dedup read, turned into a match state by identity.js. A
+    // failure is carried on the row as an error rather than thrown: a run of
+    // 25 students must not lose the 24 answers that did come back, and a row
+    // with no answer must never read as `new` — `new` writes a contact
+    // Clubworx cannot delete.
+    async checkStudent(row) {
+      const params = new URLSearchParams({ last_name: row.lastName ?? '', dob: row.dob ?? '' });
+      try {
+        const res = await fetch(`/api/clubworx/contacts?${params}`, { headers: { accept: 'application/json' } });
+        const body = await res.json();
+        if (!res.ok) return { error: body.error || `Clubworx answered ${res.status}.` };
+        return window.schoolBookingIdentity.matchStudent(
+          { write: { firstName: row.firstName, lastName: row.lastName, dob: row.dob },
+            compare: { firstName: this.compareForm(row.firstName), lastName: this.compareForm(row.lastName) } },
+          body.candidates ?? [],
+          this.reviewed?.columns ?? null,
+        );
+      } catch (error) {
+        return { error: String(error.message || error) };
+      }
+    },
+
+    // The parser's own normalisation, asked rather than restated. A second
+    // table here is the drift that reports an existing student as `new` and
+    // writes them a second permanent contact, with nothing thrown.
+    compareForm(value) {
+      return window.schoolListParser.compareForm(value);
+    },
+
+    // --- step 5 ----------------------------------------------------------
+    refreshPreview() {
+      this.preview = window.schoolBookingPreview.buildPreview({
+        rows: this.reviewed?.rows ?? [],
+        matches: this.matches,
+        selection: this.selection,
+        // Step 3's gates travel too. §11 hard-stops on "any unresolved gate",
+        // and a gate visible only on the screen that raised it is not a gate on
+        // the screen that commits.
+        review: this.reviewed,
+        plan: this.plan,
+        decisions: this.decisions,
+      });
+    },
+
+    togglePreviewRow(key) {
+      this.expandedPreview = this.expandedPreview === key ? null : key;
+    },
+
+    useContact(key, contactKey) {
+      this.decisions = window.schoolBookingPreview.resolveMatch(this.decisions, key, { kind: 'use', contactKey });
+      this.refreshPreview();
+    },
+
+    createAnyway(key) {
+      this.decisions = window.schoolBookingPreview.resolveMatch(this.decisions, key, { kind: 'create' });
+      this.refreshPreview();
+    },
+
+    undoMatch(key) {
+      this.decisions = window.schoolBookingPreview.resolveMatch(this.decisions, key, null);
+      this.refreshPreview();
+    },
+
+    permanenceLine() {
+      return window.schoolBookingPreview.permanenceLine(this.preview);
+    },
+
+    consequenceLine(line) {
+      return window.schoolBookingPreview.consequenceLine(line);
+    },
+
+    clubworxTone(line) {
+      if (line.clubworx === 'matched') return 'text-emerald-700 bg-emerald-50';
+      if (line.clubworx === 'new') return 'text-sky-700 bg-sky-50';
+      if (line.clubworx === '') return 'text-neutral-500 bg-neutral-100';
+      return 'text-amber-700 bg-amber-50';
     },
 
     go(index) {

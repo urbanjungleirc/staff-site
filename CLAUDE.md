@@ -38,19 +38,24 @@ cloudflare-clubworx/src/events.js - the event picker's read, the 24-hour lead
                           paste-an-id lookup. It ANNOTATES and never filters:
                           a session missing from the picker is invisible, where
                           one greyed out with its reason is a human decision.
-                          GET /events/:id is UNMEASURED (#97) — see the
-                          resolveEvent header before assuming the paste works.
+                          GET /events/:id is MEASURED and DEAD: it answers 404
+                          for every id, real or invented (#97). resolveEvent
+                          stays as an honest refusal; the page resolves a pasted
+                          id itself, out of the window it already holds (#72).
 cloudflare-clubworx/src/paging.js - walking a Clubworx list when the response
                           carries no total, no next-page link and no header. A
                           full page is unfinished, never an answer; what the
                           ceiling MEANS is the caller's to decide, because on
                           /plan it is a refusal and on /events it is a flag.
-cloudflare-clubworx/src/plans.js - name -> membership_plan_id, and the plan's
-                          membership_duration. #60 saw 50 of 57 plans come back
-                          with School Pass among the missing, so a full page is
-                          "truncated", never "no such plan"; a duplicate name is
-                          refused rather than guessed. The number 26 lives in
-                          Clubworx, not here (ADR 0005).
+cloudflare-clubworx/src/plans.js - name -> membership_plan_id, the plan's
+                          membership_duration, and `coverage_end` — the last day
+                          a pass granted today still covers. #60 saw 50 of 57
+                          plans come back with School Pass among the missing, so
+                          a full page is "truncated", never "no such plan"; a
+                          duplicate name is refused rather than guessed. The
+                          number 26 lives in Clubworx, not here (ADR 0005), and
+                          `coverage_end` is computed here rather than in the
+                          browser so the calendar arithmetic has one home.
 cloudflare-clubworx/src/schools.js - the distinct School marker tags, across
                           all three status views. Returns tags and counts, never
                           contacts. A tag missing here is a staff member typing
@@ -95,13 +100,40 @@ cloudflare-clubworx/probes/ - read-only probes against the live Clubworx API, an
                           what they found. Start with probes/README.md — it carries
                           the rules (no production data recorded, pace under
                           75 req/min) that any new probe has to follow.
-school-booking.html     - the school booking page, steps 1-3 (#71): school,
-                          paste + declare the count, then the parse result with
-                          inline row resolution. Variant A of §9, decided on
-                          #54. NOT in tools.json and unreachable from the hub
-                          until #46's last step — §17's order, because `main`
-                          is production. Steps 4-6 are #72 and #73; nothing on
-                          this page writes anything.
+school-booking.html     - the school booking page, steps 1-5 (#71, #72): school,
+                          paste + declare the count, the parse result with
+                          inline row resolution, the session picker, and the
+                          preview. Variant A of §9, decided on #54. NOT in
+                          tools.json and unreachable from the hub until #46's
+                          last step — §17's order, because `main` is production.
+                          Step 6 (Apply, the run engine, the result table) is
+                          #73; every route this page calls is a GET, and a
+                          component test asserts that.
+school-booking/events.js - what a SELECTION of sessions is: the same-name,
+                          same-location pre-tick (no recurrence field exists,
+                          so any automatic rule is a guess), the lead-time and
+                          past-session hard-stops with D9's one-click removal,
+                          and the spaces warning that never blocks.
+                          sessionRefusal() is the ONE place deciding what is
+                          wrong with a session and how serious — the blocker
+                          list and the picker's row styling both ask it. Do not
+                          read the Worker's `bookable` for this: it folds "no
+                          room" in with "too close to the start", and only the
+                          second refuses a booking, so reading it alone paints
+                          a warnable session as a refused one.
+                          The paste-an-id fallback resolves HERE, against the
+                          window already on screen — GET /events/:id answers 404
+                          for every id, real or invented (#97), so a message
+                          built on it would tell staff a correct id is wrong.
+school-booking/preview.js - step 5: the STUDENT/DOB/READ/CLUBWORX/OUTCOME table,
+                          the match resolution log, the per-row consequence and
+                          the aggregate permanence line, plus every hard-stop
+                          that keeps Apply dark. It says only what it knows: the
+                          membership is read at Apply (D14) and there is no
+                          bookings read, so a matched row says "pass checked at
+                          Apply" rather than "pass already active". An absent
+                          answer is `pending`, never `new` — `new` writes a
+                          contact Clubworx cannot delete.
 school-booking/parse.js - turns a pasted school student list into rows plus the
                           list-level inferences (layout, column mapping, date
                           orientation). Pure and unit tested; §7 of the design
@@ -122,7 +154,13 @@ school-booking/test/alpine-bindings.test.js - reads school-booking.html and
                           without calling it (#78). A text check, because the
                           fault is a property of the text: it is not a logic
                           fault, so a unit test cannot see it, and it throws
-                          nothing, so runtime does not report it.
+                          nothing, so runtime does not report it. It also walks
+                          the page's whole ?v= import chain — every module, and
+                          every sibling import inside them, at one version. The
+                          walk replaced a hand-written list in #72, after
+                          identity.js joined the chain carrying an unversioned
+                          `./parse.js` that had been harmless only while no page
+                          imported it.
 school-booking/identity.js - the matching rule: surname + DOB narrows, first name
                           breaks ties, variance is surfaced never merged. §5 of
                           the design spec. Imports the two name forms from
