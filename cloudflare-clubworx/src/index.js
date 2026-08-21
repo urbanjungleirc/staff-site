@@ -24,15 +24,19 @@
  *
  * Routes arrive a ticket at a time. #66 shipped the skeleton, the gate, the
  * pacer and the request layer; #68 added `GET /contacts`; #69 added
- * `POST /student`, the only route here that writes. The remaining ones —
- * events, plan, schools and unbook — belong to #67 and #70, and answer 404
- * until then, deliberately: `main` is production on this repo and a page
- * calling a route that does not exist is a broken tool on the live hub (§17).
+ * `POST /student`, the only route here that writes; #67 added the three reads
+ * the page opens with — `GET /events`, `GET /plan` and `GET /schools`. The
+ * remaining one, `POST /unbook`, belongs to #70 and answers 404 until then,
+ * deliberately: `main` is production on this repo and a page calling a route
+ * that does not exist is a broken tool on the live hub (§17).
  */
 
 import { createAccessVerifier } from './access.js';
 import { createClubworxClient } from './clubworx.js';
 import { searchContacts } from './contacts.js';
+import { listEvents, resolveEvent } from './events.js';
+import { lookupPlan } from './plans.js';
+import { listSchools } from './schools.js';
 import { runStudentChain } from './student.js';
 import { isRealDay } from './duration.js';
 
@@ -106,6 +110,87 @@ const defaultRunStudent = ({ env, ...args }) =>
   });
 
 /**
+ * The three reads #67 added. One paced client per call, like the others, and
+ * injected in tests for the same reason — the route's own job is validation,
+ * status mapping and the log line, every one of which fails silently in
+ * production and none of which is visible through a network stub.
+ */
+const defaultReadEvents = ({ env, eventId, ...args }) => {
+  const client = createClubworxClient({ accountKey: env.CLUBWORX_ACCOUNT_KEY });
+  return eventId ? resolveEvent({ client, eventId, ...args }) : listEvents({ client, ...args });
+};
+
+const defaultReadPlan = ({ env, ...args }) =>
+  lookupPlan({ client: createClubworxClient({ accountKey: env.CLUBWORX_ACCOUNT_KEY }), ...args });
+
+const defaultReadSchools = ({ env }) =>
+  listSchools({ client: createClubworxClient({ accountKey: env.CLUBWORX_ACCOUNT_KEY }) });
+
+/**
+ * What HTTP status a failed read leaves as.
+ *
+ * Three groups, and the grouping is the design rather than the convention:
+ *
+ *   - **429 for a throttle**, and only for a throttle. §11 pauses the *whole
+ *     run* on one, because the allowance is gym-wide (one key per gym, #47) and
+ *     backing off a single read while the rest continue just spends the next
+ *     window failing. The page needs that where it cannot be missed.
+ *   - **400 for a refusal**, which is every reason the read reached an answer
+ *     and declined to act on it: a missing date window, a plan name matching
+ *     none or matching two, a plan list that was never read to the end, an event
+ *     id nothing resolved. §11 groups all of these as *refused before any
+ *     permanent write*, and `POST /student` already answers them 400.
+ *
+ *     Not 404 — this Worker answers 404 for a route that does not exist (see the
+ *     bottom of the handler), and a page cannot tell "there is no School Pass"
+ *     from "there is no /plan route" if both arrive as one number. The `reason`
+ *     field is the discriminator throughout this Worker; the status only has to
+ *     avoid lying.
+ *   - **502 for everything else.** Passing Clubworx's own code through would put
+ *     a 401 from Clubworx beside the 401 this Worker's Access gate returns, and
+ *     send an operator to re-authenticate against a problem that is not theirs.
+ */
+const REFUSALS = new Set([
+  'bad-request',
+  'plan-not-found',
+  'plan-ambiguous',
+  'plan-list-truncated',
+  'event-not-found',
+]);
+
+const readStatus = reason => (reason === 'throttled' ? 429 : REFUSALS.has(reason) ? 400 : 502);
+
+/**
+ * A failed read, as the page receives it.
+ *
+ * A throttle gets §11's wording and never the upstream text — it is the one case
+ * where there IS no upstream message to be faithful to, because a throttle
+ * answers in HTML and the client falls back to up to 500 characters of scrubbed
+ * markup. Letting that win would put a WAF page in front of the operator instead
+ * of the sentence that says the cause may be another system on the same gym-wide
+ * key.
+ *
+ * Everything else travels verbatim, never re-worded — D6. #50 is the cautionary
+ * tale: a truthful-sounding paraphrase pointed at the wrong mechanism and cost
+ * an architectural route.
+ */
+const readFailure = result =>
+  json(
+    {
+      error:
+        result.reason === 'throttled'
+          ? 'Clubworx is busy — this can be caused by another system, not this page. Try again shortly.'
+          : (result.message ?? 'the Clubworx read failed'),
+      reason: result.reason,
+      upstreamStatus: result.upstreamStatus ?? null,
+      requests: result.requests ?? 0,
+      ...(result.view ? { view: result.view } : {}),
+      ...(result.matches ? { matches: result.matches } : {}),
+    },
+    readStatus(result.reason),
+  );
+
+/**
  * Build the request handler. The seams exist so the log line and the gate can be
  * asserted directly — both are things that fail silently in production.
  *
@@ -114,12 +199,18 @@ const defaultRunStudent = ({ env, ...args }) =>
  * @param {(line: string) => void} [deps.log]
  * @param {(args: {env: object, lastName: string, dob: string}) => Promise<object>} [deps.search]
  * @param {(args: object) => Promise<object>} [deps.runStudent]
+ * @param {(args: object) => Promise<object>} [deps.readEvents]
+ * @param {(args: object) => Promise<object>} [deps.readPlan]
+ * @param {(args: object) => Promise<object>} [deps.readSchools]
  */
 export function createHandler({
   makeVerifier = defaultMakeVerifier,
   log = console.log,
   search = defaultSearch,
   runStudent = defaultRunStudent,
+  readEvents = defaultReadEvents,
+  readPlan = defaultReadPlan,
+  readSchools = defaultReadSchools,
 } = {}) {
   return async function handle(request, env) {
     const url = new URL(request.url);
@@ -264,6 +355,61 @@ export function createHandler({
       );
     }
 
+    // The three reads the page opens with (#67). All read-only, so they answer
+    // before any write path is involved — and all three share one shape: a
+    // secret check, a delegated call, and `readFailure` for anything that did
+    // not conclude.
+    //
+    // The secret check comes first in each, because a missing key is a deploy
+    // that was never finished rather than a Clubworx refusal, and the two send
+    // an operator to different people.
+    const notConfigured = () =>
+      done(
+        json({ error: 'the Clubworx account key is not configured', reason: 'not-configured' }, 503),
+        { email },
+      );
+
+    if (path === '/events') {
+      if (method !== 'GET') return done(json({ error: 'method not allowed' }, 405), { email });
+      if (!env.CLUBWORX_ACCOUNT_KEY) return notConfigured();
+
+      // `event_id` switches this route into the paste-the-id fallback (§8) — the
+      // path that survives the listing being wrong, the window being wrong, or
+      // Clubworx enforcing the `contact_key` its reference documents and this
+      // picker is built on ignoring. `from`/`to` still travel when present, so a
+      // pasted id can be resolved out of the window the picker already knows.
+      const result = await readEvents({
+        env,
+        eventId: (url.searchParams.get('event_id') ?? '').trim(),
+        from: (url.searchParams.get('from') ?? '').trim(),
+        to: (url.searchParams.get('to') ?? '').trim(),
+        q: (url.searchParams.get('q') ?? '').trim(),
+      });
+
+      if (!result.ok) return done(readFailure(result), { email });
+      return done(json(result), { email });
+    }
+
+    if (path === '/plan') {
+      if (method !== 'GET') return done(json({ error: 'method not allowed' }, 405), { email });
+      if (!env.CLUBWORX_ACCOUNT_KEY) return notConfigured();
+
+      const result = await readPlan({ env, name: (url.searchParams.get('name') ?? '').trim() });
+
+      if (!result.ok) return done(readFailure(result), { email });
+      return done(json(result), { email });
+    }
+
+    if (path === '/schools') {
+      if (method !== 'GET') return done(json({ error: 'method not allowed' }, 405), { email });
+      if (!env.CLUBWORX_ACCOUNT_KEY) return notConfigured();
+
+      const result = await readSchools({ env });
+
+      if (!result.ok) return done(readFailure(result), { email });
+      return done(json(result), { email });
+    }
+
     if (path === '/student') {
       if (method !== 'POST') return done(json({ error: 'method not allowed' }, 405), { email });
 
@@ -331,7 +477,7 @@ export function createHandler({
       return done(json(result, status), { email, outcome: result.outcome });
     }
 
-    // events, plan, schools and unbook arrive with #67/#70.
+    // unbook arrives with #70.
     return done(json({ error: 'not found' }, 404), { email });
   };
 }

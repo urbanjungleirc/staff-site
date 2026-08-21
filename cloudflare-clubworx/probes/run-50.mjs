@@ -86,8 +86,8 @@ import {
   describeBookingRequirement,
   describeDuplicateBooking,
   describeCancellation,
-  pickBookableEvents,
 } from './lib/report.mjs';
+import { pickBookableEvents } from '../src/events.js';
 import { errorMessageOf } from '../src/errors.js';
 import { redact } from '../src/request.js';
 

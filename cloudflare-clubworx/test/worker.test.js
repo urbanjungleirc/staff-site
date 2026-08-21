@@ -154,7 +154,7 @@ describe('GET /health', () => {
 
 describe('routes not built yet', () => {
   it('answers 404 for an authenticated call to a route this ticket does not add', async () => {
-    // #67 adds events, plan and schools; #70 adds unbook. Until then a 404 is
+    // #67 added events, plan and schools; #70 adds unbook. Until then a 404 is
     // the honest answer — not a 500, and not a silent 200.
     const h = handlerWith(accepts('staff@urbanjungleirc.com'));
     const res = await h.call('/api/clubworx/unbook', { ...withJwt, method: 'POST' });
@@ -689,6 +689,284 @@ describe('POST /student', () => {
   it('answers no-store, like every other route on this Worker', async () => {
     const h = handlerWith(accepts(OPERATOR), { runStudent: completes() });
     const res = await h.call('/api/clubworx/student', post());
+    expect(res.headers.get('Cache-Control')).toBe('no-store');
+  });
+});
+
+describe('the #67 read routes', () => {
+  // What is asserted here is the *route* — the method gate, the secret check,
+  // the parameters it forwards, its status mapping and its log line. Each read's
+  // own behaviour is pinned in events.test.js, plans.test.js and
+  // schools.test.js; a second copy of those assertions here would drift.
+
+  const OPERATOR = 'staff@urbanjungleirc.com';
+
+  /** Records what the route forwarded, and answers with whatever is handed in. */
+  const stub = answer => {
+    const calls = [];
+    const fn = async args => {
+      calls.push(args);
+      return typeof answer === 'function' ? answer(args) : answer;
+    };
+    fn.calls = calls;
+    return fn;
+  };
+
+  const refused = (reason, over = {}) => ({
+    ok: false,
+    reason,
+    message: 'nope',
+    upstreamStatus: null,
+    requests: 1,
+    ...over,
+  });
+
+  describe('GET /events', () => {
+    const listed = {
+      ok: true,
+      events: [{ event_id: 101, event_name: 'School Session', bookable: true }],
+      total: 1,
+      truncated: false,
+      pages: 1,
+      requests: 1,
+      window: { from: '2026-08-21', to: '2026-09-30' },
+      q: '',
+    };
+
+    it('forwards the window and the name fragment', async () => {
+      const readEvents = stub(listed);
+      const h = handlerWith(accepts(OPERATOR), { readEvents });
+      const res = await h.call(
+        '/api/clubworx/events?from=2026-08-21&to=2026-09-30&q=School',
+        withJwt,
+      );
+
+      expect(res.status).toBe(200);
+      expect(readEvents.calls[0]).toMatchObject({
+        from: '2026-08-21',
+        to: '2026-09-30',
+        q: 'School',
+        eventId: '',
+      });
+    });
+
+    it('forwards a pasted event id, which switches on the fallback', async () => {
+      const readEvents = stub({ ok: true, event: { event_id: 101 }, via: 'direct', requests: 1 });
+      const h = handlerWith(accepts(OPERATOR), { readEvents });
+      await h.call('/api/clubworx/events?event_id=101', withJwt);
+
+      expect(readEvents.calls[0].eventId).toBe('101');
+    });
+
+    it('refuses a method other than GET', async () => {
+      const h = handlerWith(accepts(OPERATOR), { readEvents: stub(listed) });
+      const res = await h.call('/api/clubworx/events', { ...withJwt, method: 'POST' });
+      expect(res.status).toBe(405);
+    });
+
+    it('tells an unfinished deploy apart from a Clubworx refusal', async () => {
+      const readEvents = stub(listed);
+      const h = handlerWith(accepts(OPERATOR), {
+        readEvents,
+        env: { ...ENV, CLUBWORX_ACCOUNT_KEY: '' },
+      });
+      const res = await h.call('/api/clubworx/events?from=2026-08-21&to=2026-09-30', withJwt);
+
+      expect(res.status).toBe(503);
+      expect((await res.json()).reason).toBe('not-configured');
+      expect(readEvents.calls).toHaveLength(0);
+    });
+
+    it('answers 400 for a window it will not send', async () => {
+      const h = handlerWith(accepts(OPERATOR), { readEvents: stub(refused('bad-request')) });
+      const res = await h.call('/api/clubworx/events', withJwt);
+
+      expect(res.status).toBe(400);
+      expect((await res.json()).reason).toBe('bad-request');
+    });
+
+    it('answers 429 for a throttle, with §11 wording rather than the WAF page', async () => {
+      const throttled = refused('throttled', { message: '<html>Too many requests</html>', upstreamStatus: 429 });
+      const h = handlerWith(accepts(OPERATOR), { readEvents: stub(throttled) });
+      const res = await h.call('/api/clubworx/events?from=2026-08-21&to=2026-09-30', withJwt);
+      const body = await res.json();
+
+      expect(res.status).toBe(429);
+      expect(body.error).toContain('another system');
+      expect(body.error).not.toContain('<html>');
+      expect(body.upstreamStatus).toBe(429);
+    });
+
+    it('answers 502 for any other upstream failure, verbatim', async () => {
+      const failed = refused('upstream-error', { message: 'events answered 500', upstreamStatus: 500 });
+      const h = handlerWith(accepts(OPERATOR), { readEvents: stub(failed) });
+      const res = await h.call('/api/clubworx/events?from=2026-08-21&to=2026-09-30', withJwt);
+
+      expect(res.status).toBe(502);
+      expect((await res.json()).error).toBe('events answered 500');
+    });
+
+    it('answers 400, not 404, for an event id nothing resolved', async () => {
+      // 404 is this Worker's answer for a route that does not exist. A page
+      // cannot tell "no such event" from "no such route" if both arrive as one
+      // number.
+      const h = handlerWith(accepts(OPERATOR), { readEvents: stub(refused('event-not-found')) });
+      const res = await h.call('/api/clubworx/events?event_id=999', withJwt);
+
+      expect(res.status).toBe(400);
+      expect((await res.json()).reason).toBe('event-not-found');
+    });
+  });
+
+  describe('GET /plan', () => {
+    const resolved = {
+      ok: true,
+      plan: {
+        membership_plan_id: 'mp-school',
+        name: 'School Pass',
+        membership_duration: '26 weeks',
+        duration: { ok: true, count: 26, unit: 'week', raw: '26 weeks' },
+      },
+      plans: 57,
+      pages: 1,
+      requests: 1,
+    };
+
+    it('forwards the name and hands back the id and the raw duration', async () => {
+      const readPlan = stub(resolved);
+      const h = handlerWith(accepts(OPERATOR), { readPlan });
+      const res = await h.call('/api/clubworx/plan?name=School%20Pass', withJwt);
+      const body = await res.json();
+
+      expect(readPlan.calls[0].name).toBe('School Pass');
+      // The two fields `POST /student` takes from its caller. This route is the
+      // only source of either.
+      expect(body.plan.membership_plan_id).toBe('mp-school');
+      expect(body.plan.membership_duration).toBe('26 weeks');
+    });
+
+    it('refuses a method other than GET', async () => {
+      const h = handlerWith(accepts(OPERATOR), { readPlan: stub(resolved) });
+      expect((await h.call('/api/clubworx/plan', { ...withJwt, method: 'POST' })).status).toBe(405);
+    });
+
+    it('tells an unfinished deploy apart from a Clubworx refusal', async () => {
+      const h = handlerWith(accepts(OPERATOR), {
+        readPlan: stub(resolved),
+        env: { ...ENV, CLUBWORX_ACCOUNT_KEY: '' },
+      });
+      const res = await h.call('/api/clubworx/plan?name=School%20Pass', withJwt);
+
+      expect(res.status).toBe(503);
+      expect((await res.json()).reason).toBe('not-configured');
+    });
+
+    it('answers 400 for a plan that resolved to nothing', async () => {
+      const h = handlerWith(accepts(OPERATOR), { readPlan: stub(refused('plan-not-found')) });
+      const res = await h.call('/api/clubworx/plan?name=Nope', withJwt);
+
+      expect(res.status).toBe(400);
+      expect((await res.json()).reason).toBe('plan-not-found');
+    });
+
+    it('carries the match count on an ambiguous name', async () => {
+      const h = handlerWith(accepts(OPERATOR), {
+        readPlan: stub(refused('plan-ambiguous', { matches: 2 })),
+      });
+      const body = await (await h.call('/api/clubworx/plan?name=School%20Pass', withJwt)).json();
+
+      expect(body.reason).toBe('plan-ambiguous');
+      expect(body.matches).toBe(2);
+    });
+
+    it('answers 400 for a truncated list, told apart from "not found"', async () => {
+      // The #60 trap: 50 of 57 came back and School Pass was among the seven
+      // missing, which reads exactly like a plan that does not exist.
+      const h = handlerWith(accepts(OPERATOR), { readPlan: stub(refused('plan-list-truncated')) });
+      const res = await h.call('/api/clubworx/plan?name=School%20Pass', withJwt);
+
+      expect(res.status).toBe(400);
+      expect((await res.json()).reason).toBe('plan-list-truncated');
+    });
+  });
+
+  describe('GET /schools', () => {
+    const listed = {
+      ok: true,
+      schools: [{ tag: 'newman', email: 'noreply+newman@urbanjungleirc.com', contacts: 63 }],
+      truncated: false,
+      views: [{ view: 'members', pages: 1, rows: 63 }],
+      requests: 3,
+    };
+
+    it('answers with the tags', async () => {
+      const h = handlerWith(accepts(OPERATOR), { readSchools: stub(listed) });
+      const res = await h.call('/api/clubworx/schools', withJwt);
+
+      expect(res.status).toBe(200);
+      expect((await res.json()).schools[0].tag).toBe('newman');
+    });
+
+    it('refuses a method other than GET', async () => {
+      const h = handlerWith(accepts(OPERATOR), { readSchools: stub(listed) });
+      expect((await h.call('/api/clubworx/schools', { ...withJwt, method: 'POST' })).status).toBe(405);
+    });
+
+    it('tells an unfinished deploy apart from a Clubworx refusal', async () => {
+      const h = handlerWith(accepts(OPERATOR), {
+        readSchools: stub(listed),
+        env: { ...ENV, CLUBWORX_ACCOUNT_KEY: '' },
+      });
+      expect((await h.call('/api/clubworx/schools', withJwt)).status).toBe(503);
+    });
+
+    it('names the view that failed, so an operator knows what is missing', async () => {
+      const h = handlerWith(accepts(OPERATOR), {
+        readSchools: stub(refused('upstream-error', { view: 'prospects', upstreamStatus: 500 })),
+      });
+      const body = await (await h.call('/api/clubworx/schools', withJwt)).json();
+
+      expect(body.view).toBe('prospects');
+    });
+  });
+
+  describe('the log line, on every one of them', () => {
+    it('records the route and the operator, and never the query string', async () => {
+      // `?q=` and `?name=` are harmless, but the rule is the route not the
+      // value: this is the same log line `?last_name=&dob=` travels past.
+      const h = handlerWith(accepts(OPERATOR), {
+        readEvents: stub({ ok: true, events: [], total: 0, truncated: false, pages: 1, requests: 1 }),
+      });
+      await h.call('/api/clubworx/events?from=2026-08-21&to=2026-09-30&q=Newman', withJwt);
+
+      const line = JSON.parse(h.lines[0]);
+      expect(line.route).toBe('/api/clubworx/events');
+      expect(line.email).toBe(OPERATOR);
+      expect(line.status).toBe(200);
+      expect(h.lines.join('\n')).not.toContain('Newman');
+    });
+
+    it('never logs the response, on a route whose rows are real children', async () => {
+      const h = handlerWith(accepts(OPERATOR), {
+        readSchools: stub({
+          ok: true,
+          schools: [{ tag: 'newman', email: 'noreply+newman@urbanjungleirc.com', contacts: 63 }],
+          truncated: false,
+          views: [],
+          requests: 3,
+        }),
+      });
+      await h.call('/api/clubworx/schools', withJwt);
+
+      const logged = h.lines.join('\n');
+      expect(logged).not.toContain('newman');
+      expect(logged).not.toContain(ENV.CLUBWORX_ACCOUNT_KEY);
+    });
+  });
+
+  it('answers no-store, like every other route on this Worker', async () => {
+    const h = handlerWith(accepts(OPERATOR), { readSchools: stub({ ok: true, schools: [], requests: 3 }) });
+    const res = await h.call('/api/clubworx/schools', withJwt);
     expect(res.headers.get('Cache-Control')).toBe('no-store');
   });
 });
