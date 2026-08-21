@@ -317,7 +317,10 @@ export async function cancelBooking({ client, bookingId, contactKey }) {
  */
 export async function cancelRunBookings({ client, contactKey = null, rows = [] }) {
   const failed = [];
-  let cancelled = 0;
+  // The ids, not only the count. A cancel is confirmed by re-reading the
+  // contact's bookings and finding them gone (§12, #70), and a count cannot say
+  // *which* ids to look for.
+  const cancelledIds = [];
   let skipped = 0;
 
   for (const row of rows) {
@@ -335,6 +338,7 @@ export async function cancelRunBookings({ client, contactKey = null, rows = [] }
         reason:
           'booked, but Clubworx returned no booking id, so there is no booking id to cancel — ' +
           'this one has to be undone by hand',
+        upstreamStatus: null,
       });
       continue;
     }
@@ -352,6 +356,7 @@ export async function cancelRunBookings({ client, contactKey = null, rows = [] }
         reason:
           'this booking carries no contact_key of its own, and a cancel will not be sent on a ' +
           'contact key supplied from outside the row',
+        upstreamStatus: null,
       });
       continue;
     }
@@ -365,16 +370,26 @@ export async function cancelRunBookings({ client, contactKey = null, rows = [] }
         reason:
           'this booking belongs to a different contact than the one being rolled back, so it ' +
           'has not been cancelled',
+        upstreamStatus: null,
       });
       continue;
     }
 
     const res = await cancelBooking({ client, bookingId: row.booking_id, contactKey: rowKey });
-    if (res.ok) cancelled += 1;
-    else failed.push({ event_id: row.event_id, booking_id: row.booking_id, reason: res.reason });
+    if (res.ok) cancelledIds.push(String(row.booking_id));
+    else
+      failed.push({
+        event_id: row.event_id,
+        booking_id: row.booking_id,
+        reason: res.reason,
+        // Carried so a caller can tell a throttle from a refusal without
+        // re-parsing the sentence. §11 pauses the whole run on a 429, and a
+        // reason string is the wrong thing to switch a run on.
+        upstreamStatus: res.upstreamStatus ?? null,
+      });
   }
 
-  return { cancelled, skipped, failed };
+  return { cancelled: cancelledIds.length, cancelledIds, skipped, failed };
 }
 
 /**

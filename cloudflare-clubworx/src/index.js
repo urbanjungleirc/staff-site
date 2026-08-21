@@ -22,13 +22,12 @@
  *
  * **Auth is Cloudflare Access, verified rather than assumed.** See `access.js`.
  *
- * Routes arrive a ticket at a time. #66 shipped the skeleton, the gate, the
+ * Routes arrived a ticket at a time. #66 shipped the skeleton, the gate, the
  * pacer and the request layer; #68 added `GET /contacts`; #69 added
- * `POST /student`, the only route here that writes; #67 added the three reads
- * the page opens with — `GET /events`, `GET /plan` and `GET /schools`. The
- * remaining one, `POST /unbook`, belongs to #70 and answers 404 until then,
- * deliberately: `main` is production on this repo and a page calling a route
- * that does not exist is a broken tool on the live hub (§17).
+ * `POST /student`, the route that creates the records nothing here can delete;
+ * #67 added the three reads the page opens with — `GET /events`, `GET /plan`
+ * and `GET /schools`; #70 added `POST /unbook`, the only reversal this system
+ * has. Every route §6 names is now here.
  */
 
 import { createAccessVerifier } from './access.js';
@@ -38,6 +37,7 @@ import { listEvents, resolveEvent } from './events.js';
 import { lookupPlan } from './plans.js';
 import { listSchools } from './schools.js';
 import { runStudentChain } from './student.js';
+import { unbookRun } from './unbook.js';
 import { isRealDay } from './duration.js';
 
 export const PREFIX = '/api/clubworx';
@@ -129,6 +129,13 @@ const defaultReadSchools = ({ env }) =>
   listSchools({ client: createClubworxClient({ accountKey: env.CLUBWORX_ACCOUNT_KEY }) });
 
 /**
+ * The cancel (#70). One paced client for the whole call, so the deletes and the
+ * verifying re-read queue behind each other like every other chain here.
+ */
+const defaultUnbook = ({ env, ...args }) =>
+  unbookRun({ client: createClubworxClient({ accountKey: env.CLUBWORX_ACCOUNT_KEY }), ...args });
+
+/**
  * What HTTP status a failed read leaves as.
  *
  * Three groups, and the grouping is the design rather than the convention:
@@ -206,6 +213,7 @@ const readFailure = result =>
  * @param {(args: object) => Promise<object>} [deps.readEvents]
  * @param {(args: object) => Promise<object>} [deps.readPlan]
  * @param {(args: object) => Promise<object>} [deps.readSchools]
+ * @param {(args: object) => Promise<object>} [deps.unbook]
  */
 export function createHandler({
   makeVerifier = defaultMakeVerifier,
@@ -215,6 +223,7 @@ export function createHandler({
   readEvents = defaultReadEvents,
   readPlan = defaultReadPlan,
   readSchools = defaultReadSchools,
+  unbook = defaultUnbook,
 } = {}) {
   return async function handle(request, env) {
     const url = new URL(request.url);
@@ -454,7 +463,64 @@ export function createHandler({
       return done(json(result, status), { email, outcome: result.outcome });
     }
 
-    // unbook arrives with #70.
+    if (path === '/unbook') {
+      if (method !== 'POST') return done(json({ error: 'method not allowed' }, 405), { email });
+
+      // A missing secret is a deploy that was never finished, not a Clubworx
+      // refusal — and here the caller is about to be told a rollback did not
+      // happen, which sends an operator into Clubworx by hand.
+      if (!env.CLUBWORX_ACCOUNT_KEY) return notConfigured();
+
+      let payload = null;
+      try {
+        payload = await request.json();
+      } catch {
+        payload = null;
+      }
+      if (!payload || typeof payload !== 'object' || !Array.isArray(payload.bookings)) {
+        return done(
+          json(
+            {
+              error: 'a JSON body carrying this run\u2019s booking rows is required',
+              reason: 'bad-request',
+            },
+            400,
+          ),
+          { email },
+        );
+      }
+
+      const result = await unbook({
+        env,
+        // Only ever used to REJECT a row belonging to somebody else. The key
+        // actually sent to Clubworx comes from the booking row — omitting it
+        // answers 401 "Authorization failed", and a caller-supplied one can be
+        // a different student's (§12, #50).
+        contactKey: payload.contact_key ?? null,
+        rows: payload.bookings,
+      });
+
+      // The same rule `POST /student` follows, and for the same reason: **a
+      // result is not an error.** A partial rollback's leftover list is the only
+      // record of which bookings a human still has to remove, and D10 writes it
+      // to the browser's localStorage as it lands. A 4xx or 5xx invites a client
+      // to throw the body away, and the body is the record.
+      //
+      // So only two things leave as a non-200:
+      //
+      //   - **429**, when the throttle cancelled nothing. §11 pauses the whole
+      //     run on one, because the allowance is gym-wide. Once a cancel HAS
+      //     landed there is a row to record, so it leaves as a 200 carrying
+      //     `reason: "throttled"` — the signal the page actually pauses on.
+      //   - **400** for a refusal that happened before anything was sent: no
+      //     rows, or a set mixing two contacts. Nothing was attempted, so there
+      //     is no row.
+      const throttled = result.reason === 'throttled' && result.cancelled === 0;
+      const status = throttled ? 429 : result.outcome === 'refused' ? 400 : 200;
+
+      return done(json(result, status), { email, outcome: result.outcome });
+    }
+
     return done(json({ error: 'not found' }, 404), { email });
   };
 }

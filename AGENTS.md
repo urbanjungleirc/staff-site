@@ -21,11 +21,14 @@ cloudflare-clubworx/    - uj-clubworx-api, the Worker for the school-group booki
                           comes from and where it lives). Verifies the Access JWT
                           rather than trusting the header, paces at 75 req/min, and
                           stores nothing — no student name or DOB in any store or
-                          log line. GET /api/clubworx/health (#66),
+                          log line. Every route the design names is built:
+                          GET /api/clubworx/health (#66),
                           GET /api/clubworx/contacts (#68),
-                          POST /api/clubworx/student (#69) and the three reads
-                          GET /api/clubworx/{events,plan,schools} (#67) so far;
-                          unbook arrives with #70.
+                          POST /api/clubworx/student (#69), the three reads
+                          GET /api/clubworx/{events,plan,schools} (#67) and
+                          POST /api/clubworx/unbook (#70), the only reversal
+                          there is — bookings can be cancelled, contacts and
+                          passes never.
                           src/student.js is the ONLY code here that creates
                           permanent records — contacts and memberships have no
                           delete, so every write is verified by re-reading it and

@@ -5,9 +5,9 @@ the school group booking map ([#46](https://github.com/urbanjungleirc/staff-site
 Design: `docs/superpowers/specs/2026-08-19-school-group-booking-design.md` §6.
 
 #66 shipped the **skeleton**: the Worker, the Access gate, the pacer and the
-request layer. #68 added the dedup read, #69 the write chain, and #67 the three
-reads the page opens with. Only `unbook` is left; it arrives with #70 and
-answers `404` until then.
+request layer. #68 added the dedup read, #69 the write chain, #67 the three
+reads the page opens with, and #70 the cancel. **Every route §6 names is now
+here.**
 
 | Route | Ticket | Does |
 |---|---|---|
@@ -16,7 +16,8 @@ answers `404` until then.
 | `GET /api/clubworx/events?from=&to=&q=` | #67 | Lists a date window, paged to exhaustion; `?event_id=` resolves a pasted id |
 | `GET /api/clubworx/plan?name=School+Pass` | #67 | Resolves the plan name to an id **and its `membership_duration`** — see below |
 | `GET /api/clubworx/schools` | #67 | Distinct School marker tags, for the school picker |
-| `POST /api/clubworx/student` | #69 | **The only route that writes.** One student, all their sessions — see below |
+| `POST /api/clubworx/student` | #69 | **The only route that creates.** One student, all their sessions — see below |
+| `POST /api/clubworx/unbook` | #70 | **The only reversal there is.** Cancels the bookings one run made for one student — see below |
 
 `ACCESS.md` in this directory is the answer to #47: where the key comes from,
 where it lives, and what is still owed. Read it first.
@@ -33,6 +34,7 @@ src/plans.js     name -> membership_plan_id + membership_duration (#67)
 src/schools.js   the distinct School marker tags                  (#67)
 src/student.js   the per-student write chain, and D3's rollback   (#69)
 src/bookings.js  book, cancel, and the error vocabulary           (#69)
+src/unbook.js    the cancel route: the interlock, and the re-read (#70)
 src/memberships.js  summariseMemberships + D4's pass verdict (promoted, #69)
 src/duration.js  the plan's duration, and what a pass covers      (#69)
 src/upstream.js  what a Clubworx failure means: retry, report, neither (#69)
@@ -500,6 +502,93 @@ Per student: 1 membership read (matched only) + 1 write + 1 verification read
 roughly **250 requests** against a 75/min ceiling shared with the roster Worker
 and n8n — about four minutes of gym-wide slowdown. `requests` is on every
 response.
+
+
+## `POST /unbook` — the only reversal there is
+
+Body: `{"contact_key": "...", "bookings": [ ...the rows `POST /student` returned ]}`.
+`contact_key` is optional; the rows carry their own.
+
+### What it can and cannot take back
+
+| Record | Reversible? |
+|---|---|
+| **Booking** | **Yes** — `DELETE /bookings/:id`, measured in #60 |
+| **Contact** | **No.** 42 endpoints reviewed, no delete anywhere. Removable only by hand in the Clubworx UI, against a ~60,000-profile database |
+| **School Pass membership** | **No.** None appears in the reference and none was attempted. It lapses at `expiration_date` |
+
+So a caller gets its bookings back and nothing else. A student left with a
+contact and a pass and no bookings is **stranded**, and under D3's rollback that
+is a routine outcome rather than an edge case — which is why **D12: there is no
+button called "Undo"**, only *"Cancel bookings from this run"*, with the
+permanence of contacts and passes stated beside it.
+
+### The interlock
+
+**It acts on rows marked `booked` and never on rows marked `already booked`.**
+
+This is a **safety interlock, not a display distinction.** Booking is idempotent,
+so a re-run marks rows `already booked` — and a cancel scoped to the whole row
+set would delete bookings *this run did not create*, possibly a session a real
+member booked themselves. #50 identified that as the worst outcome available on
+this map.
+
+The rule lives in `cancelRunBookings`, shared with D3's automatic rollback inside
+`POST /student`. There is **no flag to relax it**: a rollback path with no human
+present is exactly the caller that would set one.
+
+### `contact_key` comes from the booking, never from the caller
+
+`DELETE /api/v2/bookings/:id` requires `contact_key` **as well as** `account_key`,
+form-encoded in the body. Without it the answer is `401 "Authorization failed"` —
+indistinguishable from a key with no delete permission, and misdiagnosed as
+exactly that for a week in #50, which reported that bookings could not be deleted
+at all. **A permissions-shaped error meant a missing parameter.**
+
+The key sent therefore comes from the booking row. A caller-supplied one can be
+forgotten (that 401) or, worse, be a different student's — which points a
+`DELETE` at somebody else's class. The body's `contact_key`, when present, is
+used only to **reject** a row that does not match it.
+
+### One contact per call
+
+A set mixing two contacts is refused before anything is sent:
+
+- **Verification is a re-read of one contact's bookings.** A mixed set could only
+  be half-verified, and a half-verified cancel reported as done is the failure
+  this route exists to prevent.
+- **D1 — the browser drives, one Worker call per student.** The human control
+  spans a run, but it loops the way the run itself does. A whole-run cancel in
+  one invocation is the multi-minute one-shot response D1 rejected, with the same
+  unrecoverable failure mode: writes landed, log lost.
+
+### A `200` proves nothing — the re-read does
+
+#60 confirmed the reversal **by re-count** — 1 booking before, 0 after —
+precisely because a status code cannot show a `DELETE` that was accepted and
+changed nothing. So every cancel is checked against
+`GET /bookings?contact_key=`, and an id still present comes back as
+`still-booked`, never as cancelled. The re-read is skipped only when nothing was
+cancelled: it costs a request against a gym-wide allowance and there is no claim
+to check.
+
+`outcome` is one of `cancelled`, `partial`, `nothing-to-cancel`, `still-booked`,
+`unverified`, `failed` or `refused`, and `verified` says whether the re-read
+actually confirmed it.
+
+### Which statuses leave
+
+The same rule `POST /student` follows. Only two things are not a `200`:
+
+- **`429`** — a throttle **that cancelled nothing**. Once a cancel has landed
+  there is a row to record, so it leaves as a `200` carrying
+  `reason: "throttled"` — the signal the page pauses the run on.
+- **`400`** — a refusal before anything was sent: no rows, or a mixed set.
+
+Everything else is a `200` carrying the full result, including a partial
+rollback. **A result is not an error**: the `failed` and `stillBooked` lists are
+the only record of which bookings a human still has to remove by hand, and a
+non-200 invites a client to throw the body away.
 
 
 ## Pacing
