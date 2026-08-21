@@ -1183,9 +1183,11 @@ describe('the house date picker', () => {
     expect(app.monthLabel()).toBe('December 2026');
   });
 
-  test('the two pickers bound each other, so a backwards window cannot be clicked', async () => {
-    // canSearch() would refuse it afterwards, but with nothing saying which end
-    // to move. Disabling the cells is the version an operator can act on.
+  test('the last session may not precede the first, and the first is not capped by it', async () => {
+    // One bound reads as a fact — a last session before the first is not a
+    // window — and the other read as a cage: `from` capped at `to` meant the
+    // seeded fortnight was all the picker offered, with nothing explaining it
+    // (#108). So only the first of these holds.
     const app = await upToSessions(component());
     app.eventsFrom = '2026-09-10';
     app.eventsTo = '2026-09-20';
@@ -1198,8 +1200,8 @@ describe('the house date picker', () => {
 
     app.toggleDatePicker('from');
     const from = (iso) => app.monthCells().find((c) => c.iso === iso).disabled;
-    expect(from('2026-09-21')).toBe(true); // after `to`
-    expect(from('2026-09-20')).toBe(false);
+    expect(from('2026-09-21')).toBe(false); // past `to`, and allowed
+    expect(from('2026-09-30')).toBe(false);
   });
 
   test('the trigger shows a written date, not an ISO string', async () => {
@@ -1244,5 +1246,100 @@ describe('step 4 says each thing once', () => {
     app.pickSeries('e1');
     expect(app.selection.sessions).toBe(2);
     expect(app.sessionsLine()).toBe('2 sessions × 6 students = 12 bookings.');
+  });
+});
+
+describe('the date picker bounds (#108)', () => {
+  test('the first session cannot be in the past', async () => {
+    // Nothing is bookable behind you — a past session is a hard-stop on the
+    // selection anyway, so offering the date is offering a dead end.
+    const app = await upToSessions(component());
+    const today = app.todayDay();
+    app.toggleDatePicker('from');
+
+    const cells = app.monthCells().filter((c) => !c.empty);
+    const past = cells.filter((c) => c.iso < today);
+    const future = cells.filter((c) => c.iso >= today);
+    expect(past.every((c) => c.disabled)).toBe(true);
+    expect(future.every((c) => !c.disabled)).toBe(true);
+  });
+
+  test('the first session is not capped by the seeded fortnight', async () => {
+    // The bug reported on #106: `from` was bounded above by `to`, and `to` is
+    // seeded to today + 14 — so the picker offered a fortnight and nothing
+    // explained why. A term starts when it starts; the second date follows the
+    // first, not the other way round.
+    const app = await upToSessions(component());
+    app.toggleDatePicker('from');
+    app.stepMonth(1);
+    app.stepMonth(1);
+    app.stepMonth(1); // three months past the seeded window
+    expect(app.monthCells().filter((c) => !c.empty).every((c) => !c.disabled)).toBe(true);
+  });
+
+  test('moving the first session past the last carries the last with it', async () => {
+    // Rather than leaving a backwards window with Search dark and nothing
+    // saying which end to move. The field shows the new date, so nothing is
+    // hidden by it.
+    const app = await upToSessions(component());
+    app.toggleDatePicker('from');
+    app.pickDay('2027-03-01');
+    expect(app.eventsFrom).toBe('2027-03-01');
+    expect(app.eventsTo).toBe('2027-03-01');
+    expect(app.canSearch()).toBe(true);
+  });
+
+  test('a first session inside the window leaves the last alone', async () => {
+    const app = await upToSessions(component());
+    const to = app.eventsTo;
+    app.toggleDatePicker('from');
+    app.pickDay(app.eventsFrom); // today, well before `to`
+    expect(app.eventsTo).toBe(to);
+  });
+
+  test('the last session still cannot precede the first', async () => {
+    const app = await upToSessions(component());
+    app.eventsFrom = '2026-09-10';
+    app.toggleDatePicker('to');
+    const at = (iso) => app.monthCells().find((c) => c.iso === iso).disabled;
+    expect(at('2026-09-09')).toBe(true);
+    expect(at('2026-09-10')).toBe(false);
+
+    // And no upper bound: three months on, everything is still selectable.
+    app.stepMonth(3);
+    expect(app.monthCells().filter((c) => !c.empty).every((c) => !c.disabled)).toBe(true);
+  });
+});
+
+describe('the picker’s Today button (#108)', () => {
+  test('it jumps the view to today and picks it', async () => {
+    const app = await upToSessions(component());
+    app.toggleDatePicker('from');
+    app.stepMonth(6);
+    app.goToday();
+    expect(app.eventsFrom).toBe(app.todayDay());
+    expect(app.datePicker).toBe(null);
+  });
+
+  test('it is offered only when today is a date this picker may take', async () => {
+    // On the `to` picker with a first session in the future, today is behind
+    // the minimum — so the button would be a control that cannot work.
+    const app = await upToSessions(component());
+    app.toggleDatePicker('from');
+    expect(app.todayPickable()).toBe(true);
+
+    app.eventsFrom = '2027-01-01';
+    app.toggleDatePicker('to');
+    expect(app.todayPickable()).toBe(false);
+  });
+
+  test('an unpickable Today does nothing rather than setting a refused date', async () => {
+    const app = await upToSessions(component());
+    app.eventsFrom = '2027-01-01';
+    app.eventsTo = '2027-02-01';
+    app.toggleDatePicker('to');
+    app.goToday();
+    expect(app.eventsTo).toBe('2027-02-01');
+    expect(app.datePicker).toBe('to');
   });
 });

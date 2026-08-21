@@ -308,6 +308,33 @@
 
   .dp-empty { pointer-events: none; }
 
+  /* A Today shortcut inside the panel. roster.html has none — its Today is a
+     button in the page's own day nav — but this page has no day nav, and a
+     school booking is nearly always being set up for the term starting now. */
+  .dp-footer {
+    margin-top: 12px;
+    padding-top: 12px;
+    border-top: 1px solid rgba(31, 41, 55, 0.08);
+    display: flex;
+    justify-content: center;
+  }
+
+  .dp-today-btn {
+    border: 1px solid rgba(139, 28, 35, 0.25);
+    border-radius: 8px;
+    background: transparent;
+    color: #8b1c23;
+    font: inherit;
+    font-size: 0.8rem;
+    font-weight: 600;
+    padding: 5px 16px;
+    cursor: pointer;
+    transition: background 120ms ease;
+  }
+
+  .dp-today-btn:hover:not(:disabled) { background: rgba(139, 28, 35, 0.08); }
+  .dp-today-btn:disabled { opacity: 0.35; cursor: default; }
+
   /* The trigger, shaped like the other fields on this step rather than like
      roster.html's header button — same control, different background. */
   .dp-field {
@@ -862,6 +889,12 @@
                             x-text="cell.day"></button>
                   </template>
                 </div>
+                <div class="dp-footer">
+                  <button type="button" class="dp-today-btn"
+                          :disabled="!todayPickable()"
+                          :title="todayPickable() ? '' : 'Today is before the first session'"
+                          @click="goToday()">Today</button>
+                </div>
               </div>
             </div>
           </div>
@@ -902,6 +935,12 @@
                             @click="cell.empty || pickDay(cell.iso)"
                             x-text="cell.day"></button>
                   </template>
+                </div>
+                <div class="dp-footer">
+                  <button type="button" class="dp-today-btn"
+                          :disabled="!todayPickable()"
+                          :title="todayPickable() ? '' : 'Today is before the first session'"
+                          @click="goToday()">Today</button>
                 </div>
               </div>
             </div>
@@ -1769,26 +1808,64 @@ function schoolBooking() {
       return window.schoolBookingCalendar.monthLabel(this.dpYear, this.dpMonth);
     },
 
-    // The two pickers bound each other: `from` cannot be set past `to`, and
-    // `to` cannot be set before `from`. That is what keeps a backwards window
-    // from being reachable by clicking, rather than only refused afterwards by
-    // canSearch() with nothing saying which end to move.
+    // What each picker may offer.
+    //
+    // `from` starts at **today**: nothing is bookable behind you — a past
+    // session is a hard-stop on the selection anyway — so offering an earlier
+    // date is offering a dead end. It has **no upper bound**. It briefly did,
+    // capped at `to`, which meant the seeded fortnight showed as a fortnight of
+    // selectable days and nothing on screen explained the cage. A term starts
+    // when it starts; the second date follows the first, not the reverse.
+    //
+    // `to` starts at `from`, which is the one bound that reads as a fact rather
+    // than a restriction — a last session before the first is not a window.
+    // It has no upper bound either.
     monthCells() {
       const which = this.datePicker;
       if (!which) return [];
       return window.schoolBookingCalendar.monthGrid(this.dpYear, this.dpMonth, {
         selected: this.dayFor(which),
         today: this.todayDay(),
-        min: which === 'to' ? this.eventsFrom : '',
-        max: which === 'from' ? this.eventsTo : '',
+        min: which === 'to' ? this.firstAllowedTo() : this.todayDay(),
+        max: '',
       });
+    },
+
+    // The earliest a last session may be: the first session, or today when no
+    // usable first session has been set.
+    firstAllowedTo() {
+      return window.schoolBookingCalendar.isRealDay(this.eventsFrom)
+        ? this.eventsFrom
+        : this.todayDay();
     },
 
     pickDay(day) {
       if (!day) return;
-      if (this.datePicker === 'from') this.eventsFrom = day;
-      else if (this.datePicker === 'to') this.eventsTo = day;
+      if (this.datePicker === 'from') {
+        this.eventsFrom = day;
+        // Carry the last session along rather than leaving a backwards window
+        // with Search dark and nothing saying which end to move. Not a silent
+        // adjustment — the second field shows the new date, and the operator
+        // is on their way to setting it properly anyway.
+        if (this.eventsTo < day) this.eventsTo = day;
+      } else if (this.datePicker === 'to') {
+        this.eventsTo = day;
+      }
       this.closeDatePicker();
+    },
+
+    // Today, when this picker is allowed to take it. On the `to` picker with a
+    // first session in the future it is behind the minimum, and a button that
+    // cannot work is one somebody presses at the moment they need it to.
+    todayPickable() {
+      const today = this.todayDay();
+      if (!today || !this.datePicker) return false;
+      return this.datePicker === 'to' ? today >= this.firstAllowedTo() : true;
+    },
+
+    goToday() {
+      if (!this.todayPickable()) return;
+      this.pickDay(this.todayDay());
     },
 
     // `Fri 21 Aug 2026` — a written date, because a picker that shows an ISO
