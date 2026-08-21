@@ -39,7 +39,7 @@
 // written something the Worker answers 200 and carries `reason: "throttled"`,
 // because the body is then the only record of what was written.
 
-import { cancellable, isFailure, studentRecord } from './outcome.js?v=2';
+import { cancelRows, cancellable, isFailure, studentRecord } from './outcome.js?v=2';
 
 /** #51 measured ~18 s of throttling. Two attempts, then the page is told. */
 export const RETRY_BACKOFF_MS = 20_000;
@@ -89,16 +89,15 @@ const throttled = (answer) => answer.status === 429 || answer.body?.reason === '
 /**
  * Apply — the whole run.
  *
- * Stops for exactly three reasons, and says which: a throttle, three
- * consecutive failures, or the page asking it to. In all three the completed
- * rows are left intact and handed back, because the halt is a pause in a run
- * whose earlier students are already permanent.
+ * Stops for exactly two reasons, and says which: a throttle, or three
+ * consecutive failures. In both the completed rows are left intact and handed
+ * back, because the halt is a pause in a run whose earlier students are already
+ * permanent.
  *
  * @param {object} opts
  * @param {Array<{payload: object}>} opts.students what `runList` built, in table order
  * @param {(payload: object) => Promise<{status: number, body: object}>} opts.call injected
  * @param {(record: object, records: object[]) => void} [opts.onRow] fired per student — D10
- * @param {() => boolean} [opts.stopped] asked between students
  * @param {(ms: number) => Promise<void>} [opts.sleep]
  * @returns {Promise<{state: 'complete'|'halted', reason: string|null, message: string,
  *   records: object[], remaining: number}>}
@@ -107,7 +106,6 @@ export async function runStudents({
   students = [],
   call,
   onRow = () => {},
-  stopped = () => false,
   sleep = defaultSleep,
 } = {}) {
   const records = [];
@@ -122,8 +120,6 @@ export async function runStudents({
   });
 
   for (let i = 0; i < students.length; i += 1) {
-    if (stopped()) return halt('stopped', 'The run was stopped. Everything above is done.', i);
-
     const answer = await attempt(call, students[i].payload, sleep);
     const record = studentRecord({
       student: students[i],
@@ -155,24 +151,6 @@ export async function runStudents({
 }
 
 /**
- * The rows to send to `POST /unbook` for one student.
- *
- * The whole array `POST /student` handed back, less anything a previous cancel
- * already removed — **not** pre-filtered down to `booked`. The Worker's
- * `cancelRunBookings` owns the interlock and takes each row's own
- * `contact_key`, so handing it the rows as they came keeps one authority for
- * the rule rather than two that can drift.
- *
- * Dropping ids a previous pass already cancelled is a different thing: those
- * bookings are gone, and re-sending them turns a clean partial cancel into a
- * screenful of new failures.
- */
-function cancelRows(record) {
-  const gone = new Set((record?.cancel?.cancelledIds ?? []).map(String));
-  return (record?.bookings ?? []).filter((b) => !gone.has(String(b?.booking_id ?? '')));
-}
-
-/**
  * "Cancel bookings from this run" — D12.
  *
  * One student per call, the same shape Apply uses and for the same reason: a
@@ -194,7 +172,6 @@ export async function cancelStudents({
   records = [],
   call,
   onRow = () => {},
-  stopped = () => false,
   sleep = defaultSleep,
 } = {}) {
   const out = [...records];
@@ -202,9 +179,6 @@ export async function cancelStudents({
   for (let i = 0; i < out.length; i += 1) {
     const record = out[i];
     if (cancellable(record).length === 0) continue;
-    if (stopped()) {
-      return { state: 'halted', reason: 'stopped', message: 'The cancel was stopped.', records: out };
-    }
 
     const answer = await attempt(
       call,

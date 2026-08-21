@@ -204,10 +204,32 @@ function doneLine(row) {
  *     ids that are gone and read the refusals as a new failure.
  */
 export function cancellable(record) {
-  const gone = new Set((record?.cancel?.cancelledIds ?? []).map(String));
+  const gone = cancelledIds(record);
   return (record?.bookings ?? []).filter(
     (b) => b?.state === 'booked' && b?.booking_id && !gone.has(String(b.booking_id)),
   );
+}
+
+/** The booking ids a previous cancel already removed. One rule, one home. */
+const cancelledIds = (record) => new Set((record?.cancel?.cancelledIds ?? []).map(String));
+
+/**
+ * The rows to send to `POST /unbook` for one student.
+ *
+ * The whole array `POST /student` handed back, less anything a previous cancel
+ * already removed — **not** pre-filtered down to `booked`. The Worker's
+ * `cancelRunBookings` owns the interlock and takes each row's own
+ * `contact_key`, so handing it the rows as they came keeps one authority for
+ * the rule rather than two that can drift. `cancellable` above is what decides
+ * whether a student is sent at all; this is what is in the envelope.
+ *
+ * Dropping ids a previous pass already cancelled is a different thing: those
+ * bookings are gone, and re-sending them turns a clean partial cancel into a
+ * screenful of new failures.
+ */
+export function cancelRows(record) {
+  const gone = cancelledIds(record);
+  return (record?.bookings ?? []).filter((b) => !gone.has(String(b?.booking_id ?? '')));
 }
 
 /**
@@ -248,6 +270,21 @@ export function cancelReport(record) {
       })),
     ],
   };
+}
+
+/**
+ * The cancel's headline, in the Worker's own words.
+ *
+ * `message` travels verbatim — it is the Worker's sentence about a set of
+ * bookings, and it already distinguishes "cancelled and confirmed gone" from
+ * "accepted and could not be confirmed", which is the distinction a re-wording
+ * would lose (D6).
+ */
+export function cancelLine(record) {
+  const c = record?.cancel;
+  if (!c) return '';
+  const head = `${c.cancelled ?? 0} cancelled`;
+  return c.message ? `${head} — ${c.message}` : head;
 }
 
 /** Whether anything in the run can still be cancelled. */

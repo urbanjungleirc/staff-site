@@ -1570,7 +1570,7 @@ function schoolBooking() {
     runMessage: '',
     runProgress: '',
     runAt: null,
-    runSessionLabels: [],
+    runSessionStarts: [],
     expandedResult: null,
     cancelState: 'idle',
     cancelMessage: '',
@@ -2559,7 +2559,7 @@ function schoolBooking() {
       this.cancelState = 'idle';
       this.cancelMessage = '';
       this.runAt = new Date().toISOString();
-      this.runSessionLabels = (this.preview.sessions ?? []).map((e) => e.event_start_at);
+      this.runSessionStarts = (this.preview.sessions ?? []).map((e) => e.event_start_at);
       this.expandedResult = null;
       this.runProgress = `Starting ${students.length} student${students.length === 1 ? '' : 's'}…`;
       this.guardUnload(true);
@@ -2614,7 +2614,7 @@ function schoolBooking() {
       this.store().save({
         at: this.runAt,
         school: this.tag,
-        sessions: this.runSessionLabels,
+        sessions: this.runSessionStarts,
         state: this.runState,
         records: this.runRecords,
       });
@@ -2713,19 +2713,15 @@ function schoolBooking() {
       return window.schoolBookingOutcome.cancelReport(record);
     },
 
-    /** The line a cancelled row shows, in the Worker's own words. */
     cancelLine(record) {
-      if (!record.cancel) return '';
-      const c = record.cancel;
-      const head = `${c.cancelled ?? 0} cancelled`;
-      return c.message ? `${head} — ${c.message}` : head;
+      return window.schoolBookingOutcome.cancelLine(record);
     },
 
     recordText() {
       return window.schoolBookingOutcome.runRecordText(this.runRecords, {
         school: this.tag,
         at: this.runAt,
-        sessions: this.runSessionLabels,
+        sessions: this.runSessionStarts,
       });
     },
 
@@ -2754,7 +2750,7 @@ function schoolBooking() {
       if (!this.restored) return;
       this.runRecords = this.restored.records ?? [];
       this.runAt = this.restored.at ?? null;
-      this.runSessionLabels = this.restored.sessions ?? [];
+      this.runSessionStarts = this.restored.sessions ?? [];
       this.runState = this.restored.state ?? 'complete';
       this.restored = null;
       this.maxStepReached = 5;

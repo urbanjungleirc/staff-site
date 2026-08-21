@@ -243,22 +243,6 @@ describe('runStudents — D7, the circuit breaker', () => {
   });
 });
 
-describe('runStudents — the single-flight caller can stop it', () => {
-  test('a stop signal ends the run cleanly between students', async () => {
-    let stop = false;
-    const call = vi.fn(async () => { stop = true; return ok(completeBody()); });
-    const result = await runStudents({
-      students: [student(1), student(2), student(3)],
-      call,
-      stopped: () => stop,
-      sleep: nosleep,
-    });
-    expect(result.state).toBe('halted');
-    expect(result.reason).toBe('stopped');
-    expect(call).toHaveBeenCalledTimes(1);
-  });
-});
-
 describe('cancelStudents — D12', () => {
   const done = (key) => ({
     key,
