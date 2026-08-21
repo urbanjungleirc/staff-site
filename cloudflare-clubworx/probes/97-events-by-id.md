@@ -86,17 +86,69 @@ on them.
 So the finding is *there is no route* rather than *the event could not be
 found* — resting on the identical answers, not on the clock.
 
-## Path addressing exists in this API — just not here
+## Path addressing exists in this API — per resource, and not for events
 
-`DELETE /bookings/:id` was measured working in [#60](60-member-school-pass-booking.md).
-So Clubworx does address individual records by path, which is exactly why
-`events/:id` was a reasonable guess, and exactly why it had to be checked rather
-than assumed. The API's shape is **inconsistent between resources**, and no part
-of the published reference says so.
+Measured 2026-08-21, same key, same session, within one minute of the events
+calls above:
 
-The general lesson for this map is the one #50 already paid for: *an endpoint
-nobody has completed is unproven*, and a plausible pattern from a neighbouring
-resource is not evidence about this one.
+| Call | Answer |
+|---|---|
+| `GET /members/<a real contact_key>` | **200**, a bare object |
+| `GET /members/<a well-formed key belonging to nobody>` | **401** |
+| `GET /events/<a real event_id>` | **404** |
+| `GET /locations/<a real location_id>` | **404** |
+| `DELETE /bookings/<id>` | **works** — measured in [#60](60-member-school-pass-booking.md) |
+
+So path addressing is **not absent from this API and not universal in it** — it
+is a property of each resource, and no part of the published reference says
+which resources have it. `members` has it for GET. `bookings` has it for DELETE.
+`events` and `locations` do not.
+
+That is what makes `events/:id` a reasonable guess and a necessary check at the
+same time. The lesson is the one #50 already paid for: *an endpoint nobody has
+completed is unproven*, and a plausible pattern from a neighbouring resource is
+not evidence about this one.
+
+### `GET /members/<unknown key>` answers 401, not 404
+
+Worth its own heading, because it is [#50](50-membership-less-booking.md)'s trap
+on a second endpoint. A well-formed `contact_key` that belongs to nobody does
+not come back "not found" — it comes back **401**, the status that reads as *you
+are not allowed*, on a request that was perfectly well authorised.
+
+`README.md`'s standing rule — *read an endpoint's parameters before concluding
+anything from a 401* — now has a second measured instance behind it, and a
+sharper form: **on this API a 401 may be about the identifier, not the
+credential.** Anything probing a Clubworx id needs a control call with a known-good
+identifier before it reads a 401 as a permissions wall.
+
+## It was not rate limiting, and that was checked
+
+The gym has one key (#47), shared by this tool, the HVT roster Worker and two
+active n8n workflows, so "we were cut off for overuse" is a fair first
+hypothesis for an unexpected refusal. It is wrong here, and the refutation is
+cheap enough to record:
+
+- **No `429` anywhere**, in roughly forty requests across four probe runs and a
+  control run. #51 measured that a throttle answers `429` for ~18 seconds and
+  often in HTML; neither appeared.
+- **Collection reads kept working, interleaved with the 404s** — `GET /events`
+  returned **200, 200, 200** in the same run as two `404`s on `events/:id`,
+  seconds apart on the same connection. A cut-off cannot be selective by path.
+- **`GET /members/<key>` returned 200 in the same minute** as `events/:id`
+  returned 404. One path-addressed GET working while another fails rules out the
+  key, the quota and the connection in a single comparison.
+- **Neither other consumer calls `events/:id` at all.** The HVT Worker reads
+  `/events` as a collection and is request-driven — no cron, no scheduled
+  handler. The n8n term-enrolment workflow is email-triggered and uses only
+  collection endpoints with query filters.
+
+Two things about those consumers are worth knowing anyway, because they *would*
+matter under load and neither is visible from here: the HVT roster fans out one
+`members/<key>` request **per contact in parallel** (up to ~300 at once, against
+a measured ~75/min ceiling), and its `/events`→`/bookings` fallback catches any
+error — including a `429` — and immediately issues up to three more requests
+rather than backing off.
 
 ## What a staff member sees today
 
