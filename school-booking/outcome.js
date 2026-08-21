@@ -81,6 +81,7 @@ export function studentRecord({ student, status = null, body = null, error = nul
     strandedDetail: null,
     rollback: null,
     warnings: [],
+    rolledBack: 0,
     throttled: false,
     // Filled by the cancel pass, and only then — an absent cancel and a cancel
     // that did nothing are different facts.
@@ -104,7 +105,13 @@ export function studentRecord({ student, status = null, body = null, error = nul
   const reply = body ?? {};
   const outcome = reply.outcome ?? 'failed';
   const bookings = Array.isArray(reply.bookings) ? reply.bookings : [];
-  const booked = bookings.filter((b) => b?.state === 'booked').length;
+  // D3's rollback has already cancelled these, and the Worker hands the rows
+  // back unmutated — so counting every `booked` row would report bookings that
+  // no longer exist as ones staff could still cancel.
+  const rolledBack = new Set((reply.rollback?.cancelledIds ?? []).map(String));
+  const booked = bookings.filter(
+    (b) => b?.state === 'booked' && !rolledBack.has(String(b?.booking_id)),
+  ).length;
   const alreadyBooked = bookings.filter((b) => b?.state === 'already booked').length;
   const throttled = reply.reason === 'throttled';
 
@@ -122,6 +129,7 @@ export function studentRecord({ student, status = null, body = null, error = nul
     stranded: reply.stranded === true,
     strandedDetail: reply.strandedDetail ?? null,
     rollback: reply.rollback ?? null,
+    rolledBack: rolledBack.size,
     warnings: Array.isArray(reply.warnings) ? reply.warnings : [],
     throttled,
     detail: reply.message ?? '',
@@ -204,14 +212,46 @@ function doneLine(row) {
  *     ids that are gone and read the refusals as a new failure.
  */
 export function cancellable(record) {
-  const gone = cancelledIds(record);
+  const gone = goneIds(record);
   return (record?.bookings ?? []).filter(
     (b) => b?.state === 'booked' && b?.booking_id && !gone.has(String(b.booking_id)),
   );
 }
 
-/** The booking ids a previous cancel already removed. One rule, one home. */
-const cancelledIds = (record) => new Set((record?.cancel?.cancelledIds ?? []).map(String));
+/**
+ * Every booking id that is already gone. One rule, one home.
+ *
+ * **Two sources, and missing the second is a bug that re-cancels.** The obvious
+ * one is a previous run of the human control (`record.cancel`). The other is
+ * **D3's automatic rollback**: when a student is abandoned the Worker cancels
+ * that student's bookings itself and reports them in `rollback.cancelledIds` —
+ * but it hands back the booking rows **unmutated**, so they still read
+ * `state: 'booked'` and still carry live-looking ids. Reading only `cancel`
+ * therefore offers to cancel bookings the Worker already cancelled, on exactly
+ * the rows whose own `strandedDetail` says the student has *no bookings from
+ * this run*.
+ */
+const goneIds = (record) => new Set([
+  ...(record?.cancel?.cancelledIds ?? []),
+  ...(record?.rollback?.cancelledIds ?? []),
+].map(String));
+
+/**
+ * The bookings as they now stand, with the rows that are gone saying so.
+ *
+ * The Worker's row is a record of what the *booking call* did, and it is not
+ * rewritten when a later cancel removes it. Rendering it raw shows `booked`
+ * beside an id that no longer exists — and that id is the one a human would
+ * then go looking for in Clubworx.
+ */
+export function bookingRows(record) {
+  const gone = goneIds(record);
+  const rolled = new Set((record?.rollback?.cancelledIds ?? []).map(String));
+  return (record?.bookings ?? []).map((b) => {
+    if (b?.state !== 'booked' || !gone.has(String(b?.booking_id))) return b;
+    return { ...b, state: rolled.has(String(b.booking_id)) ? 'rolled back' : 'cancelled' };
+  });
+}
 
 /**
  * The rows to send to `POST /unbook` for one student.
@@ -228,7 +268,7 @@ const cancelledIds = (record) => new Set((record?.cancel?.cancelledIds ?? []).ma
  * screenful of new failures.
  */
 export function cancelRows(record) {
-  const gone = cancelledIds(record);
+  const gone = goneIds(record);
   return (record?.bookings ?? []).filter((b) => !gone.has(String(b?.booking_id ?? '')));
 }
 
@@ -305,6 +345,7 @@ export function resultTotals(records) {
     failed: 0,
     stranded: 0,
     cancelled: 0,
+    rolledBack: 0,
     notRun: 0,
   };
 
@@ -314,6 +355,7 @@ export function resultTotals(records) {
     totals.bookings += row.booked;
     totals.alreadyBooked += row.alreadyBooked;
     totals.cancelled += row.cancel?.cancelled ?? 0;
+    totals.rolledBack += row.rolledBack ?? 0;
     if (row.stranded) totals.stranded += 1;
     if (row.state === 'refused') totals.refused += 1;
     if (row.state === 'not run') totals.notRun += 1;
@@ -321,6 +363,44 @@ export function resultTotals(records) {
   }
 
   return totals;
+}
+
+/**
+ * A student the run never reached.
+ *
+ * D11 is *"the same rows, same order"*, and a halt that quietly shortens the
+ * table breaks the half of that which matters most: staff need to see **where
+ * it got to**, and a table of 5 rows after a halt at student 5 of 25 reads as a
+ * list of 5 students rather than a run that stopped. Nothing was written for
+ * these, so re-running the list is how they are finished (D5).
+ */
+export function notRunRecord(student, detail) {
+  return {
+    key: student?.key ?? null,
+    name: student?.name ?? '',
+    dob: student?.dob ?? null,
+    sessions: student?.sessions ?? 0,
+    contactKey: student?.contactKey ?? null,
+    status: null,
+    outcome: 'not-run',
+    reason: 'not-run',
+    state: 'not run',
+    label: 'not run',
+    detail,
+    bookings: [],
+    booked: 0,
+    alreadyBooked: 0,
+    contactCreated: false,
+    passGranted: false,
+    written: false,
+    stranded: false,
+    strandedDetail: null,
+    rollback: null,
+    rolledBack: 0,
+    warnings: [],
+    throttled: false,
+    cancel: null,
+  };
 }
 
 /** Row numbers, 1-based, for the states staff have to go and look at. */
@@ -351,6 +431,10 @@ export function resultLine(records) {
       ? `${plural(t.bookings, 'booking')} made, ${t.cancelled} cancelled since`
       : `${plural(t.bookings, 'booking')} made (can be cancelled)`,
   ];
+  // Without this the bookings total simply reads lower than the run made, with
+  // nothing on screen accounting for the difference. D3's rollback is a routine
+  // outcome, not an edge case, so it gets a clause.
+  if (t.rolledBack > 0) parts.push(`${plural(t.rolledBack, 'booking')} rolled back`);
   if (t.alreadyBooked > 0) parts.push(`${t.alreadyBooked} already booked`);
 
   const refused = rowsWhere(rows, (r) => r.state === 'refused');

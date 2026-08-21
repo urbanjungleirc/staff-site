@@ -1609,8 +1609,13 @@ describe('the run reports the bad outcomes honestly', () => {
     expect(app.runMessage).toContain('another system');
     // Two students done, the third attempted twice, and nobody after it sent.
     expect(app.__writes).toHaveLength(4);
-    expect(app.runRecords).toHaveLength(3);
+    // The table still holds all six — D11's row set survives the halt, so the
+    // screen shows where the run got to rather than a shorter list.
+    expect(app.runRecords).toHaveLength(6);
+    expect(app.runRecords.filter((r) => r.state === 'not run')).toHaveLength(4);
+    expect(app.runRemaining).toBe(3);
     expect(app.resultLine()).toContain('2 contacts created (permanent)');
+    expect(app.resultLine()).toContain('4 not run');
   });
 
   test('a stranded student is named on screen, not buried in a count', async () => {
@@ -1666,6 +1671,43 @@ describe('cancelling — D12, and never called Undo', () => {
     expect(app.cancellableCount()).toBe(0);
     app.askCancel();
     expect(app.cancelConfirming).toBe(false);
+    await app.cancelRun();
+    expect(app.__writes.filter((w) => w.route === 'unbook')).toHaveLength(0);
+  });
+
+  test('a student D3 already rolled back offers nothing, and is never re-sent', async () => {
+    // The Worker cancelled these itself when it abandoned the student, and
+    // hands the rows back unmutated — still reading `booked`, still carrying
+    // their ids. Offering them would re-send ids that are already gone.
+    const app = await upToApply(component({
+      student: () => ({
+        status: 200,
+        body: {
+          ...STUDENT_OK,
+          ok: false,
+          outcome: 'abandoned',
+          reason: 'booking-refused',
+          message: 'Sorry, this class has no free spaces available.',
+          stranded: true,
+          strandedDetail: 'This student has a contact and a School Pass and no bookings from this run.',
+          rollback: {
+            cancelled: 2, cancelledIds: ['bk-1', 'bk-2'], failed: [], stillBooked: [], verified: true, skipped: 0,
+          },
+        },
+      }),
+    }));
+
+    expect(app.runRecords[0].state).toBe('stranded');
+    // Three abandoned students in a row is a systemic condition, so D7 stops it.
+    expect(app.runState).toBe('halted');
+    expect(app.runReason).toBe('consecutive-failures');
+
+    expect(app.cancellableCount()).toBe(0);
+    // And the table does not claim bookings that no longer exist.
+    expect(app.resultLine()).toContain('0 bookings made');
+    expect(app.resultLine()).toContain('6 bookings rolled back');
+    expect(app.bookingRows(app.runRecords[0]).every((b) => b.state === 'rolled back')).toBe(true);
+
     await app.cancelRun();
     expect(app.__writes.filter((w) => w.route === 'unbook')).toHaveLength(0);
   });

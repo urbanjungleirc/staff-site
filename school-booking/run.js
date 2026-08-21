@@ -39,7 +39,7 @@
 // written something the Worker answers 200 and carries `reason: "throttled"`,
 // because the body is then the only record of what was written.
 
-import { cancelRows, cancellable, isFailure, studentRecord } from './outcome.js?v=2';
+import { cancelRows, cancellable, isFailure, notRunRecord, studentRecord } from './outcome.js?v=2';
 
 /** #51 measured ~18 s of throttling. Two attempts, then the page is told. */
 export const RETRY_BACKOFF_MS = 20_000;
@@ -111,13 +111,21 @@ export async function runStudents({
   const records = [];
   let consecutive = 0;
 
-  const halt = (reason, message, index) => ({
-    state: 'halted',
-    reason,
-    message,
-    records,
-    remaining: students.length - index,
-  });
+  // A halt does not shorten the table. The students it never reached are added
+  // as `not run` rows so the result stays the preview's row set in the
+  // preview's order (D11) — the point of that being that staff can see WHERE
+  // the run stopped, which a table missing its tail cannot show. Nothing was
+  // written for them, so a re-run is how they are finished (D5).
+  const halt = (reason, message, index) => {
+    const untried = students.slice(index);
+    for (const student of untried) {
+      records.push(notRunRecord(
+        student,
+        'The run stopped before reaching this student. Nothing was written for them.',
+      ));
+    }
+    return { state: 'halted', reason, message, records, remaining: untried.length };
+  };
 
   for (let i = 0; i < students.length; i += 1) {
     const answer = await attempt(call, students[i].payload, sleep);

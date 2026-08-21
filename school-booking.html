@@ -1294,6 +1294,9 @@
              x-show="runState === 'halted'" x-cloak>
           <div class="font-semibold">The run stopped early</div>
           <div class="text-xs mt-1 opacity-90" x-text="runMessage"></div>
+          <div class="text-xs mt-1 opacity-90" x-show="runRemaining > 0" x-cloak
+               x-text="`${runRemaining} student(s) were never reached. They are in the table below as `
+                 + 'not run, and nothing was written for them.'"></div>
           <div class="text-xs mt-1 opacity-90">
             Re-running the same list is safe and is how this is finished: students already done come
             back as <span class="mono">already booked</span>.
@@ -1342,13 +1345,28 @@
                   <td colspan="5" class="px-4 py-3">
                     <div class="text-[0.78rem] text-neutral-600 mb-2">└ <span x-text="record.detail"></span></div>
 
+                    <!-- The write chain's own warnings about this student. It
+                         raises them precisely where it went ahead anyway, so
+                         dropping them loses the only notice that it did. -->
+                    <div class="text-[0.78rem] text-amber-800 mb-2" x-show="record.warnings.length > 0" x-cloak>
+                      <template x-for="warning in record.warnings" :key="warning">
+                        <div x-text="warning"></div>
+                      </template>
+                    </div>
+
                     <!-- The booking ids, because a stranded or half-cancelled
                          student is finished by hand in Clubworx and this is
                          what a human needs to find them. -->
                     <div x-show="record.bookings.length > 0" x-cloak>
                       <span class="field-label">Bookings</span>
                       <div class="space-y-1">
-                        <template x-for="b in record.bookings" :key="b.event_id">
+                        <!-- bookingRows(), not record.bookings: the Worker's row
+                             records what the BOOKING call did and is not
+                             rewritten when D3's rollback cancels it, so a raw
+                             row shows `booked` beside an id that no longer
+                             exists — and that id is the one a human would then
+                             go hunting for in Clubworx. -->
+                        <template x-for="b in bookingRows(record)" :key="b.event_id">
                           <div class="flex items-center gap-2 flex-wrap text-[0.78rem]">
                             <span class="mono text-[0.7rem] text-neutral-500" x-text="b.event_id"></span>
                             <span x-text="b.state"></span>
@@ -1569,6 +1587,7 @@ function schoolBooking() {
     runReason: null,
     runMessage: '',
     runProgress: '',
+    runRemaining: 0,
     runAt: null,
     runSessionStarts: [],
     expandedResult: null,
@@ -2517,7 +2536,11 @@ function schoolBooking() {
       const students = this.preview?.totals?.students ?? 0;
       const sessions = this.preview?.sessions?.length ?? 0;
       if (students === 0) return '';
-      const requests = students * (4 + sessions);
+      // §6's arithmetic, not an estimate of its own: 3 dedup reads + 1
+      // membership read + a contact write + a membership write + one booking
+      // per event. It is what makes 25 students x 6 sessions the ~300 requests
+      // and ~4 minutes the design tells staff about.
+      const requests = students * (6 + sessions);
       const minutes = Math.max(1, Math.ceil(requests / 75));
       return `About ${requests} Clubworx requests — roughly ${minutes} minute${minutes === 1 ? '' : 's'} `
         + 'at the 75-a-minute allowance, which is shared with the whole gym. The roster and the '
@@ -2561,6 +2584,7 @@ function schoolBooking() {
       this.runAt = new Date().toISOString();
       this.runSessionStarts = (this.preview.sessions ?? []).map((e) => e.event_start_at);
       this.expandedResult = null;
+      this.runRemaining = 0;
       this.runProgress = `Starting ${students.length} student${students.length === 1 ? '' : 's'}…`;
       this.guardUnload(true);
       this.go(5);
@@ -2581,6 +2605,7 @@ function schoolBooking() {
       this.runState = result.state;
       this.runReason = result.reason;
       this.runMessage = result.message;
+      this.runRemaining = result.remaining;
       this.runProgress = '';
       this.running = false;
       this.guardUnload(false);
@@ -2707,6 +2732,10 @@ function schoolBooking() {
       this.running = false;
       this.guardUnload(false);
       this.saveRun();
+    },
+
+    bookingRows(record) {
+      return window.schoolBookingOutcome.bookingRows(record);
     },
 
     cancelReport(record) {

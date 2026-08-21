@@ -170,9 +170,10 @@ describe('runStudents — a 429 pauses the whole run', () => {
     expect(result.reason).toBe('throttled');
     expect(call).toHaveBeenCalledTimes(1);
     // Completed rows are left intact — the halt states its reason and destroys
-    // nothing.
-    expect(result.records).toHaveLength(1);
+    // nothing — and the student it never reached is still in the table.
+    expect(result.records).toHaveLength(2);
     expect(result.records[0].stranded).toBe(true);
+    expect(result.records[1].state).toBe('not run');
   });
 });
 
@@ -189,8 +190,12 @@ describe('runStudents — D7, the circuit breaker', () => {
 
     expect(result.state).toBe('halted');
     expect(result.reason).toBe('consecutive-failures');
-    expect(result.records).toHaveLength(FAILURE_LIMIT);
     expect(result.remaining).toBe(2);
+    // D11 — the table keeps the whole row set. Three failures, then the two
+    // the run never reached, so the halt is visible as a position in the list.
+    expect(result.records).toHaveLength(5);
+    expect(result.records.filter((r) => r.state === 'not run')).toHaveLength(2);
+    expect(result.records[4].detail).toContain('stopped before reaching this student');
   });
 
   test('a success between failures resets the count', async () => {
