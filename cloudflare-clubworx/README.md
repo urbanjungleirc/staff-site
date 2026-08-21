@@ -269,6 +269,7 @@ response so a run can be held to that budget.
 [#60]: https://github.com/urbanjungleirc/staff-site/issues/60
 [#67]: https://github.com/urbanjungleirc/staff-site/issues/67
 [#92]: https://github.com/urbanjungleirc/staff-site/issues/92
+[#97]: https://github.com/urbanjungleirc/staff-site/issues/97
 
 ## The #67 read routes — `events`, `plan`, `schools`
 
@@ -312,8 +313,8 @@ paste-the-id fallback below is a hard requirement rather than a nicety.
 
   **`GET /events/:id` is unmeasured.** Path addressing exists in this API
   (`DELETE /bookings/:id`, [#60]) but has never been exercised here, so whether
-  this works against production is an open question a probe should close — noted
-  on [#67]. It also does **not** survive Clubworx enforcing the `contact_key` its
+  this works against production is an open question a probe should close —
+  filed as [#97]. It also does **not** survive Clubworx enforcing the `contact_key` its
   reference documents: that takes `/events` down as a whole, and this route is on
   the same endpoint.
 

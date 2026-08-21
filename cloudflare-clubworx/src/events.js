@@ -325,7 +325,7 @@ export async function listEvents({ client, from, to, q = '', now = new Date().to
  * Every probe so far has read the collection. Path addressing exists in this API
  * — `DELETE /bookings/:id` was measured in #60 — but `events/:id` has never been
  * exercised, so **whether this route works at all against production is an open
- * question a probe should close** (noted on #67).
+ * question a probe should close** — filed as #97.
  *
  * An earlier draft fell back to re-walking `from`/`to` when the direct call
  * failed. That was dropped: it spends up to `MAX_PAGES` requests of a gym-wide

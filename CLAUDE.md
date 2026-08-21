@@ -37,8 +37,8 @@ cloudflare-clubworx/src/events.js - the event picker's read, the 24-hour lead
                           paste-an-id lookup. It ANNOTATES and never filters:
                           a session missing from the picker is invisible, where
                           one greyed out with its reason is a human decision.
-                          GET /events/:id is UNMEASURED — see the resolveEvent
-                          header before assuming the paste field works.
+                          GET /events/:id is UNMEASURED (#97) — see the
+                          resolveEvent header before assuming the paste works.
 cloudflare-clubworx/src/paging.js - walking a Clubworx list when the response
                           carries no total, no next-page link and no header. A
                           full page is unfinished, never an answer; what the
