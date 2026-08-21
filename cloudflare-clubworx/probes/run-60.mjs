@@ -54,9 +54,9 @@ import {
   classifyWrite,
   describeDuplicateBooking,
   describeCancellation,
-  findPlanByName,
-  describeLeadTime,
 } from './lib/report.mjs';
+import { describeLeadTime } from '../src/events.js';
+import { findPlanByName } from '../src/plans.js';
 import { summariseMemberships } from '../src/memberships.js';
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));

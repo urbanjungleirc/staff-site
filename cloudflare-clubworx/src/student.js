@@ -86,16 +86,20 @@ import {
   readBookings,
 } from './bookings.js';
 import { PAGE_SIZE } from './contacts.js';
+import { MIN_LEAD_HOURS } from './events.js';
 import { isRetryable, upstreamMessage, upstreamReason } from './upstream.js';
 
 /**
- * UJ's School Sessions refuse a booking made inside a day of the start. The
- * rule lives in Clubworx's configuration and no endpoint exposes it, so it is
- * pre-empted here rather than met as Clubworx's own message — *"Sorry! This
- * class is now closed for bookings."* — which names no cause and reads like a
- * capacity problem (D9).
+ * The lead-time rule is defined once, in `events.js`, and re-exported here for
+ * the callers that already read it off the write chain.
+ *
+ * It lives with the events because both halves of it are about an event: the
+ * picker greys a session out with it (#67) and this chain hard-stops on it
+ * (D9). Two copies would drift, and the drift shows up as a run refused at its
+ * last step for a session the page had shown as selectable — with nothing on
+ * either screen to say why the two disagreed.
  */
-export const MIN_LEAD_HOURS = 24;
+export { MIN_LEAD_HOURS };
 
 /** #51 measured ~18 s of throttling. Two attempts, then the page is told. */
 export const RETRY_BACKOFF_MS = 20_000;

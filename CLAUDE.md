@@ -23,14 +23,38 @@ cloudflare-clubworx/    - uj-clubworx-api, the Worker for the school-group booki
                           rather than trusting the header, paces at 75 req/min, and
                           stores nothing — no student name or DOB in any store or
                           log line. GET /api/clubworx/health (#66),
-                          GET /api/clubworx/contacts (#68) and
-                          POST /api/clubworx/student (#69) so far; events, plan,
-                          schools and unbook arrive with #67/#70.
+                          GET /api/clubworx/contacts (#68),
+                          POST /api/clubworx/student (#69) and the three reads
+                          GET /api/clubworx/{events,plan,schools} (#67) so far;
+                          unbook arrives with #70.
 cloudflare-clubworx/src/contacts.js - the dedup read. Searches all three disjoint
                           status views and merges, because a contact moves between
                           them (#49). Every uncertain answer is a refusal: an
                           empty candidate set means "new", and "new" writes a
                           contact Clubworx cannot delete.
+cloudflare-clubworx/src/events.js - the event picker's read, the 24-hour lead
+                          time (defined here, imported by student.js) and the
+                          paste-an-id lookup. It ANNOTATES and never filters:
+                          a session missing from the picker is invisible, where
+                          one greyed out with its reason is a human decision.
+                          GET /events/:id is UNMEASURED (#97) — see the
+                          resolveEvent header before assuming the paste works.
+cloudflare-clubworx/src/paging.js - walking a Clubworx list when the response
+                          carries no total, no next-page link and no header. A
+                          full page is unfinished, never an answer; what the
+                          ceiling MEANS is the caller's to decide, because on
+                          /plan it is a refusal and on /events it is a flag.
+cloudflare-clubworx/src/plans.js - name -> membership_plan_id, and the plan's
+                          membership_duration. #60 saw 50 of 57 plans come back
+                          with School Pass among the missing, so a full page is
+                          "truncated", never "no such plan"; a duplicate name is
+                          refused rather than guessed. The number 26 lives in
+                          Clubworx, not here (ADR 0005).
+cloudflare-clubworx/src/schools.js - the distinct School marker tags, across
+                          all three status views. Returns tags and counts, never
+                          contacts. A tag missing here is a staff member typing
+                          a second spelling of a school onto records that cannot
+                          be deleted.
 cloudflare-clubworx/src/student.js - the per-student write chain, and the ONLY
                           code here that creates permanent records. Contacts and
                           memberships have no delete, so every write is verified
@@ -47,9 +71,10 @@ cloudflare-clubworx/src/memberships.js - is the held School Pass good enough? Th
                           "active today" (ADR 0005). A live-but-short pass
                           refuses rather than granting a second one to a live
                           holder — #90's open question.
-cloudflare-clubworx/src/ - the Worker. request.js, errors.js and
-                          summariseMemberships were moved here from probes/lib/
-                          by #66 and #69, and the probes import them back.
+cloudflare-clubworx/src/ - the Worker. request.js, errors.js,
+                          summariseMemberships, findPlanByName, describeLeadTime
+                          and pickBookableEvents were moved here from probes/lib/
+                          by #66, #69 and #67, and the probes import them back.
 cloudflare-clubworx/probes/ - read-only probes against the live Clubworx API, and
                           what they found. Start with probes/README.md — it carries
                           the rules (no production data recorded, pace under

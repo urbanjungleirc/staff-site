@@ -22,9 +22,10 @@ cloudflare-clubworx/    - uj-clubworx-api, the Worker for the school-group booki
                           rather than trusting the header, paces at 75 req/min, and
                           stores nothing — no student name or DOB in any store or
                           log line. GET /api/clubworx/health (#66),
-                          GET /api/clubworx/contacts (#68) and
-                          POST /api/clubworx/student (#69) so far; events, plan,
-                          schools and unbook arrive with #67/#70.
+                          GET /api/clubworx/contacts (#68),
+                          POST /api/clubworx/student (#69) and the three reads
+                          GET /api/clubworx/{events,plan,schools} (#67) so far;
+                          unbook arrives with #70.
                           src/student.js is the ONLY code here that creates
                           permanent records — contacts and memberships have no
                           delete, so every write is verified by re-reading it and
