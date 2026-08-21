@@ -180,8 +180,15 @@ school-booking/outcome.js - what one `POST /student` answer means, and what a
                           cancellable() is D12's interlock — an `already booked`
                           row was NOT made by this run, so cancelling it may
                           delete a booking a real member made themselves. The
-                          three permanence classes are counted apart, never
-                          collapsed into a success total.
+                          interlock has TWO sources of already-gone ids, and
+                          missing the second re-cancels: the human control's
+                          `cancel.cancelledIds`, and D3's automatic rollback,
+                          which cancels an abandoned student's bookings and
+                          reports them in `rollback.cancelledIds` while handing
+                          the rows back UNMUTATED — still reading `booked`, ids
+                          intact. bookingRows() is what stops a dead id being
+                          rendered as live. The three permanence classes are
+                          counted apart, never collapsed into a success total.
 school-booking/parse.js - turns a pasted school student list into rows plus the
                           list-level inferences (layout, column mapping, date
                           orientation). Pure and unit tested; §7 of the design
