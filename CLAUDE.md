@@ -100,10 +100,18 @@ cloudflare-clubworx/probes/ - read-only probes against the live Clubworx API, an
                           what they found. Start with probes/README.md — it carries
                           the rules (no production data recorded, pace under
                           75 req/min) that any new probe has to follow.
-school-booking.html     - the school booking page, steps 1-5 (#71, #72): school,
-                          paste + declare the count, the parse result with
-                          inline row resolution, the session picker, and the
-                          preview. Variant A of §9, decided on #54. NOT in
+school-booking.html     - the school booking page, steps 1-5 (#71, #72, #106):
+                          school, paste + declare the count, the parse result
+                          with inline row resolution, the session picker, and
+                          the preview. Step 4 reads NOTHING until the operator
+                          names a date window and presses Search: a term-wide
+                          window is ~900 events at this gym — five requests of a
+                          gym-wide allowance and a table nobody can scan.
+                          Narrowing the dates is the only lever on that cost;
+                          the name filter is applied in the Worker's memory
+                          AFTER the walk, so it shortens the table and never the
+                          request count. The date fields are the house picker
+                          (calendar.js), not the browser's. Variant A of §9, decided on #54. NOT in
                           tools.json and unreachable from the hub until #46's
                           last step — §17's order, because `main` is production.
                           Step 6 (Apply, the run engine, the result table) is
@@ -125,6 +133,24 @@ school-booking/events.js - what a SELECTION of sessions is: the same-name,
                           window already on screen — GET /events/:id answers 404
                           for every id, real or invented (#97), so a message
                           built on it would tell staff a correct id is wrong.
+                          seriesReach() answers the cost of letting staff set
+                          the window (#106): preTicked can only tick what the
+                          window holds, so a `to` that stops mid-term books a
+                          partial series. It projects the next session from the
+                          MEDIAN gap — the lower one on a tie, so a cancelled
+                          week cannot suppress the warning — and says so when
+                          that date falls past what was actually loaded.
+school-booking/calendar.js - the month grid behind the house date picker, plus
+                          isRealDay(). roster.html draws the same calendar
+                          imperatively against live Date objects; this is the
+                          same thing as data, so Alpine can render it and the
+                          arithmetic can be tested rather than eyeballed in a
+                          dropdown. Keep the two looking identical — the .dp-*
+                          CSS is ported from roster.html, so a change belongs in
+                          both files or neither. `2026-02-30` is why isRealDay
+                          exists: it does not throw, it rolls to 2 March, and a
+                          window shifted by two days is a session missing from
+                          the picker with nothing on screen explaining it.
 school-booking/preview.js - step 5: the STUDENT/DOB/READ/CLUBWORX/OUTCOME table,
                           the match resolution log, the per-row consequence and
                           the aggregate permanence line, plus every hard-stop

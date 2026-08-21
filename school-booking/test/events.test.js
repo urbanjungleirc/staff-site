@@ -14,6 +14,7 @@ import {
   resolvePastedId,
   selectedEvents,
   selectionReport,
+  seriesReach,
   sessionsLine,
 } from '../events.js';
 
@@ -34,10 +35,12 @@ const event = (over = {}) => ({
 });
 
 describe('defaultWindow', () => {
-  test('it opens on the run day and runs a term ahead', () => {
+  test('it opens on the run day and offers a fortnight to widen from', () => {
+    // A starting point, not a guess at the run: nothing loads until Search is
+    // pressed, so the default's job is to be cheap if it is left alone.
     expect(defaultWindow('2026-08-21T14:00:00+08:00')).toEqual({
       from: '2026-08-21',
-      to: '2026-11-19',
+      to: '2026-09-04',
     });
   });
 
@@ -368,5 +371,71 @@ describe('the picker and the report agree about severity', () => {
     const report = selectionReport({ events: [soon], selected: ['s'], studentCount: 6 });
     expect(report.ready).toBe(false);
     expect(sessionRefusal(soon).severity).toBe('block');
+  });
+});
+
+describe('seriesReach — a hand-set window can cut a series in half', () => {
+  // Nothing loads until the operator names the dates, so the window is now
+  // theirs to get wrong. `preTicked` can only tick what the window holds, so a
+  // `to` that stops mid-term books a partial series with nothing on screen
+  // saying so. This is the something.
+  const weekly = (id, day) => event({
+    event_id: id,
+    event_start_at: `2026-09-${day}T09:00:00+08:00`,
+  });
+
+  test('a series whose next session would be inside the window is complete', () => {
+    // Ticked 1st and 8th, window runs to the 30th. If a 15th existed the walk
+    // would have found it, so its absence is evidence rather than a blind spot.
+    const events = [weekly('a', '01'), weekly('b', '08')];
+    expect(seriesReach({ events, selected: ['a', 'b'], windowTo: '2026-09-30' }))
+      .toMatchObject({ complete: true });
+  });
+
+  test('a series running up to the window edge warns, and names the date it cannot see', () => {
+    const events = [weekly('a', '15'), weekly('b', '22'), weekly('c', '29')];
+    const reach = seriesReach({ events, selected: ['a', 'b', 'c'], windowTo: '2026-09-30' });
+    expect(reach.complete).toBe(false);
+    expect(reach.nextExpected).toBe('2026-10-06');
+    expect(reach.message).toContain('2026-10-06');
+    expect(reach.message).toMatch(/widen/i);
+  });
+
+  test('it is a warning, never a block', () => {
+    const events = [weekly('a', '22'), weekly('b', '29')];
+    const report = selectionReport({
+      events, selected: ['a', 'b'], studentCount: 6, windowTo: '2026-09-30',
+    });
+    const warning = report.blockers.find((b) => b.kind === 'series-reach');
+    expect(warning.severity).toBe('warn');
+    expect(report.ready).toBe(true);
+  });
+
+  test('one session is not a series, so nothing is projected from it', () => {
+    // With a single tick there is no interval to project, and inventing one
+    // would warn about a session nobody has evidence for.
+    const events = [weekly('a', '29')];
+    expect(seriesReach({ events, selected: ['a'], windowTo: '2026-09-30' }))
+      .toMatchObject({ complete: true, nextExpected: null });
+  });
+
+  test('nothing ticked says nothing', () => {
+    expect(seriesReach({ events: [weekly('a', '01')], selected: [], windowTo: '2026-09-30' }))
+      .toMatchObject({ complete: true });
+  });
+
+  test('an uneven spacing uses the median gap rather than the last one', () => {
+    // A cancelled week leaves a 14-day hole. Projecting from the last gap
+    // alone would push the expectation a fortnight out and hide a real edge.
+    const events = [weekly('a', '01'), weekly('b', '08'), weekly('c', '22')];
+    const reach = seriesReach({ events, selected: ['a', 'b', 'c'], windowTo: '2026-09-25' });
+    expect(reach.nextExpected).toBe('2026-09-29'); // 22nd + 7, not + 14
+    expect(reach.complete).toBe(false);
+  });
+
+  test('no window end means nothing to be past', () => {
+    const events = [weekly('a', '22'), weekly('b', '29')];
+    expect(seriesReach({ events, selected: ['a', 'b'], windowTo: '' }))
+      .toMatchObject({ complete: true });
   });
 });

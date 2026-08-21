@@ -17,6 +17,7 @@ import * as steps from '../steps.js';
 import * as identity from '../identity.js';
 import * as events from '../events.js';
 import * as preview from '../preview.js';
+import * as calendar from '../calendar.js';
 
 const html = readFileSync(new URL('../../school-booking.html', import.meta.url), 'utf8');
 const fixture = (name) =>
@@ -96,6 +97,7 @@ function component({
     schoolBookingIdentity: identity,
     schoolBookingEvents: events,
     schoolBookingPreview: preview,
+    schoolBookingCalendar: calendar,
   };
   globalThis.fetch = vi.fn(async (url) => {
     const target = String(url);
@@ -184,6 +186,7 @@ describe('bootstrap', () => {
       schoolBookingIdentity: identity,
       schoolBookingEvents: events,
       schoolBookingPreview: preview,
+      schoolBookingCalendar: calendar,
     };
     globalThis.fetch = vi.fn();
     const app = await settled(makeComponent());
@@ -572,6 +575,7 @@ describe('step 3 — resolving a row', () => {
 // ---------------------------------------------------------------------------
 
 // Six students on three columns, so the counts below are the fixture's own.
+// As far as step 4, with the dates seeded and nothing read yet.
 const upToSessions = async (app, opts = {}) => {
   await upToStepThree(app, opts);
   app.toSessions();
@@ -579,25 +583,93 @@ const upToSessions = async (app, opts = {}) => {
   return app;
 };
 
-const upToPreview = async (app, opts = {}) => {
+// …and with the timetable actually read, which is now an explicit act. The
+// window is widened past the fortnight the page seeds, because the fixture
+// sessions are in September and the point of the seed is that it is short.
+const withEvents = async (app, opts = {}) => {
   await upToSessions(app, opts);
+  app.eventsFrom = '2026-08-21';
+  app.eventsTo = '2026-12-31';
+  await app.loadEvents();
+  return app;
+};
+
+const upToPreview = async (app, opts = {}) => {
+  await withEvents(app, opts);
   app.pickSeries('e1');
   await app.toPreview();
   return app;
 };
 
 describe('step 4 — the session picker', () => {
-  test('going forward opens a window and reads the timetable once', async () => {
+  test('going forward reads nothing until the operator says which dates', async () => {
+    // A term-wide window is ~900 events at this gym — five requests of an
+    // allowance the whole gym shares, spent on arrival before anybody has said
+    // what they want, and a table too long to scan. So the dates are seeded
+    // and the read waits.
     const app = await upToSessions(component());
     expect(app.stepIndex).toBe(3);
-    expect(app.eventsFrom).toMatch(/^\d{4}-\d{2}-\d{2}$/);
-    expect(app.eventsTo > app.eventsFrom).toBe(true);
+    expect(app.eventsState).toBe('idle');
+    expect(app.events).toEqual([]);
 
     const reads = globalThis.fetch.mock.calls.map(([url]) => String(url));
-    expect(reads.filter((u) => u.includes('/api/clubworx/events'))).toHaveLength(1);
+    expect(reads.filter((u) => u.includes('/api/clubworx/events'))).toHaveLength(0);
+
+    // Seeded, not blank: a starting point beats two empty boxes every time.
+    expect(app.eventsFrom).toMatch(/^\d{4}-\d{2}-\d{2}$/);
+    expect(app.eventsTo).toMatch(/^\d{4}-\d{2}-\d{2}$/);
+    expect(app.eventsTo > app.eventsFrom).toBe(true);
+  });
+
+  test('searching reads the window that is on screen', async () => {
+    const app = await upToSessions(component());
+    app.eventsFrom = '2026-09-01';
+    app.eventsTo = '2026-09-30';
+    await app.loadEvents();
+
+    const read = globalThis.fetch.mock.calls.map(([url]) => String(url))
+      .find((u) => u.includes('/api/clubworx/events'));
     // The window is a request parameter, not a filter: Clubworx refuses
     // `/events` with no window at all (#51), so the page always names one.
-    expect(reads.find((u) => u.includes('/events'))).toContain('from=');
+    expect(read).toContain('from=2026-09-01');
+    expect(read).toContain('to=2026-09-30');
+    expect(app.events).toHaveLength(3);
+  });
+
+  test('Search stays dark until both dates are real days', async () => {
+    // A blank or impossible date is a Worker 422 the operator cannot act on —
+    // "from and to are required, each as a real YYYY-MM-DD day" is a sentence
+    // about a field they cannot see. Caught here instead.
+    const app = await upToSessions(component());
+    expect(app.canSearch()).toBe(true);
+
+    app.eventsTo = '';
+    expect(app.canSearch()).toBe(false);
+    app.eventsTo = '2026-02-30'; // rolls forward rather than erroring
+    expect(app.canSearch()).toBe(false);
+    app.eventsTo = '2026-09-30';
+    expect(app.canSearch()).toBe(true);
+
+    // Backwards is not a window either.
+    app.eventsFrom = '2026-10-30';
+    expect(app.canSearch()).toBe(false);
+  });
+
+  test('a search that cannot run does not reach the network', async () => {
+    const app = await upToSessions(component());
+    app.eventsTo = '';
+    await app.loadEvents();
+    expect(globalThis.fetch.mock.calls.filter(([u]) => String(u).includes('/events'))).toHaveLength(0);
+    expect(app.eventsState).toBe('idle');
+  });
+
+  test('the name filter is optional — a blank one still searches', async () => {
+    const app = await upToSessions(component());
+    expect(app.eventsQuery).toBe('');
+    await app.loadEvents();
+    const read = globalThis.fetch.mock.calls.map(([url]) => String(url))
+      .find((u) => u.includes('/api/clubworx/events'));
+    expect(read).not.toContain('q=');
     expect(app.events).toHaveLength(3);
   });
 
@@ -610,7 +682,7 @@ describe('step 4 — the session picker', () => {
   });
 
   test('picking the first session ticks its series and nothing else', async () => {
-    const app = await upToSessions(component());
+    const app = await withEvents(component());
     app.pickSeries('e1');
     expect(app.picked).toEqual(['e1', 'e2']); // Open Climb is a different series
     expect(app.selection.ready).toBe(true);
@@ -619,7 +691,7 @@ describe('step 4 — the session picker', () => {
   });
 
   test('a tick can be taken off again, and the numbers follow', async () => {
-    const app = await upToSessions(component());
+    const app = await withEvents(component());
     app.pickSeries('e1');
     app.togglePick('e2');
     expect(app.picked).toEqual(['e1']);
@@ -627,7 +699,7 @@ describe('step 4 — the session picker', () => {
   });
 
   test('nothing picked keeps the forward button dark', async () => {
-    const app = await upToSessions(component());
+    const app = await withEvents(component());
     expect(app.selection.ready).toBe(false);
     expect(app.selection.blockers.map((b) => b.kind)).toContain('no-events');
   });
@@ -641,7 +713,7 @@ describe('step 4 — the session picker', () => {
       lead: { hoursAhead: 3, past: false, withinLeadTime: true, minLeadHours: 24, unreadable: false },
       bookable: false,
     };
-    const app = await upToSessions(component({ eventList: [...EVENTS, soon] }));
+    const app = await withEvents(component({ eventList: [...EVENTS, soon] }));
     app.togglePick('e1');
     app.togglePick('soon');
     const blocker = app.selection.blockers.find((b) => b.kind === 'lead-time');
@@ -660,7 +732,7 @@ describe('step 4 — the session picker', () => {
       lead: { hoursAhead: -10, past: true, withinLeadTime: false, minLeadHours: 24, unreadable: false },
       bookable: false,
     };
-    const app = await upToSessions(component({ eventList: [past] }));
+    const app = await withEvents(component({ eventList: [past] }));
     expect(app.events).toHaveLength(1); // annotated, never filtered
     expect(app.eventLane(past)).toBe('lane-bad');
     expect(app.eventWarning(past)).toBe('Already started.');
@@ -668,14 +740,14 @@ describe('step 4 — the session picker', () => {
   });
 
   test('too few spaces warns without blocking', async () => {
-    const app = await upToSessions(component());
+    const app = await withEvents(component());
     app.togglePick('e3'); // Open Climb reports 4 spaces for 6 students
     expect(app.selection.blockers.some((b) => b.kind === 'spaces' && b.severity === 'warn')).toBe(true);
     expect(app.selection.ready).toBe(true);
   });
 
   test('searching by name re-reads and drops ticks the new window no longer holds', async () => {
-    const app = await upToSessions(component());
+    const app = await withEvents(component());
     app.togglePick('e3');
     app.eventsQuery = 'School Session';
     await app.loadEvents();
@@ -687,7 +759,7 @@ describe('step 4 — the session picker', () => {
   });
 
   test('a failed events read says so and leaves the picker empty rather than stale', async () => {
-    const app = await upToSessions(component({ eventsFail: true }));
+    const app = await withEvents(component({ eventsFail: true }));
     expect(app.eventsState).toBe('error');
     expect(app.eventsNote()).toContain('Could not read');
     expect(app.events).toEqual([]);
@@ -695,7 +767,7 @@ describe('step 4 — the session picker', () => {
   });
 
   test('a pasted id resolves against the loaded window, then waits to be confirmed', async () => {
-    const app = await upToSessions(component());
+    const app = await withEvents(component());
     app.pastedEventId = ' e1 ';
     app.usePastedId();
     expect(app.pastedIdOk).toBe(true);
@@ -710,7 +782,7 @@ describe('step 4 — the session picker', () => {
     // #97: `GET /events/:id` answers 404 for a real id and an invented one
     // alike, so nothing can tell them apart — and "no such event" sends staff
     // to re-check an id that is fine.
-    const app = await upToSessions(component());
+    const app = await withEvents(component());
     app.pastedEventId = '999999';
     app.usePastedId();
     expect(app.pastedIdOk).toBe(false);
@@ -883,7 +955,7 @@ describe('an unresolvable plan stops the run before it spends the allowance', ()
     // and nothing caches them — so a run that cannot proceed would spend them
     // again on the next attempt. The plan is a Clubworx configuration fix, so
     // there is nothing the operator can do with the answers meanwhile.
-    const app = await upToSessions(component({
+    const app = await withEvents(component({
       plan: { ok: false, reason: 'plan-not-found', message: 'no membership plan is named "School Pass"' },
     }));
     app.pickSeries('e1');
@@ -905,7 +977,7 @@ describe('the pasted id is a shortcut past the search, never past the confirmati
   test('resolving offers the session for confirmation and ticks nothing yet', async () => {
     // §8: "The id is resolved and shown with its name, date and
     // `spaces_available` for confirmation before it can be selected."
-    const app = await upToSessions(component());
+    const app = await withEvents(component());
     app.pastedEventId = 'e1';
     app.usePastedId();
 
@@ -917,7 +989,7 @@ describe('the pasted id is a shortcut past the search, never past the confirmati
   });
 
   test('confirming ticks the series from that session', async () => {
-    const app = await upToSessions(component());
+    const app = await withEvents(component());
     app.pastedEventId = 'e1';
     app.usePastedId();
     app.confirmPastedId();
@@ -929,7 +1001,7 @@ describe('the pasted id is a shortcut past the search, never past the confirmati
     // It replaces because pasting an id is the same statement as "pick this
     // first". Silently discarding six ticked sessions is what makes that
     // surprising, so the sentence names the count before the click.
-    const app = await upToSessions(component());
+    const app = await withEvents(component());
     app.togglePick('e3');
     app.pastedEventId = 'e1';
     app.usePastedId();
@@ -938,7 +1010,7 @@ describe('the pasted id is a shortcut past the search, never past the confirmati
   });
 
   test('an unresolvable id offers nothing to confirm', async () => {
-    const app = await upToSessions(component());
+    const app = await withEvents(component());
     app.togglePick('e1');
     app.pastedEventId = '999999';
     app.usePastedId();
@@ -948,7 +1020,7 @@ describe('the pasted id is a shortcut past the search, never past the confirmati
   });
 
   test('a resolved session can be dismissed without being taken', async () => {
-    const app = await upToSessions(component());
+    const app = await withEvents(component());
     app.pastedEventId = 'e1';
     app.usePastedId();
     app.cancelPastedId();
@@ -991,7 +1063,7 @@ describe('a preview cannot outlive the list it describes', () => {
   test('a step 3 gate still open is a hard-stop on the preview itself', async () => {
     // Belt as well as braces: even a preview that was somehow built while a
     // gate was open reports that gate, because buildPreview carries them.
-    const app = await upToSessions(component());
+    const app = await withEvents(component());
     app.pickSeries('e1');
     await app.toPreview();
     expect(app.preview.ready).toBe(true);
@@ -1003,5 +1075,151 @@ describe('a preview cannot outlive the list it describes', () => {
     app.refreshPreview();
     expect(app.preview.blockers.some((b) => b.kind === 'count-mismatch')).toBe(true);
     expect(app.preview.ready).toBe(false);
+  });
+});
+
+describe('a hand-set window can cut a series in half', () => {
+  test('a series running up to the loaded edge warns without blocking', async () => {
+    const app = await upToSessions(component());
+    app.eventsFrom = '2026-08-21';
+    app.eventsTo = '2026-09-09'; // stops a day after the second session
+    await app.loadEvents();
+    app.pickSeries('e1');
+
+    const warning = app.selection.blockers.find((b) => b.kind === 'series-reach');
+    expect(warning.severity).toBe('warn');
+    expect(warning.detail).toContain('2026-09-15'); // the session it cannot see
+    expect(app.selection.ready).toBe(true);
+  });
+
+  test('a window that reaches past the series says nothing', async () => {
+    const app = await withEvents(component());
+    app.pickSeries('e1');
+    expect(app.selection.blockers.some((b) => b.kind === 'series-reach')).toBe(false);
+  });
+
+  test('editing the dates without searching does not clear the warning', async () => {
+    // The warning is about the window that was *read*. Typing a wider date into
+    // the box changes nothing until Search is pressed, and a warning that
+    // cleared on the keystroke would be answered by the one action that does
+    // not answer it.
+    const app = await upToSessions(component());
+    app.eventsFrom = '2026-08-21';
+    app.eventsTo = '2026-09-09';
+    await app.loadEvents();
+    app.pickSeries('e1');
+    expect(app.selection.blockers.some((b) => b.kind === 'series-reach')).toBe(true);
+
+    app.eventsTo = '2026-12-31';
+    app.refreshSelection();
+    expect(app.selection.blockers.some((b) => b.kind === 'series-reach')).toBe(true);
+
+    await app.loadEvents();
+    app.pickSeries('e1');
+    expect(app.selection.blockers.some((b) => b.kind === 'series-reach')).toBe(false);
+  });
+});
+
+describe('the house date picker', () => {
+  test('it opens on the month already chosen, and closes on a pick', async () => {
+    const app = await upToSessions(component());
+    app.eventsFrom = '2026-09-15';
+
+    app.toggleDatePicker('from');
+    expect(app.datePicker).toBe('from');
+    expect(app.monthLabel()).toBe('September 2026');
+    expect(app.monthCells().find((c) => c.iso === '2026-09-15').selected).toBe(true);
+
+    app.pickDay('2026-09-01');
+    expect(app.eventsFrom).toBe('2026-09-01');
+    expect(app.datePicker).toBe(null);
+  });
+
+  test('clicking the same trigger again closes it', async () => {
+    const app = await upToSessions(component());
+    app.toggleDatePicker('to');
+    expect(app.datePicker).toBe('to');
+    app.toggleDatePicker('to');
+    expect(app.datePicker).toBe(null);
+  });
+
+  test('opening one picker replaces the other, never both at once', async () => {
+    const app = await upToSessions(component());
+    app.toggleDatePicker('from');
+    app.toggleDatePicker('to');
+    expect(app.datePicker).toBe('to');
+  });
+
+  test('the months walk, and roll the year', async () => {
+    const app = await upToSessions(component());
+    app.eventsFrom = '2026-12-01';
+    app.toggleDatePicker('from');
+    app.stepMonth(1);
+    expect(app.monthLabel()).toBe('January 2027');
+    app.stepMonth(-1);
+    expect(app.monthLabel()).toBe('December 2026');
+  });
+
+  test('the two pickers bound each other, so a backwards window cannot be clicked', async () => {
+    // canSearch() would refuse it afterwards, but with nothing saying which end
+    // to move. Disabling the cells is the version an operator can act on.
+    const app = await upToSessions(component());
+    app.eventsFrom = '2026-09-10';
+    app.eventsTo = '2026-09-20';
+
+    app.toggleDatePicker('to');
+    const to = (iso) => app.monthCells().find((c) => c.iso === iso).disabled;
+    expect(to('2026-09-09')).toBe(true);  // before `from`
+    expect(to('2026-09-10')).toBe(false); // `from` itself is fair game
+    expect(to('2026-09-30')).toBe(false);
+
+    app.toggleDatePicker('from');
+    const from = (iso) => app.monthCells().find((c) => c.iso === iso).disabled;
+    expect(from('2026-09-21')).toBe(true); // after `to`
+    expect(from('2026-09-20')).toBe(false);
+  });
+
+  test('the trigger shows a written date, not an ISO string', async () => {
+    const app = await upToSessions(component());
+    // en-AU's own short form, whatever that is on the runtime — spelled out
+    // here so a change to it is a failing test rather than a surprise.
+    expect(app.dayLabel('2026-09-15')).toBe('Tue, 15 Sept 2026');
+    expect(app.dayLabel('')).toBe('Choose a date');
+    expect(app.dayLabel('2026-02-30')).toBe('Choose a date');
+  });
+
+  test('a closed picker builds no grid', async () => {
+    const app = await upToSessions(component());
+    expect(app.monthCells()).toEqual([]);
+  });
+
+  test('picking through the picker leaves Search able to run', async () => {
+    const app = await upToSessions(component());
+    app.toggleDatePicker('from');
+    app.pickDay('2026-09-01');
+    app.toggleDatePicker('to');
+    app.pickDay('2026-09-30');
+    expect(app.canSearch()).toBe(true);
+
+    await app.loadEvents();
+    const read = globalThis.fetch.mock.calls.map(([url]) => String(url))
+      .find((u) => u.includes('/api/clubworx/events'));
+    expect(read).toContain('from=2026-09-01');
+    expect(read).toContain('to=2026-09-30');
+  });
+});
+
+describe('step 4 says each thing once', () => {
+  test('the multiplication line stays away until there is a selection to multiply', async () => {
+    // #71's lesson, re-learned: "No sessions picked yet." above a blocker
+    // saying "No sessions picked" is two banners for one message, and the
+    // repetition is what trains people to stop reading the region.
+    const app = await withEvents(component());
+    expect(app.selection.sessions).toBe(0);
+    expect(app.selection.blockers.some((b) => b.kind === 'no-events')).toBe(true);
+
+    app.pickSeries('e1');
+    expect(app.selection.sessions).toBe(2);
+    expect(app.sessionsLine()).toBe('2 sessions × 6 students = 12 bookings.');
   });
 });

@@ -66,11 +66,13 @@
   import * as identity from './school-booking/identity.js?v=2';
   import * as events from './school-booking/events.js?v=2';
   import * as preview from './school-booking/preview.js?v=2';
+  import * as calendar from './school-booking/calendar.js?v=2';
   window.schoolListParser = parser;
   window.schoolBookingSteps = steps;
   window.schoolBookingIdentity = identity;
   window.schoolBookingEvents = events;
   window.schoolBookingPreview = preview;
+  window.schoolBookingCalendar = calendar;
 </script>
 <script defer src="https://cdn.jsdelivr.net/npm/alpinejs@3.x.x/dist/cdn.min.js"></script>
 
@@ -172,6 +174,169 @@
 
   .mono { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-variant-numeric: tabular-nums; }
   .strike { text-decoration: line-through; }
+
+  /* ── Custom calendar dropdown ──────────────────────────────────────────
+     Ported from roster.html, which draws the same calendar imperatively. The
+     look is deliberately identical — one house calendar, two pages — so the
+     values below are its values and should be changed in both or neither.
+
+     One difference: roster.html positions with `position: fixed` and
+     JS-measured coordinates, because its picker lives in a scrolling header.
+     These two sit in normal flow, so they are absolutely positioned under
+     their own trigger. That needs no measuring, and it cannot leave the panel
+     stranded away from its button when the page scrolls. */
+  .dp-dropdown {
+    position: absolute;
+    top: calc(100% + 8px);
+    left: 0;
+    z-index: 40;
+    background: #fff;
+    border: 1px solid rgba(139, 28, 35, 0.14);
+    border-radius: 18px;
+    box-shadow: 0 20px 48px -16px rgba(15, 23, 42, 0.4), 0 4px 12px -4px rgba(139, 28, 35, 0.15);
+    padding: 18px;
+    width: 272px;
+    animation: dp-in 160ms ease;
+  }
+
+  @keyframes dp-in {
+    from { opacity: 0; transform: translateY(-6px); }
+    to   { opacity: 1; transform: translateY(0); }
+  }
+
+  .dp-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    margin-bottom: 14px;
+  }
+
+  .dp-month-label {
+    font-weight: 700;
+    font-size: 0.95rem;
+    color: #1f2937;
+    letter-spacing: -0.01em;
+  }
+
+  .dp-nav {
+    width: 30px;
+    height: 30px;
+    border-radius: 8px;
+    border: 1px solid rgba(31, 41, 55, 0.1);
+    background: transparent;
+    color: #4b5563;
+    cursor: pointer;
+    font-family: inherit;
+    font-size: 0.9rem;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    transition: background 120ms ease, color 120ms ease;
+    padding: 0;
+  }
+
+  .dp-nav:hover:not(:disabled) { background: rgba(139, 28, 35, 0.08); color: #8b1c23; }
+  .dp-nav:disabled { opacity: 0.3; cursor: default; }
+
+  .dp-weekdays {
+    display: grid;
+    grid-template-columns: repeat(7, 1fr);
+    margin-bottom: 4px;
+  }
+
+  .dp-weekdays span {
+    text-align: center;
+    font-size: 0.68rem;
+    font-weight: 700;
+    color: #4b5563;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    padding: 2px 0 6px;
+  }
+
+  .dp-grid {
+    display: grid;
+    grid-template-columns: repeat(7, 1fr);
+    gap: 2px;
+  }
+
+  .dp-day {
+    aspect-ratio: 1;
+    border-radius: 8px;
+    border: none;
+    background: transparent;
+    color: #1f2937;
+    font-family: inherit;
+    font-size: 0.85rem;
+    font-weight: 500;
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 0;
+    width: 100%;
+    transition: background 120ms ease, color 120ms ease;
+    line-height: 1;
+  }
+
+  .dp-day:hover:not(:disabled):not(.dp-selected) {
+    background: rgba(139, 28, 35, 0.1);
+    color: #8b1c23;
+  }
+
+  .dp-day.dp-today {
+    background: rgba(139, 28, 35, 0.1);
+    color: #8b1c23;
+    font-weight: 700;
+  }
+
+  .dp-day.dp-selected {
+    background: #8b1c23;
+    color: #fff;
+    font-weight: 700;
+  }
+
+  .dp-day.dp-today.dp-selected {
+    background: #8b1c23;
+    color: #fff;
+  }
+
+  .dp-day:disabled {
+    opacity: 0.28;
+    cursor: default;
+  }
+
+  .dp-empty { pointer-events: none; }
+
+  /* The trigger, shaped like the other fields on this step rather than like
+     roster.html's header button — same control, different background. */
+  .dp-field {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    border: 1px solid rgba(31, 41, 55, 0.15);
+    border-radius: 12px;
+    background: #fff;
+    padding: 8px 12px;
+    font: inherit;
+    font-size: 0.875rem;
+    color: #1f2937;
+    cursor: pointer;
+    transition: border-color 120ms ease, box-shadow 120ms ease;
+  }
+
+  .dp-field:hover { border-color: rgba(139, 28, 35, 0.35); }
+
+  .dp-field[aria-expanded="true"] {
+    border-color: #8b1c23;
+    box-shadow: 0 0 0 3px rgba(139, 28, 35, 0.12);
+  }
+
+  .dp-field svg { width: 15px; height: 15px; opacity: 0.55; flex-shrink: 0; }
+  .dp-field .dp-value { font-variant-numeric: tabular-nums; }
+  .dp-field .dp-unset { color: #9ca3af; }
+
+  .dp-anchor { position: relative; display: inline-block; }
 
   .row-hit { cursor: pointer; }
   .row-hit:hover { background: rgba(139, 28, 35, 0.025); }
@@ -659,16 +824,84 @@
              "everything"), and the name filter runs Worker-side over the walked
              rows because no name parameter on /events has ever been measured. -->
         <div class="flex items-end gap-3 flex-wrap mb-4">
-          <label class="block">
-            <span class="field-label">From</span>
-            <input type="date" x-model="eventsFrom"
-                   class="rounded-xl border border-neutral-200 px-3 py-2 text-sm mono">
-          </label>
-          <label class="block">
-            <span class="field-label">To</span>
-            <input type="date" x-model="eventsTo"
-                   class="rounded-xl border border-neutral-200 px-3 py-2 text-sm mono">
-          </label>
+          <div class="block">
+            <span class="field-label">First session on or after</span>
+            <div class="dp-anchor" @click.outside="closeDatePicker()">
+              <button type="button" class="dp-field"
+                      :aria-expanded="datePicker === 'from' ? 'true' : 'false'"
+                      aria-haspopup="dialog"
+                      aria-label="Choose the first date to search from"
+                      @click="toggleDatePicker('from')">
+                <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="4" width="18" height="18" rx="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/></svg>
+                <span class="dp-value" :class="dayFor('from') ? '' : 'dp-unset'"
+                      x-text="dayLabel(dayFor('from'))"></span>
+              </button>
+
+              <div class="dp-dropdown" x-show="datePicker === 'from'" x-cloak
+                   role="dialog" aria-label="Choose the first date to search from">
+                <div class="dp-header">
+                  <button type="button" class="dp-nav" aria-label="Previous month"
+                          @click="stepMonth(-1)">&#8592;</button>
+                  <span class="dp-month-label" x-text="monthLabel()"></span>
+                  <button type="button" class="dp-nav" aria-label="Next month"
+                          @click="stepMonth(1)">&#8594;</button>
+                </div>
+                <div class="dp-weekdays">
+                  <span>Mo</span><span>Tu</span><span>We</span><span>Th</span><span>Fr</span><span>Sa</span><span>Su</span>
+                </div>
+                <div class="dp-grid">
+                  <template x-for="cell in monthCells()" :key="cell.key">
+                    <button type="button"
+                            :class="cell.empty ? 'dp-day dp-empty' : 'dp-day' + (cell.selected ? ' dp-selected' : cell.today ? ' dp-today' : '')"
+                            :disabled="cell.disabled"
+                            :aria-label="cell.label"
+                            :aria-current="cell.selected ? 'date' : false"
+                            @click="cell.empty || pickDay(cell.iso)"
+                            x-text="cell.day"></button>
+                  </template>
+                </div>
+              </div>
+            </div>
+          </div>
+          <div class="block">
+            <span class="field-label">Last session on or before</span>
+            <div class="dp-anchor" @click.outside="closeDatePicker()">
+              <button type="button" class="dp-field"
+                      :aria-expanded="datePicker === 'to' ? 'true' : 'false'"
+                      aria-haspopup="dialog"
+                      aria-label="Choose the last date to search to"
+                      @click="toggleDatePicker('to')">
+                <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="4" width="18" height="18" rx="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/></svg>
+                <span class="dp-value" :class="dayFor('to') ? '' : 'dp-unset'"
+                      x-text="dayLabel(dayFor('to'))"></span>
+              </button>
+
+              <div class="dp-dropdown" x-show="datePicker === 'to'" x-cloak
+                   role="dialog" aria-label="Choose the last date to search to">
+                <div class="dp-header">
+                  <button type="button" class="dp-nav" aria-label="Previous month"
+                          @click="stepMonth(-1)">&#8592;</button>
+                  <span class="dp-month-label" x-text="monthLabel()"></span>
+                  <button type="button" class="dp-nav" aria-label="Next month"
+                          @click="stepMonth(1)">&#8594;</button>
+                </div>
+                <div class="dp-weekdays">
+                  <span>Mo</span><span>Tu</span><span>We</span><span>Th</span><span>Fr</span><span>Sa</span><span>Su</span>
+                </div>
+                <div class="dp-grid">
+                  <template x-for="cell in monthCells()" :key="cell.key">
+                    <button type="button"
+                            :class="cell.empty ? 'dp-day dp-empty' : 'dp-day' + (cell.selected ? ' dp-selected' : cell.today ? ' dp-today' : '')"
+                            :disabled="cell.disabled"
+                            :aria-label="cell.label"
+                            :aria-current="cell.selected ? 'date' : false"
+                            @click="cell.empty || pickDay(cell.iso)"
+                            x-text="cell.day"></button>
+                  </template>
+                </div>
+              </div>
+            </div>
+          </div>
           <label class="block flex-1 min-w-[200px]">
             <span class="field-label">Session name contains</span>
             <input type="text" x-model="eventsQuery" placeholder="e.g. the school's name"
@@ -687,7 +920,12 @@
              already loaded, NOT against Clubworx: GET /events/:id answers 404
              for every id, real or invented (#97), so the Worker cannot tell a
              good id from a bad one and neither can a message built on it. -->
-        <div class="rounded-xl bg-neutral-50 border border-neutral-200 px-3.5 py-2.5 mb-4">
+        <!-- Shown only once there is a window to resolve against. The id is
+             matched page-side (see events.js), so before the first search this
+             control cannot succeed — and an affordance that can only fail is
+             one somebody tries at the moment they most need it to work. -->
+        <div class="rounded-xl bg-neutral-50 border border-neutral-200 px-3.5 py-2.5 mb-4"
+             x-show="events.length > 0" x-cloak>
           <div class="flex items-end gap-2 flex-wrap">
             <label class="block flex-1 min-w-[200px]">
               <span class="field-label">Or paste a Clubworx event id</span>
@@ -762,7 +1000,13 @@
           </div>
         </div>
 
+        <!-- The multiplication, once there is one to state. With nothing picked
+             this said "No sessions picked yet." directly above a blocker saying
+             "No sessions picked" — the same two-banners-one-message fault #71
+             fixed on the count. The blocker owns that sentence; this owns the
+             arithmetic. -->
         <div class="rounded-xl px-3.5 py-2.5 text-sm mt-4"
+             x-show="selection.sessions > 0" x-cloak
              :class="selection.ready ? 'bg-emerald-50 border border-emerald-200 text-emerald-800' : 'bg-neutral-50 border border-neutral-200 text-neutral-600'">
           <span x-text="sessionsLine()"></span>
         </div>
@@ -1003,6 +1247,14 @@ function schoolBooking() {
     eventsFrom: '',
     eventsTo: '',
     eventsQuery: '',
+    // The window the events on screen actually came from. Distinct from the two
+    // boxes above, which staff may have edited since.
+    loadedFrom: '',
+    loadedTo: '',
+    // Which date picker is open: 'from', 'to', or nothing.
+    datePicker: null,
+    dpYear: new Date().getFullYear(),
+    dpMonth: new Date().getMonth(),
     pastedEventId: '',
     pastedIdNote: '',
     pastedIdOk: false,
@@ -1040,6 +1292,7 @@ function schoolBooking() {
       if (!window.schoolBookingIdentity?.matchStudent) missing.push('the matching rule');
       if (!window.schoolBookingEvents?.selectionReport) missing.push('the session rules');
       if (!window.schoolBookingPreview?.buildPreview) missing.push('the preview rules');
+      if (!window.schoolBookingCalendar?.monthGrid) missing.push('the calendar');
       if (missing.length) {
         this.bootstrapError = `Could not load ${missing.join(' and ')}.`;
         return;
@@ -1460,10 +1713,103 @@ function schoolBooking() {
     // The picker's window is a request parameter, not a filter: Clubworx
     // refuses `/events` with no date window (422, empty body — #51), so there
     // is no "everything" to fall back to and the page always has to name one.
+    // --- the house date picker -------------------------------------------
+    // roster.html draws this calendar imperatively against live Date objects,
+    // which suits a page with one picker and no framework. This page has two
+    // and Alpine, so the grid is a value from calendar.js and the markup is an
+    // x-for over it. `datePicker` holds which one is open — a string, never a
+    // function, so nothing here can be invoked by being rendered (§16).
+    toggleDatePicker(which) {
+      if (this.datePicker === which) {
+        this.closeDatePicker();
+        return;
+      }
+      this.datePicker = which;
+      // Open on the month already chosen, so a picker reopened does not throw
+      // away where the last visit left it. Falling back to today rather than to
+      // an empty month, which would open on January 1970.
+      const on = window.schoolBookingCalendar.monthOf(this.dayFor(which))
+        ?? window.schoolBookingCalendar.monthOf(this.todayDay());
+      this.dpYear = on?.year ?? new Date().getFullYear();
+      this.dpMonth = on?.month ?? new Date().getMonth();
+    },
+
+    closeDatePicker() {
+      this.datePicker = null;
+    },
+
+    dayFor(which) {
+      return which === 'from' ? this.eventsFrom : this.eventsTo;
+    },
+
+    todayDay() {
+      return window.schoolBookingCalendar.todayInPerth() ?? '';
+    },
+
+    stepMonth(delta) {
+      const next = window.schoolBookingCalendar.shiftMonth(this.dpYear, this.dpMonth, delta);
+      this.dpYear = next.year;
+      this.dpMonth = next.month;
+    },
+
+    monthLabel() {
+      return window.schoolBookingCalendar.monthLabel(this.dpYear, this.dpMonth);
+    },
+
+    // The two pickers bound each other: `from` cannot be set past `to`, and
+    // `to` cannot be set before `from`. That is what keeps a backwards window
+    // from being reachable by clicking, rather than only refused afterwards by
+    // canSearch() with nothing saying which end to move.
+    monthCells() {
+      const which = this.datePicker;
+      if (!which) return [];
+      return window.schoolBookingCalendar.monthGrid(this.dpYear, this.dpMonth, {
+        selected: this.dayFor(which),
+        today: this.todayDay(),
+        min: which === 'to' ? this.eventsFrom : '',
+        max: which === 'from' ? this.eventsTo : '',
+      });
+    },
+
+    pickDay(day) {
+      if (!day) return;
+      if (this.datePicker === 'from') this.eventsFrom = day;
+      else if (this.datePicker === 'to') this.eventsTo = day;
+      this.closeDatePicker();
+    },
+
+    // `Fri 21 Aug 2026` — a written date, because a picker that shows an ISO
+    // string is a text box wearing a calendar. The ISO form is what travels to
+    // the Worker; it is not what a human confirms a term against.
+    dayLabel(day) {
+      if (!window.schoolBookingCalendar.isRealDay(day)) return 'Choose a date';
+      return new Date(`${day}T00:00:00Z`).toLocaleDateString('en-AU', {
+        weekday: 'short', day: 'numeric', month: 'short', year: 'numeric', timeZone: 'UTC',
+      });
+    },
+
+    // Two real days, in order. Checked here rather than met as the Worker's own
+    // refusal: `/events` answers 422 for a bad window (#51), and "from and to
+    // are required, each as a real YYYY-MM-DD day" is a sentence about a field
+    // an operator cannot see. `2026-02-30` is the one worth naming — it does
+    // not error anywhere, it rolls forward, so a window silently shifted by a
+    // day is a session missing from the picker with nothing to explain it.
+    canSearch() {
+      return window.schoolBookingCalendar.isRealDay(this.eventsFrom)
+        && window.schoolBookingCalendar.isRealDay(this.eventsTo)
+        && this.eventsFrom <= this.eventsTo;
+    },
+
     async loadEvents() {
+      if (!this.canSearch()) return;
       this.eventsState = 'loading';
       this.pastedIdNote = '';
-      const params = new URLSearchParams({ from: this.eventsFrom, to: this.eventsTo });
+      // Pinned before the await: the boxes are editable while this is in
+      // flight, so reading them afterwards would record a window that was
+      // never requested.
+      const from = this.eventsFrom;
+      const to = this.eventsTo;
+      const params = new URLSearchParams({ from, to });
       if (this.eventsQuery.trim()) params.set('q', this.eventsQuery.trim());
       try {
         const res = await fetch(`/api/clubworx/events?${params}`, { headers: { accept: 'application/json' } });
@@ -1473,6 +1819,8 @@ function schoolBooking() {
         this.eventsTotal = body.total ?? this.events.length;
         this.eventsTruncated = body.truncated === true;
         this.eventsState = 'ready';
+        this.loadedFrom = from;
+        this.loadedTo = to;
         // A tick pointing at a session this window no longer holds is a tick
         // nobody can see. Dropped rather than carried: `selectionReport` would
         // drop it anyway, and a count that disagrees with the table is how a
@@ -1485,6 +1833,8 @@ function schoolBooking() {
         this.eventsTruncated = false;
         this.eventsState = 'error';
         this.eventsError = String(error.message || error);
+        this.loadedFrom = '';
+        this.loadedTo = '';
       }
       this.refreshSelection();
     },
@@ -1610,6 +1960,10 @@ function schoolBooking() {
         selected: this.picked,
         studentCount: this.reviewed?.counts.records ?? 0,
         truncated: this.eventsTruncated,
+        // The window that was actually *read*, not the one in the boxes. Staff
+        // edit the dates without pressing Search, and a series checked against
+        // dates nobody loaded would clear the warning by typing.
+        windowTo: this.loadedTo,
       });
     },
 
@@ -1625,13 +1979,22 @@ function schoolBooking() {
       if (action.answers === 'remove') this.togglePick(action.value);
     },
 
+    // The dates are seeded and the read waits. A term-wide window is ~900
+    // events at this gym: five requests of an allowance the whole gym shares,
+    // spent on arrival before anybody has said what they want, and a table far
+    // too long to scan. Narrowing the dates is also the *only* lever that
+    // reduces that cost — the name filter is applied in the Worker's memory
+    // after the walk (see listEvents), so it shortens the table and not the
+    // request count.
+    //
+    // Seeded rather than blank: two empty date boxes on every visit is a toll
+    // paid by everyone to save a click for nobody.
     toSessions() {
       if (!this.reviewed?.ready) return;
-      if (this.eventsState === 'idle') {
-        const window_ = window.schoolBookingEvents.defaultWindow();
-        this.eventsFrom = window_.from;
-        this.eventsTo = window_.to;
-        this.loadEvents();
+      if (this.eventsState === 'idle' && !this.eventsFrom) {
+        const opening = window.schoolBookingEvents.defaultWindow();
+        this.eventsFrom = opening.from;
+        this.eventsTo = opening.to;
       }
       this.refreshSelection();
       this.go(3);
