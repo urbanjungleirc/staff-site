@@ -18,6 +18,8 @@ import * as identity from '../identity.js';
 import * as events from '../events.js';
 import * as preview from '../preview.js';
 import * as calendar from '../calendar.js';
+import * as outcome from '../outcome.js';
+import * as run from '../run.js';
 
 const html = readFileSync(new URL('../../school-booking.html', import.meta.url), 'utf8');
 const fixture = (name) =>
@@ -44,9 +46,10 @@ const SCHOOLS = [
   { tag: 'harlow', email: 'noreply+harlow@urbanjungleirc.com', contacts: 4 },
 ];
 
-// The four routes steps 1–5 read, all of them GETs. Nothing on this page has a
-// write path yet — Apply is #73 — so a component test that ever sees a POST is
-// a test that has caught the page doing something it must not.
+// The four routes steps 1–5 read, all of them GETs, plus the two #73 writes.
+// The GET half is asserted to stay a GET half: a write reaching Clubworx from
+// any step before Apply is the fault this fixture exists to catch, and the
+// `writes` counter below is what a step 1–5 test checks.
 const EVENTS = [
   {
     event_id: 'e1', event_name: 'School Session — Newman', event_start_at: '2026-09-01T09:00:00+08:00',
@@ -82,6 +85,41 @@ const PLAN = {
   },
 };
 
+// A clean `POST /student` answer for a student this run created: a permanent
+// contact, a permanent pass, and two cancellable bookings.
+const STUDENT_OK = {
+  ok: true,
+  outcome: 'complete',
+  written: true,
+  contact: { contact_key: 'c-new', state: 'created' },
+  pass: { state: 'created-with-contact', expiration_date: null, detail: 'created with the contact' },
+  bookings: [
+    { event_id: 'e1', state: 'booked', booking_id: 'bk-1', bookingId: 'bk-1', shown: null },
+    { event_id: 'e2', state: 'booked', booking_id: 'bk-2', bookingId: 'bk-2', shown: null },
+  ],
+  rollback: null,
+  stranded: false,
+  strandedDetail: null,
+  warnings: [],
+  requests: 8,
+  reason: null,
+  message: null,
+};
+
+const UNBOOK_OK = {
+  ok: true,
+  outcome: 'cancelled',
+  reason: null,
+  message: '2 booking(s) cancelled and confirmed gone',
+  cancelled: 2,
+  cancelledIds: ['bk-1', 'bk-2'],
+  skipped: 0,
+  failed: [],
+  stillBooked: [],
+  verified: true,
+  requests: 3,
+};
+
 function component({
   schools = SCHOOLS,
   schoolsFail = false,
@@ -90,7 +128,17 @@ function component({
   plan = PLAN,
   candidatesFor = () => [],
   contactsFail = false,
+  // #73's two write routes. `student` and `unbook` are called with the parsed
+  // body and answer `{status, body}`, so a test can throttle the fifth student
+  // or refuse one row without touching the engine's own tests.
+  student = () => ({ status: 200, body: STUDENT_OK }),
+  unbook = () => ({ status: 200, body: UNBOOK_OK }),
+  restored = null,
 } = {}) {
+  const stored = new Map();
+  if (restored) stored.set('uj-school-booking-run', JSON.stringify(restored));
+  const listeners = [];
+  const writes = [];
   globalThis.window = {
     schoolListParser: parser,
     schoolBookingSteps: steps,
@@ -98,8 +146,20 @@ function component({
     schoolBookingEvents: events,
     schoolBookingPreview: preview,
     schoolBookingCalendar: calendar,
+    schoolBookingOutcome: outcome,
+    schoolBookingRun: run,
+    localStorage: {
+      getItem: (k) => (stored.has(k) ? stored.get(k) : null),
+      setItem: (k, v) => stored.set(k, String(v)),
+      removeItem: (k) => stored.delete(k),
+    },
+    addEventListener: (name, fn) => listeners.push([name, fn]),
+    removeEventListener: (name, fn) => {
+      const at = listeners.findIndex(([n, f]) => n === name && f === fn);
+      if (at > -1) listeners.splice(at, 1);
+    },
   };
-  globalThis.fetch = vi.fn(async (url) => {
+  globalThis.fetch = vi.fn(async (url, options) => {
     const target = String(url);
     if (target.includes('/api/clubworx/schools')) {
       if (schoolsFail) return { ok: false, status: 502, json: async () => ({ error: 'upstream' }) };
@@ -126,9 +186,20 @@ function component({
         json: async () => ({ candidates: candidatesFor(params.get('last_name'), params.get('dob')) }),
       };
     }
+    if (target.includes('/api/clubworx/student') || target.includes('/api/clubworx/unbook')) {
+      const body = JSON.parse(options?.body ?? '{}');
+      const route = target.includes('/unbook') ? 'unbook' : 'student';
+      writes.push({ route, body });
+      const answer = (route === 'unbook' ? unbook : student)(body, writes.length);
+      return { ok: answer.status < 400, status: answer.status, json: async () => answer.body };
+    }
     return { ok: true, status: 200, json: async () => ({ email: 'staff@urbanjungleirc.com' }) };
   });
-  return makeComponent();
+  const app = makeComponent();
+  app.__writes = writes;
+  app.__listeners = listeners;
+  app.__stored = stored;
+  return app;
 }
 
 // init() kicks off two fetches without awaiting them — Alpine ignores what a
@@ -1341,5 +1412,344 @@ describe('the picker’s Today button (#108)', () => {
     app.goToday();
     expect(app.eventsTo).toBe('2027-02-01');
     expect(app.datePicker).toBe('to');
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Step 6 — Apply, the run, and the cancel (#73)
+// ---------------------------------------------------------------------------
+// The engine's own behaviour — retries, the breaker, the throttle halt, the
+// interlock — is pinned in `run.test.js` against a fake caller. What is checked
+// here is the half only the page can get wrong: the gate in front of Apply, the
+// single-flight lock, the payload actually put on the wire, and the record
+// reaching storage per student rather than at the end.
+
+const upToApply = async (app, opts = {}) => {
+  await upToPreview(app, opts);
+  app.askApply();
+  await app.apply();
+  return app;
+};
+
+describe('Apply — the gate in front of the first permanent write', () => {
+  test('Apply asks before it runs, and says what the run costs', async () => {
+    const app = await upToPreview(component());
+    app.askApply();
+    expect(app.confirming).toBe(true);
+    // Nothing is written by asking.
+    expect(app.__writes).toHaveLength(0);
+    // §6: the allowance is gym-wide, so the cost is somebody else's problem too.
+    expect(app.runCost()).toContain('shared with the whole gym');
+    expect(app.runCost()).toMatch(/About \d+ Clubworx requests/);
+  });
+
+  test('standing down leaves the preview exactly as it was', async () => {
+    const app = await upToPreview(component());
+    app.askApply();
+    app.standDown();
+    expect(app.confirming).toBe(false);
+    expect(app.__writes).toHaveLength(0);
+    expect(app.stepIndex).toBe(4);
+  });
+
+  test('a blocked preview cannot be applied at all', async () => {
+    const app = await upToPreview(component({
+      candidatesFor: (lastName, dob) => (lastName === 'Fernsby'
+        ? [{ contact_key: 'ck-1', first_name: 'Katherine', last_name: 'Fernsby', dob, status_view: 'members' }]
+        : []),
+    }));
+    expect(app.preview.ready).toBe(false);
+    app.askApply();
+    await app.apply();
+    expect(app.confirming).toBe(false);
+    expect(app.__writes).toHaveLength(0);
+  });
+
+  test('steps 1–5 write nothing — every route they touch is a GET', async () => {
+    const app = await upToPreview(component());
+    expect(app.__writes).toHaveLength(0);
+  });
+});
+
+describe('the run — what actually goes on the wire', () => {
+  test('one call per student, to the write route, carrying the school marker', async () => {
+    const app = await upToApply(component());
+    expect(app.__writes).toHaveLength(6);
+    expect(app.__writes.every((w) => w.route === 'student')).toBe(true);
+    const [first] = app.__writes;
+    expect(first.body.student.email).toBe('noreply+newman@urbanjungleirc.com');
+    expect(first.body.membership_plan_id).toBe('mp-school');
+    expect(first.body.membership_duration).toBe('26 weeks');
+    expect(first.body.events.map((e) => e.event_id)).toEqual(['e1', 'e2']);
+    // `new` — this run creates the contact. Sent explicitly rather than left
+    // out, because absent and null must not be the same thing on this route.
+    expect(first.body.contact_key).toBe(null);
+  });
+
+  test('the run lands on step 6 and reports in past tense', async () => {
+    const app = await upToApply(component());
+    expect(app.stepIndex).toBe(5);
+    expect(app.runState).toBe('complete');
+    expect(app.runRecords).toHaveLength(6);
+    expect(app.resultLine()).toContain('6 contacts created (permanent)');
+    expect(app.resultLine()).toContain('6 School Passes assigned (permanent)');
+    expect(app.resultLine()).toContain('12 bookings made (can be cancelled)');
+    expect(app.strandedWarning()).toBe('');
+  });
+
+  test('a second Apply mid-run is refused — D13’s single-flight lock', async () => {
+    let release;
+    const held = new Promise((resolve) => { release = resolve; });
+    const app = await upToPreview(component({
+      student: () => ({ status: 200, body: STUDENT_OK }),
+    }));
+    // Hold the very first call open, then try to start a second run.
+    const original = globalThis.fetch;
+    globalThis.fetch = vi.fn(async (...args) => { await held; return original(...args); });
+
+    const running = app.apply();
+    await Promise.resolve();
+    await app.apply();
+    release();
+    await running;
+
+    // Six students, once each — not twelve.
+    expect(app.__writes).toHaveLength(6);
+    globalThis.fetch = original;
+  });
+
+  test('the tab is guarded while the run is in flight, and released after', async () => {
+    const app = await upToPreview(component());
+    let duringRun = 0;
+    const original = globalThis.fetch;
+    globalThis.fetch = vi.fn(async (...args) => {
+      duringRun = app.__listeners.filter(([n]) => n === 'beforeunload').length;
+      return original(...args);
+    });
+    await app.apply();
+    // A reload mid-run destroys the only record of contacts that cannot be
+    // deleted, which is the one thing worth interrupting a page unload for.
+    expect(duringRun).toBe(1);
+    expect(app.__listeners.filter(([n]) => n === 'beforeunload')).toHaveLength(0);
+    globalThis.fetch = original;
+  });
+});
+
+describe('the record — D10', () => {
+  test('it is written per student, not at the end of the run', async () => {
+    const seen = [];
+    const app = await upToPreview(component({
+      student: (body, n) => {
+        seen.push(JSON.parse(app.__stored.get('uj-school-booking-run') ?? '{"records":[]}').records.length);
+        return { status: 200, body: STUDENT_OK };
+      },
+    }));
+    await app.apply();
+    // Before each call, storage already holds every student that came before.
+    expect(seen).toEqual([0, 1, 2, 3, 4, 5]);
+    expect(JSON.parse(app.__stored.get('uj-school-booking-run')).records).toHaveLength(6);
+  });
+
+  test('a run left in this browser is offered on the way back in, never opened', async () => {
+    const saved = {
+      at: '2026-08-21T09:00:00+08:00',
+      school: 'newman',
+      state: 'complete',
+      records: [{ key: 1, name: 'Ada Lovelace', state: 'booked', bookings: [], cancel: null }],
+    };
+    const app = await settled(component({ restored: saved }));
+    expect(app.restored).not.toBe(null);
+    expect(app.restoredLine()).toContain('1 student');
+    expect(app.restoredLine()).toContain('newman');
+    // Offered — the operator is still on step 1, not looking at a result table
+    // they may mistake for the run they just did.
+    expect(app.stepIndex).toBe(0);
+
+    app.openRestored();
+    expect(app.stepIndex).toBe(5);
+    expect(app.runRecords).toHaveLength(1);
+  });
+
+  test('discarding it clears the browser copy too, not just the banner', async () => {
+    const app = await settled(component({
+      restored: { at: 'x', records: [{ key: 1, name: 'Ada', bookings: [] }] },
+    }));
+    app.discardRestored();
+    expect(app.restored).toBe(null);
+    expect(app.__stored.get('uj-school-booking-run')).toBe(undefined);
+  });
+
+  test('the copy staff keep carries the booking ids a hand-fix needs', async () => {
+    const app = await upToApply(component());
+    const text = app.recordText();
+    expect(text).toContain('bk-1');
+    expect(text).toContain('newman');
+    expect(JSON.parse(text).students).toHaveLength(6);
+  });
+});
+
+describe('the run reports the bad outcomes honestly', () => {
+  test('a throttle halts the whole run and says the cause may be elsewhere', async () => {
+    const app = await upToPreview(component({
+      student: (body, n) => (n <= 2
+        ? { status: 200, body: STUDENT_OK }
+        : { status: 429, body: { outcome: 'failed', reason: 'throttled', written: false } }),
+    }));
+    // The backoff is a real 20-second wait in the page (D8's floor, sized on
+    // #51's measured ~18 s). Driven with fake timers rather than shortened, so
+    // what runs here is what runs in production.
+    vi.useFakeTimers();
+    const running = app.apply();
+    await vi.runAllTimersAsync();
+    await running;
+    vi.useRealTimers();
+
+    expect(app.runState).toBe('halted');
+    expect(app.runReason).toBe('throttled');
+    expect(app.runMessage).toContain('another system');
+    // Two students done, the third attempted twice, and nobody after it sent.
+    expect(app.__writes).toHaveLength(4);
+    // The table still holds all six — D11's row set survives the halt, so the
+    // screen shows where the run got to rather than a shorter list.
+    expect(app.runRecords).toHaveLength(6);
+    expect(app.runRecords.filter((r) => r.state === 'not run')).toHaveLength(4);
+    expect(app.runRemaining).toBe(3);
+    expect(app.resultLine()).toContain('2 contacts created (permanent)');
+    expect(app.resultLine()).toContain('4 not run');
+  });
+
+  test('a stranded student is named on screen, not buried in a count', async () => {
+    const app = await upToPreview(component({
+      student: (body, n) => (n === 1
+        ? {
+          status: 200,
+          body: {
+            ...STUDENT_OK,
+            ok: false,
+            outcome: 'abandoned',
+            reason: 'booking-refused',
+            message: 'Sorry, this class has no free spaces available.',
+            stranded: true,
+            strandedDetail: 'This student has a contact and a School Pass and no bookings from this run.',
+            bookings: [],
+          },
+        }
+        : { status: 200, body: STUDENT_OK }),
+    }));
+    await app.apply();
+    expect(app.strandedWarning()).toContain('a contact and a pass but no bookings');
+    expect(app.runRecords[0].state).toBe('stranded');
+    // The run carried on — one abandoned student is data, not a systemic halt.
+    expect(app.runState).toBe('complete');
+  });
+});
+
+describe('cancelling — D12, and never called Undo', () => {
+  test('the control counts only what this run booked', async () => {
+    const app = await upToApply(component());
+    expect(app.cancellableCount()).toBe(12);
+  });
+
+  test('a re-run over students who were already booked offers nothing to cancel', async () => {
+    // Booking is idempotent, so a re-run marks rows `already booked` — and a
+    // cancel scoped to the whole row set would delete bookings this run did
+    // not make, possibly ones a real member made themselves (#50).
+    const app = await upToApply(component({
+      student: () => ({
+        status: 200,
+        body: {
+          ...STUDENT_OK,
+          contact: { contact_key: 'c-old', state: 'matched' },
+          pass: { state: 'covering', expiration_date: '2027-02-18', detail: 'already covers' },
+          bookings: [
+            { event_id: 'e1', state: 'already booked', booking_id: null, bookingId: null, shown: null },
+            { event_id: 'e2', state: 'already booked', booking_id: null, bookingId: null, shown: null },
+          ],
+        },
+      }),
+    }));
+    expect(app.cancellableCount()).toBe(0);
+    app.askCancel();
+    expect(app.cancelConfirming).toBe(false);
+    await app.cancelRun();
+    expect(app.__writes.filter((w) => w.route === 'unbook')).toHaveLength(0);
+  });
+
+  test('a student D3 already rolled back offers nothing, and is never re-sent', async () => {
+    // The Worker cancelled these itself when it abandoned the student, and
+    // hands the rows back unmutated — still reading `booked`, still carrying
+    // their ids. Offering them would re-send ids that are already gone.
+    const app = await upToApply(component({
+      student: () => ({
+        status: 200,
+        body: {
+          ...STUDENT_OK,
+          ok: false,
+          outcome: 'abandoned',
+          reason: 'booking-refused',
+          message: 'Sorry, this class has no free spaces available.',
+          stranded: true,
+          strandedDetail: 'This student has a contact and a School Pass and no bookings from this run.',
+          rollback: {
+            cancelled: 2, cancelledIds: ['bk-1', 'bk-2'], failed: [], stillBooked: [], verified: true, skipped: 0,
+          },
+        },
+      }),
+    }));
+
+    expect(app.runRecords[0].state).toBe('stranded');
+    // Three abandoned students in a row is a systemic condition, so D7 stops it.
+    expect(app.runState).toBe('halted');
+    expect(app.runReason).toBe('consecutive-failures');
+
+    expect(app.cancellableCount()).toBe(0);
+    // And the table does not claim bookings that no longer exist.
+    expect(app.resultLine()).toContain('0 bookings made');
+    expect(app.resultLine()).toContain('6 bookings rolled back');
+    expect(app.bookingRows(app.runRecords[0]).every((b) => b.state === 'rolled back')).toBe(true);
+
+    await app.cancelRun();
+    expect(app.__writes.filter((w) => w.route === 'unbook')).toHaveLength(0);
+  });
+
+  test('a cancel asks first, then sends one student per call', async () => {
+    const app = await upToApply(component());
+    app.askCancel();
+    expect(app.cancelConfirming).toBe(true);
+    await app.cancelRun();
+
+    const unbooks = app.__writes.filter((w) => w.route === 'unbook');
+    expect(unbooks).toHaveLength(6);
+    expect(unbooks[0].body.contact_key).toBe('c-new');
+    expect(unbooks[0].body.bookings.map((b) => b.booking_id)).toEqual(['bk-1', 'bk-2']);
+    expect(app.cancelState).toBe('done');
+    expect(app.cancellableCount()).toBe(0);
+  });
+
+  test('the cancelled bookings are added to the record, and the permanent records are not undone', async () => {
+    const app = await upToApply(component());
+    await app.cancelRun();
+    expect(app.resultLine()).toContain('12 bookings made, 12 cancelled since');
+    // The two permanent classes still read as made, because they still exist.
+    expect(app.resultLine()).toContain('6 contacts created (permanent)');
+    expect(app.resultLine()).toContain('6 School Passes assigned (permanent)');
+  });
+
+  test('a throttle mid-cancel stops it and says so', async () => {
+    const app = await upToApply(component({
+      unbook: (body, n) => (n <= 8
+        ? { status: 200, body: UNBOOK_OK }
+        : { status: 429, body: { outcome: 'failed', reason: 'throttled', cancelled: 0 } }),
+    }));
+    vi.useFakeTimers();
+    const cancelling = app.cancelRun();
+    await vi.runAllTimersAsync();
+    await cancelling;
+    vi.useRealTimers();
+
+    expect(app.cancelState).toBe('halted');
+    expect(app.cancelMessage).toContain('another system');
+    // What did get cancelled is kept, and the rest is still cancellable.
+    expect(app.cancellableCount()).toBeGreaterThan(0);
   });
 });

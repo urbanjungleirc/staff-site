@@ -1,0 +1,475 @@
+// What a `POST /student` answer means, in the words the result table uses.
+//
+// The engine (`run.js`) decides *when* to call; this file is about what comes
+// back. Two of its jobs are safety-critical rather than cosmetic:
+//
+//   - **`isFailure`** feeds D7's circuit breaker. Counting a `needs-confirmation`
+//     as a failure would halt a run on three students who merely hold a pass
+//     that does not cover the term — a routine outcome, not a systemic one.
+//   - **`cancellable`** is the interlock. A row marked `already booked` was NOT
+//     made by this run, and cancelling it deletes a booking a real member may
+//     have made themselves (#50's worst outcome). The Worker enforces this too;
+//     the page must not send those rows anyway.
+
+import { describe, expect, test } from 'vitest';
+import {
+  cancelReport,
+  cancelRows,
+  cancellable,
+  bookingRows,
+  isFailure,
+  notRunRecord,
+  resultLine,
+  resultTotals,
+  runRecordText,
+  strandedWarning,
+  studentRecord,
+} from '../outcome.js';
+
+const student = (over = {}) => ({
+  key: 1,
+  name: 'Ada Lovelace',
+  dob: '2010-12-10',
+  firstName: 'Ada',
+  lastName: 'Lovelace',
+  contactKey: null,
+  sessions: 2,
+  ...over,
+});
+
+const booking = (over = {}) => ({
+  event_id: 'e1',
+  state: 'booked',
+  booking_id: 'b1',
+  bookingId: 'b1',
+  refusal: null,
+  message: null,
+  shown: null,
+  ...over,
+});
+
+/** A `complete` answer for a student this run created. */
+const complete = (over = {}) => ({
+  ok: true,
+  outcome: 'complete',
+  written: true,
+  contact: { contact_key: 'c1', state: 'created' },
+  pass: { state: 'created-with-contact', expiration_date: null, detail: 'created with the contact' },
+  bookings: [booking(), booking({ event_id: 'e2', booking_id: 'b2', bookingId: 'b2' })],
+  rollback: null,
+  stranded: false,
+  strandedDetail: null,
+  warnings: [],
+  requests: 5,
+  reason: null,
+  message: null,
+  ...over,
+});
+
+const record = (studentOver, body, status = 200) =>
+  studentRecord({ student: student(studentOver), status, body });
+
+describe('studentRecord — the three permanence classes stay apart', () => {
+  test('a created student counts a contact, a pass and its bookings', () => {
+    const row = record({}, complete());
+    expect(row.state).toBe('booked');
+    expect(row.contactCreated).toBe(true);
+    expect(row.passGranted).toBe(true);
+    expect(row.booked).toBe(2);
+    expect(row.alreadyBooked).toBe(0);
+    expect(row.contactKey).toBe('c1');
+  });
+
+  test('a returning student granted a pass counts the pass and no contact', () => {
+    const row = record(
+      { contactKey: 'c9' },
+      complete({
+        contact: { contact_key: 'c9', state: 'matched' },
+        pass: { state: 'granted', expiration_date: '2027-02-18', detail: '26 weeks' },
+      }),
+    );
+    expect(row.contactCreated).toBe(false);
+    expect(row.passGranted).toBe(true);
+  });
+
+  test('a returning student who already held a covering pass counts neither', () => {
+    const row = record(
+      { contactKey: 'c9' },
+      complete({
+        contact: { contact_key: 'c9', state: 'matched' },
+        pass: { state: 'covering', expiration_date: '2027-01-01', detail: 'already covers' },
+      }),
+    );
+    expect(row.contactCreated).toBe(false);
+    expect(row.passGranted).toBe(false);
+    expect(row.state).toBe('booked');
+  });
+
+  test('every booking already there reads as `already booked`, never as an error', () => {
+    const row = record(
+      { contactKey: 'c9' },
+      complete({
+        contact: { contact_key: 'c9', state: 'matched' },
+        pass: { state: 'covering', expiration_date: null, detail: null },
+        bookings: [
+          booking({ state: 'already booked', booking_id: null, bookingId: null }),
+          booking({ event_id: 'e2', state: 'already booked', booking_id: null, bookingId: null }),
+        ],
+      }),
+    );
+    expect(row.state).toBe('already booked');
+    expect(row.alreadyBooked).toBe(2);
+    expect(row.booked).toBe(0);
+    expect(isFailure(row)).toBe(false);
+  });
+});
+
+describe('studentRecord — the outcomes that are not success', () => {
+  test('an abandoned student with a pass is named stranded, with the detail carried', () => {
+    const row = record({}, {
+      ...complete(),
+      ok: false,
+      outcome: 'abandoned',
+      reason: 'booking-refused',
+      message: 'Sorry, this class has no free spaces available.',
+      stranded: true,
+      strandedDetail: 'This student has a contact and a School Pass and no bookings from this run.',
+      rollback: { cancelled: 1, failed: [], stillBooked: [], verified: true, skipped: 0 },
+    });
+    expect(row.state).toBe('stranded');
+    expect(row.stranded).toBe(true);
+    expect(row.detail).toContain('no free spaces');
+    expect(isFailure(row)).toBe(true);
+  });
+
+  test('a non-covering pass is a row that needs a human, and does not feed the breaker', () => {
+    const row = record({ contactKey: 'c9' }, {
+      ...complete(),
+      ok: false,
+      outcome: 'needs-confirmation',
+      reason: 'pass-not-covering',
+      message: 'the held pass runs out before the last session',
+      written: false,
+      bookings: [],
+      pass: { state: 'needs-confirmation', expiration_date: '2026-09-30', detail: 'runs out first' },
+    });
+    expect(row.state).toBe('needs you');
+    expect(row.passGranted).toBe(false);
+    expect(isFailure(row)).toBe(false);
+  });
+
+  test('a refusal before any write is `refused` and nothing is counted', () => {
+    const row = studentRecord({
+      student: student(),
+      status: 400,
+      body: { outcome: 'refused', reason: 'lead-time', message: 'a session starts within 24 hours', written: false },
+    });
+    expect(row.state).toBe('refused');
+    expect(row.written).toBe(false);
+    expect(row.contactCreated).toBe(false);
+    expect(isFailure(row)).toBe(true);
+  });
+
+  test('`unverified` says go and look, and is not a synonym for failed', () => {
+    const row = record({}, {
+      ...complete(),
+      ok: false,
+      outcome: 'unverified',
+      reason: 'bookings-unread',
+      message: 'every booking was accepted but they could not be re-read to confirm',
+    });
+    expect(row.state).toBe('unverified');
+    expect(row.detail).toContain('could not be re-read');
+    // Bookings were accepted, so they are still this run's to cancel.
+    expect(cancellable(row)).toHaveLength(2);
+  });
+
+  test('a throttle that wrote nothing is `not run`, and the student can be re-run', () => {
+    const row = studentRecord({
+      student: student(),
+      status: 429,
+      body: { outcome: 'failed', reason: 'throttled', message: 'Clubworx is busy', written: false },
+    });
+    expect(row.state).toBe('not run');
+    expect(row.throttled).toBe(true);
+    expect(row.written).toBe(false);
+  });
+
+  test('a network error names itself rather than borrowing an outcome', () => {
+    const row = studentRecord({ student: student(), error: 'Failed to fetch' });
+    expect(row.state).toBe('failed');
+    expect(row.outcome).toBe('network');
+    expect(row.detail).toContain('Failed to fetch');
+    expect(row.written).toBe(false);
+    expect(isFailure(row)).toBe(true);
+  });
+
+  test('an unknown Clubworx message travels verbatim and is never re-worded', () => {
+    const row = record({}, {
+      ...complete(),
+      ok: false,
+      outcome: 'failed',
+      reason: 'unknown',
+      message: 'Sorry! Something entirely new happened.',
+      bookings: [booking({ state: 'failed', booking_id: null, bookingId: null, shown: 'Sorry! Something entirely new happened.' })],
+    });
+    expect(row.detail).toContain('Sorry! Something entirely new happened.');
+  });
+});
+
+describe('cancellable — the interlock', () => {
+  test('it takes rows this run booked and never one that was already there', () => {
+    const row = record({}, complete({
+      bookings: [
+        booking(),
+        booking({ event_id: 'e2', state: 'already booked', booking_id: null, bookingId: null }),
+        booking({ event_id: 'e3', booking_id: 'b3', bookingId: 'b3' }),
+      ],
+    }));
+    expect(cancellable(row).map((b) => b.booking_id)).toEqual(['b1', 'b3']);
+  });
+
+  test('a booked row with no id is not cancellable — there is nothing to send', () => {
+    const row = record({}, complete({ bookings: [booking({ booking_id: null, bookingId: null })] }));
+    expect(cancellable(row)).toEqual([]);
+  });
+
+  test('a row already cancelled is not offered a second time', () => {
+    const row = record({}, complete());
+    const cancelled = { ...row, cancel: { outcome: 'cancelled', cancelledIds: ['b1', 'b2'] } };
+    expect(cancellable(cancelled)).toEqual([]);
+  });
+
+  test('a partial cancel leaves the bookings that are still there', () => {
+    const row = record({}, complete());
+    const partial = { ...row, cancel: { outcome: 'partial', cancelledIds: ['b1'] } };
+    expect(cancellable(partial).map((b) => b.booking_id)).toEqual(['b2']);
+  });
+});
+
+describe('the summary — D11, the permanence line in past tense', () => {
+  const rows = () => [
+    record({ key: 1 }, complete()),
+    record({ key: 2, name: 'Grace Hopper' }, complete({
+      contact: { contact_key: 'c2', state: 'matched' },
+      pass: { state: 'covering', expiration_date: null, detail: null },
+      bookings: [
+        booking({ state: 'already booked', booking_id: null, bookingId: null }),
+        booking({ event_id: 'e2', state: 'already booked', booking_id: null, bookingId: null }),
+      ],
+    })),
+    studentRecord({
+      student: student({ key: 3, name: 'Alan Turing' }),
+      status: 400,
+      body: { outcome: 'refused', reason: 'lead-time', message: 'a session starts within 24 hours' },
+    }),
+  ];
+
+  test('the three permanence classes are counted apart, never collapsed', () => {
+    const totals = resultTotals(rows());
+    expect(totals).toMatchObject({
+      contacts: 1,
+      passes: 1,
+      bookings: 2,
+      alreadyBooked: 2,
+      refused: 1,
+      stranded: 0,
+    });
+  });
+
+  test('the line says what was made permanent, and points at the row that refused', () => {
+    const line = resultLine(rows());
+    expect(line).toContain('1 contact created (permanent)');
+    expect(line).toContain('1 School Pass assigned (permanent)');
+    expect(line).toContain('2 bookings made (can be cancelled)');
+    expect(line).toContain('2 already booked');
+    expect(line).toContain('1 refused');
+    // The row, by its position in the table — the only number staff can find.
+    expect(line).toContain('row 3');
+  });
+
+  test('a stranded student is named, because finishing them by hand is the routine case', () => {
+    const stranded = record({ key: 4, name: 'Katherine Johnson' }, {
+      ...complete(),
+      ok: false,
+      outcome: 'abandoned',
+      reason: 'booking-refused',
+      message: 'refused',
+      stranded: true,
+      strandedDetail: 'contact and pass, no bookings',
+      bookings: [],
+    });
+    const warning = strandedWarning([...rows(), stranded]);
+    expect(warning).toContain('1 student has a contact and a pass but no bookings');
+    expect(warning).toContain('Katherine Johnson');
+  });
+
+  test('no stranded student means no warning at all, rather than a zero', () => {
+    expect(strandedWarning(rows())).toBe('');
+  });
+
+  test('once bookings are cancelled the line stops offering to cancel them', () => {
+    const [first, ...rest] = rows();
+    const line = resultLine([
+      { ...first, cancel: { outcome: 'cancelled', cancelled: 2, cancelledIds: ['b1', 'b2'] } },
+      ...rest,
+    ]);
+    expect(line).toContain('2 bookings made, 2 cancelled since');
+    expect(line).not.toContain('can be cancelled');
+  });
+
+  test('an empty run says nothing', () => {
+    expect(resultLine([])).toBe('');
+    expect(strandedWarning([])).toBe('');
+  });
+});
+
+describe('the record staff keep — D10', () => {
+  test('it carries the names, the outcomes and the booking ids a human would need', () => {
+    const text = runRecordText([record({}, complete())], { school: 'newman', at: '2026-08-21T10:00:00+08:00' });
+    expect(text).toContain('newman');
+    expect(text).toContain('Ada Lovelace');
+    expect(text).toContain('booked');
+    expect(text).toContain('b1');
+    // Parseable, so a later tool can read it rather than a human re-typing it.
+    expect(() => JSON.parse(text)).not.toThrow();
+  });
+});
+
+describe('cancelReport — what a human still has to do', () => {
+  const withCancel = (cancel) => ({ bookings: [], cancel });
+
+  test('no cancel yet is null, not an empty report', () => {
+    // Absent and "did nothing" are different facts.
+    expect(cancelReport({ bookings: [] })).toBe(null);
+  });
+
+  test('rows the Worker did not try after a throttle are kept out of the by-hand list', () => {
+    const report = cancelReport(withCancel({
+      outcome: 'partial',
+      cancelled: 1,
+      cancelledIds: ['b1'],
+      verified: true,
+      stillBooked: [],
+      failed: [
+        { booking_id: 'b2', event_id: 'e2', reason: 'refused', attempted: true },
+        { booking_id: 'b3', event_id: 'e3', reason: 'not attempted — throttling', attempted: false },
+      ],
+    }));
+    // b3 is still there and still cancellable from this page; naming it as a
+    // manual job sends staff into Clubworx to do what one more click does.
+    expect(report.byHand.map((f) => f.booking_id)).toEqual(['b2']);
+    expect(report.notAttempted.map((f) => f.booking_id)).toEqual(['b3']);
+  });
+
+  test('a pre-send refusal has no `attempted` flag at all and still needs a hand', () => {
+    const report = cancelReport(withCancel({
+      cancelled: 0, cancelledIds: [], verified: false, stillBooked: [],
+      failed: [{ booking_id: null, event_id: 'e1', reason: 'Clubworx returned no booking id' }],
+    }));
+    expect(report.byHand).toHaveLength(1);
+    expect(report.notAttempted).toEqual([]);
+  });
+
+  test('an id the re-read found still present joins the by-hand list', () => {
+    const report = cancelReport(withCancel({
+      outcome: 'still-booked', cancelled: 2, cancelledIds: ['b1', 'b2'],
+      verified: false, stillBooked: ['b2'], failed: [],
+    }));
+    expect(report.byHand.map((f) => f.booking_id)).toEqual(['b2']);
+    expect(report.byHand[0].reason).toContain('still there on a re-read');
+  });
+
+  test('unverified is reported as unverified, not as failed', () => {
+    const report = cancelReport(withCancel({
+      outcome: 'unverified', cancelled: 2, cancelledIds: ['b1', 'b2'],
+      verified: false, stillBooked: [], failed: [],
+    }));
+    expect(report.verified).toBe(false);
+    expect(report.byHand).toEqual([]);
+    expect(report.cancelled).toBe(2);
+  });
+});
+
+describe('D3’s rollback is already a cancel — the interlock has to see it', () => {
+  // `abandon()` in the Worker hands back the booking rows UNMUTATED: they still
+  // read `state: 'booked'` and still carry their ids, and what actually
+  // happened to them is in `rollback.cancelledIds`. Reading only `cancel`
+  // offers to cancel bookings the Worker already cancelled — on the very rows
+  // whose own `strandedDetail` says the student has no bookings from this run.
+  const abandoned = (over = {}) => record({}, {
+    ...complete(),
+    ok: false,
+    outcome: 'abandoned',
+    reason: 'booking-refused',
+    message: 'Sorry, this class has no free spaces available.',
+    stranded: true,
+    strandedDetail: 'This student has a contact and a School Pass and no bookings from this run.',
+    rollback: { cancelled: 2, cancelledIds: ['b1', 'b2'], failed: [], stillBooked: [], verified: true, skipped: 0 },
+    ...over,
+  });
+
+  test('a rolled-back booking is not offered for cancelling', () => {
+    expect(cancellable(abandoned())).toEqual([]);
+  });
+
+  test('and is not re-sent to the unbook route', () => {
+    expect(cancelRows(abandoned())).toEqual([]);
+  });
+
+  test('a rollback that could only cancel one leaves the other cancellable', () => {
+    const partial = abandoned({
+      rollback: { cancelled: 1, cancelledIds: ['b1'], failed: [{ booking_id: 'b2', attempted: true, reason: 'refused' }], stillBooked: [], verified: true, skipped: 0 },
+    });
+    expect(cancellable(partial).map((b) => b.booking_id)).toEqual(['b2']);
+  });
+
+  test('the row does not count bookings the rollback removed as ones staff can cancel', () => {
+    const row = abandoned();
+    expect(row.booked).toBe(0);
+    expect(row.rolledBack).toBe(2);
+    // Otherwise the table says "2 bookings made (can be cancelled)" beside a
+    // detail line saying the student has none.
+    expect(resultTotals([row])).toMatchObject({ bookings: 0, rolledBack: 2 });
+  });
+
+  test('the summary accounts for them rather than just showing a lower total', () => {
+    expect(resultLine([abandoned()])).toContain('2 bookings rolled back');
+  });
+
+  test('the bookings list says `rolled back`, not `booked`, beside a dead id', () => {
+    // A row still reading `booked` sends a human into Clubworx hunting for a
+    // booking that is not there.
+    expect(bookingRows(abandoned()).map((b) => b.state)).toEqual(['rolled back', 'rolled back']);
+  });
+
+  test('a human cancel marks its own rows too', () => {
+    const done = { ...record({}, complete()), cancel: { outcome: 'cancelled', cancelled: 1, cancelledIds: ['b1'] } };
+    expect(bookingRows(done).map((b) => b.state)).toEqual(['cancelled', 'booked']);
+  });
+
+  test('an already-booked row is never relabelled — it was never this run’s', () => {
+    const row = record({}, complete({
+      bookings: [booking({ state: 'already booked', booking_id: null, bookingId: null })],
+      rollback: { cancelled: 0, cancelledIds: [], failed: [], stillBooked: [], verified: false, skipped: 1 },
+    }));
+    expect(bookingRows(row).map((b) => b.state)).toEqual(['already booked']);
+  });
+});
+
+describe('notRunRecord — the students a halt never reached', () => {
+  test('it is a real row with nothing written', () => {
+    const row = notRunRecord(student({ key: 9, name: 'Alan Turing' }), 'The run stopped first.');
+    expect(row.state).toBe('not run');
+    expect(row.name).toBe('Alan Turing');
+    expect(row.written).toBe(false);
+    expect(isFailure(row)).toBe(true);
+    expect(cancellable(row)).toEqual([]);
+  });
+
+  test('it is counted as not run and never as a failure staff must chase', () => {
+    const rows = [record({}, complete()), notRunRecord(student({ key: 2 }), 'stopped')];
+    expect(resultTotals(rows)).toMatchObject({ notRun: 1, failed: 0, stranded: 0 });
+    expect(resultLine(rows)).toContain('1 not run');
+  });
+});
