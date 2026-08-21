@@ -344,11 +344,15 @@ export async function listEvents({ client, from, to, q = '', now = new Date().to
  * (`resolveEvent`'s own `'event-not-found'` reason, the one that would map to a
  * 400, is unreachable in production — it needs a successful upstream read.)
  *
- * Path addressing does exist here — `DELETE /bookings/:id` was measured in #60
- * — which is why `events/:id` was the guess. The API is simply inconsistent
- * between resources, and the reference does not say so. That is #50's lesson
- * charged a second time: a pattern from a neighbouring resource is not evidence
- * about this one.
+ * Path addressing does exist here, **per resource**: `GET /members/<key>`
+ * answers 200 and `DELETE /bookings/:id` works (#60), while `events/:id` and
+ * `locations/:id` both 404 — same key, same minute. That comparison is also
+ * what rules out the tempting systemic explanations: not a throttle (no 429 in
+ * ~40 requests), not a cut-off (collection reads returned 200 interleaved with
+ * the 404s), not a key lacking path-addressing rights. The API is simply
+ * inconsistent between resources and the reference does not say so, which is
+ * #50's lesson charged a second time: a pattern from a neighbouring resource is
+ * not evidence about this one.
  *
  * **This is left in place deliberately, pending the #54 decision** that #97
  * hands over: either the pasted id is resolved *page-side* from the window the

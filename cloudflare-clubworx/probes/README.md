@@ -178,13 +178,19 @@ which is the one place these runners differ. A dry run is what somebody reads
 least likely to have a key in place yet; the others refuse to describe
 themselves without one.
 
-### `events/:id` does not exist, and `DELETE /bookings/:id` does
+### Path addressing is per resource, and a 401 may be about the id
 
-The two facts sit next to each other in this directory and they are the reason
-"it works for that resource" is not evidence here. Clubworx addresses bookings
-by path (#60) and does not address events by path (#97) — same API, same
-version, no note of it in the reference. Anything path-addressed that nobody has
-actually completed is unproven, whatever its neighbours do.
+Measured, all with the same key: `GET /members/<key>` **200**, `DELETE
+/bookings/:id` **works** (#60), `GET /events/:id` **404**, `GET /locations/:id`
+**404** (#97). Same API, same version, nothing in the reference distinguishing
+them. Anything path-addressed that nobody has actually completed is unproven,
+whatever its neighbours do.
+
+And the sharper form of the 401 rule above: `GET /members/<a well-formed key
+belonging to nobody>` answers **401**, not 404 (#97). On this API a 401 can be
+about the *identifier* rather than the credential — so a probe reading a 401
+needs a control call with a known-good identifier before calling it a
+permissions wall. #50 lost a week to the first instance of this.
 
 The two `../src/` entries are not probe files any more. staff-site#66 promoted
 them into the Worker's own module, because the Worker needs exactly the same URL
