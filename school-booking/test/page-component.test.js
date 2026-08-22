@@ -1753,3 +1753,129 @@ describe('cancelling — D12, and never called Undo', () => {
     expect(app.cancellableCount()).toBeGreaterThan(0);
   });
 });
+
+// ---------------------------------------------------------------------------
+// #111 — a completed run closes the door behind it
+// ---------------------------------------------------------------------------
+// Found in #74's UAT: after a run finished, walking back to the preview offered
+// a live Apply on an unchanged list. The rules are preview.js's; what only the
+// page can get wrong is remembering what it ran, and remembering it across the
+// two paths a finished run arrives by — the run that just happened, and the one
+// restored from this browser's storage.
+describe('the already-run gate (#111)', () => {
+  test('a finished run blocks a second Apply on the same list', async () => {
+    const app = await upToApply(component());
+    expect(app.runState).toBe('complete');
+    const written = app.__writes.length;
+
+    // Back to the preview, exactly as the operator did it.
+    app.go(4);
+    expect(app.preview.blockers.some((b) => b.kind === 'already-run')).toBe(true);
+    expect(app.preview.ready).toBe(false);
+
+    // And the refusal is real, not just a message beside a live button.
+    app.askApply();
+    await app.apply();
+    expect(app.__writes).toHaveLength(written);
+  });
+
+  test('a halted run leaves Apply open — it never reached the whole list', async () => {
+    const app = await upToPreview(component({
+      // Every student throttled: the engine halts on the first one, so nobody
+      // after it was tried.
+      student: () => ({ status: 200, body: { ...STUDENT_OK, reason: 'throttled' } }),
+    }));
+    app.askApply();
+    await app.apply();
+    expect(app.runState).toBe('halted');
+
+    app.go(4);
+    expect(app.preview.blockers.some((b) => b.kind === 'already-run')).toBe(false);
+  });
+
+  test('a run that stranded a student leaves Apply open — §12 D5 says re-run', async () => {
+    // Finished, but not settled. This is the case a `state === 'complete'`
+    // test would have got wrong, and getting it wrong blocks the documented
+    // recovery for the one student who actually needs it.
+    let n = 0;
+    const app = await upToPreview(component({
+      // Exactly one, so the breaker never trips and the run reaches its end.
+      student: () => {
+        n += 1;
+        return n === 2
+          ? {
+            status: 200,
+            body: { ...STUDENT_OK, outcome: 'failed', stranded: true, strandedDetail: 'no bookings from this run' },
+          }
+          : { status: 200, body: STUDENT_OK };
+      },
+    }));
+    app.askApply();
+    await app.apply();
+    expect(app.runState).toBe('complete');
+
+    app.go(4);
+    expect(app.preview.blockers.some((b) => b.kind === 'already-run')).toBe(false);
+  });
+
+  test('cancelling the run\u2019s bookings re-opens Apply', async () => {
+    // The false positive with no way out: the bookings are gone, re-booking is
+    // a thing the operator may now want, and before this the gate still said
+    // "already run" with no control anywhere that could clear it.
+    const app = await upToApply(component());
+    app.go(4);
+    expect(app.preview.blockers.some((b) => b.kind === 'already-run')).toBe(true);
+
+    app.go(5);
+    app.askCancel();
+    await app.cancelRun();
+    expect(app.cancelState).toBe('done');
+
+    app.go(4);
+    expect(app.preview.blockers.some((b) => b.kind === 'already-run')).toBe(false);
+  });
+
+  test('opening a restored run does not conjure a preview onto the screen', async () => {
+    // `x-if="preview"` is the whole of what keeps step 5's block off screen.
+    // A preview built here renders an empty table and a `nobody-to-book`
+    // blocker over the restored run being opened.
+    const app = component();
+    app.restored = { at: '2026-08-01T00:00:00Z', school: 'newman', sessions: [], state: 'complete', records: [] };
+    expect(app.preview).toBeNull();
+    app.openRestored();
+    expect(app.preview, 'no list has been pasted, so there is nothing to preview').toBeNull();
+  });
+
+  test('the gate survives the tab: a restored run still closes Apply', async () => {
+    const first = await upToApply(component());
+    expect(first.lastRun?.fingerprint, 'the run records its fingerprint').toBeTruthy();
+    expect(first.lastRun.settled, 'a clean run is settled').toBe(true);
+
+    // A second visit to the same browser, holding the run the first one left.
+    const second = await upToPreview(component({
+      restored: {
+        at: first.runAt,
+        school: 'newman',
+        sessions: first.runSessionStarts,
+        state: 'complete',
+        records: first.runRecords,
+        fingerprint: first.lastRun.fingerprint,
+        settled: true,
+      },
+    }));
+    second.openRestored();
+    second.go(4);
+    expect(second.preview.blockers.some((b) => b.kind === 'already-run')).toBe(true);
+  });
+
+  test('a stored run from before this field leaves Apply open', async () => {
+    // Refusing an import nobody has run is the worse failure of the two: the
+    // operator has no way past it and no way to tell why.
+    const app = await upToPreview(component({
+      restored: { at: '2026-08-01T00:00:00Z', school: 'newman', sessions: [], state: 'complete', records: [] },
+    }));
+    app.openRestored();
+    app.go(4);
+    expect(app.preview.blockers.some((b) => b.kind === 'already-run')).toBe(false);
+  });
+});

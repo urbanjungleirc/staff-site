@@ -22,6 +22,7 @@ import {
   resultLine,
   resultTotals,
   runRecordText,
+  settledRun,
   strandedWarning,
   studentRecord,
 } from '../outcome.js';
@@ -471,5 +472,43 @@ describe('notRunRecord — the students a halt never reached', () => {
     const rows = [record({}, complete()), notRunRecord(student({ key: 2 }), 'stopped')];
     expect(resultTotals(rows)).toMatchObject({ notRun: 1, failed: 0, stranded: 0 });
     expect(resultLine(rows)).toContain('1 not run');
+  });
+});
+
+// #111 — the predicate that keeps the already-run gate off D5's recovery path.
+//
+// This is the half of #111 with the dangerous failure mode. The gate BLOCKS
+// rather than warns, so a run wrongly called settled leaves the operator with
+// no route to the re-run §12 D5 prescribes and no control anywhere that clears
+// it. Everything here errs toward "not settled", which merely re-offers Apply.
+describe('settledRun — did this run leave anything worth doing again?', () => {
+  test('a clean complete run is settled', () => {
+    expect(settledRun('complete', [record({}, complete())])).toBe(true);
+  });
+
+  test('a halt is never settled, however clean the students it did reach', () => {
+    // Every student it tried succeeded; the ones it never tried are the point.
+    expect(settledRun('halted', [record({}, complete())])).toBe(false);
+  });
+
+  test('a stranded student keeps it open — D3 rolled their bookings back', () => {
+    const stranded = record({}, complete({ outcome: 'failed', stranded: true, strandedDetail: 'no bookings' }));
+    expect(settledRun('complete', [record({}, complete()), stranded])).toBe(false);
+  });
+
+  test('an outright failure keeps it open', () => {
+    expect(settledRun('complete', [record({}, complete({ outcome: 'failed', ok: false }))])).toBe(false);
+  });
+
+  test('a refusal does not keep it open — re-running reproduces it exactly', () => {
+    // A session inside its lead time or a pass that will not cover the term is
+    // a standing condition of the run, not a transient failure. The fix is to
+    // change something, and changing something re-opens the gate anyway.
+    const refused = record({}, complete({ ok: false, outcome: 'refused', written: false, reason: 'lead-time' }));
+    expect(settledRun('complete', [refused])).toBe(true);
+  });
+
+  test('an empty run is not a settled one', () => {
+    expect(settledRun('halted', [])).toBe(false);
   });
 });

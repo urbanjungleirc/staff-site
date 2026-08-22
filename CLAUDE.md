@@ -165,6 +165,15 @@ school-booking/preview.js - step 5: the STUDENT/DOB/READ/CLUBWORX/OUTCOME table,
                           Apply" rather than "pass already active". An absent
                           answer is `pending`, never `new` — `new` writes a
                           contact Clubworx cannot delete.
+                          runFingerprint() is #111's already-run gate, and it
+                          SUPERSEDES §12 D13, which decided the opposite — read
+                          the note there before touching it. Its own header says
+                          why a fingerprint and not a hasRun flag, and what is
+                          deliberately left out. What closes the door is
+                          outcome.js's settledRun(), never `state ===
+                          'complete'` read here: a finished run can still have
+                          stranded a student, and D5 makes re-running the
+                          recovery for exactly that.
 school-booking/run.js   - step 6's engine: Apply's per-student loop, D8's retry
                           policy, D7's circuit breaker, the throttle halt, the
                           cancel loop, and D10's browser-only store. Takes an

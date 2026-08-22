@@ -246,6 +246,52 @@ export function permanenceLine(preview) {
 }
 
 /**
+ * What a run *is*, reduced to one comparable string — #111.
+ *
+ * The gate this feeds needs to answer "has this exact work already been done?",
+ * and that question is about a list and a set of sessions under a school tag,
+ * never about the page. A boolean `hasRun` would answer a different question
+ * and answer it wrongly the moment a student is added, which is the realistic
+ * second run and the one #74's UAT actually exercised.
+ *
+ * Three things go in, and each earns its place:
+ *
+ *   - **The school tag.** It is written onto every contact the run creates and
+ *     is the only record of which school a student belongs to, so the same list
+ *     under a second tag is a different write, not a repeat.
+ *   - **Each runnable student**, as identity plus the resolution the operator
+ *     settled on. Same names but `create` where it once said `use` is a new
+ *     permanent contact — a different run wearing the same list.
+ *   - **The session ids**, because the same students booked into a different
+ *     week is a different run by every measure that matters.
+ *
+ * And what stays out matters as much.
+ *
+ * **Blocked rows**, because no run would have written them — so resolving one
+ * is a change and leaving one alone is not.
+ *
+ * **The row key**, which is emphatically not an identity: it is the student's
+ * first line number in the paste. Including it would mean the same list
+ * re-pasted with a blank line on top read as a different import, purely because
+ * every number shifted by one. Name and date of birth are the identity the rest
+ * of this system matches on, and true duplicates are already collapsed before a
+ * row reaches here, so the key adds instability and no discrimination.
+ *
+ * **Order**, on both lists. A paste arriving in a different order is the same
+ * import, and the operator has no way to control it anyway.
+ */
+export function runFingerprint({ schoolTag, preview } = {}) {
+  // JSON per row rather than a joined string: a separator character is only
+  // unambiguous until a name contains it, and names here are arbitrary text.
+  const rows = (preview?.rows ?? [])
+    .filter((r) => !r.needsHuman)
+    .map((r) => JSON.stringify([r.name, r.dob ?? '', r.clubworx, r.contactKey ?? '', r.resolution ?? '']))
+    .sort();
+  const sessions = (preview?.sessions ?? []).map((e) => String(e?.event_id)).sort();
+  return JSON.stringify([String(schoolTag ?? ''), rows, sessions]);
+}
+
+/**
  * Everything step 5 shows, and everything that keeps Apply dark, from one call.
  *
  * @param {object} opts
@@ -255,8 +301,12 @@ export function permanenceLine(preview) {
  * @param {object} [opts.review] step 3's own `review()`, for its gates — see below
  * @param {object|null} opts.plan the `/plan` response body
  * @param {object} opts.decisions the match resolution log
+ * @param {string} [opts.schoolTag] the school tag, for the already-run fingerprint
+ * @param {{settled: boolean, fingerprint: string}|null} [opts.lastRun] the run
+ *   this browser last finished, if any — `settled` is outcome.js's
+ *   `settledRun()`. See the `already-run` gate below.
  */
-export function buildPreview({ rows, matches, selection, review, plan, decisions } = {}) {
+export function buildPreview({ rows, matches, selection, review, plan, decisions, schoolTag, lastRun } = {}) {
   const log = decisions ?? {};
   const found = matches ?? {};
   const picked = selection ?? { events: [], blockers: [], sessions: 0 };
@@ -318,6 +368,29 @@ export function buildPreview({ rows, matches, selection, review, plan, decisions
     });
   }
 
+  const fingerprint = runFingerprint({ schoolTag, preview: { rows: previewed, sessions: picked.events ?? [] } });
+
+  // #111. `settled` is outcome.js's answer to "did this run leave anything
+  // worth doing again", and it is what keeps this gate off §12 D5's recovery
+  // re-run — the path D13 refused to warn against, and which this blocks rather
+  // than warns. The rule lives there; this decides only what it closes.
+  if (lastRun?.settled && lastRun.fingerprint === fingerprint) {
+    blockers.push({
+      key: 'already-run',
+      kind: 'already-run',
+      severity: 'block',
+      title: 'This import has already been run',
+      // Names only what exists today. #113 adds a "start another import"
+      // control, and this line should point at that instead once it lands —
+      // until then, reloading is the honest instruction, and the run is safe
+      // to reload away from because storage offers it back (D10).
+      detail: 'Nothing here has changed since it ran, so applying again would repeat work that is '
+        + 'already done. Add or resolve a student, or change the sessions, and this clears itself. '
+        + 'To import a different school, reload the page — this run is saved in this browser.',
+      actions: [],
+    });
+  }
+
   return {
     rows: previewed,
     totals,
@@ -326,6 +399,7 @@ export function buildPreview({ rows, matches, selection, review, plan, decisions
     plan: plan?.ok ? plan.plan : null,
     sessions: picked.events ?? [],
     lastSession: picked.lastSession ?? null,
+    fingerprint,
   };
 }
 

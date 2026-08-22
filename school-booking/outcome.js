@@ -410,6 +410,38 @@ const rowsWhere = (records, predicate) =>
     .filter((n) => n !== null);
 
 /**
+ * Did this run leave anything worth doing again? — #111.
+ *
+ * This is the predicate that keeps #111's already-run gate off **D5's recovery
+ * path**, and getting it wrong is how a well-meant gate becomes the thing that
+ * traps an operator.
+ *
+ * §12 D5 makes a re-run *the* recovery: "Re-paste the same list, pick the same
+ * sessions, run again." §12 D13 then refused to warn against a re-paste at all,
+ * on the grounds that warning would "train staff to click through the warning
+ * on the one path D5 prescribes for recovery." A gate that fires on a run with
+ * a stranded student would do exactly the damage D13 named, except worse — it
+ * blocks rather than warns, so there is nothing to click through.
+ *
+ * So the door closes only on a run that both **finished** and **left nobody
+ * behind**. Two conditions, and each rules out a different kind of unfinished:
+ *
+ *   - **`complete`.** A run halted by D7's breaker or a throttle has students
+ *     it never tried, and they are still waiting.
+ *   - **No failures.** A run can reach the end and still have stranded a
+ *     student — D3 rolled their bookings back and named them — or failed one
+ *     outright. That is precisely what D5 says to re-run.
+ *
+ * A *refused* student is deliberately not counted. A refusal is a standing
+ * condition of the run — a session inside its lead time, a pass that will not
+ * cover the term — and running the same list again reproduces it exactly. The
+ * fix is to change something, and changing something re-opens the gate anyway.
+ */
+export function settledRun(state, records) {
+  return state === 'complete' && resultTotals(records).failed === 0;
+}
+
+/**
  * D11's summary — the same sentence the preview showed, in past tense.
  *
  * Refusals and failures are pointed at **by row number**, because that is the
