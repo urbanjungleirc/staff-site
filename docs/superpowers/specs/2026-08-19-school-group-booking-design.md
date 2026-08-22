@@ -1052,6 +1052,71 @@ staff must be able to see and finish by hand.
 The specific failure this defends against is a page reload destroying the only
 record of creations that cannot be undone.
 
+**D15 — The run says it is alive, continuously and where the operator is
+looking.** Added on [#112](https://github.com/urbanjungleirc/staff-site/issues/112)
+after the same UAT as #111. Display only: it changes nothing about what the run
+does, how it paces, or when it stops.
+
+The report says "nothing else on the page indicates a run is under way", but a
+banner with a live count **was** on screen the whole time. Two things explain
+that, and the count on its own fixed neither:
+
+- It sits above a table that adds a row per student, so it leaves the viewport
+  as the run goes on. *This part is inference* — the report does not say the
+  banner scrolled away, only that nothing indicated a run. It is the reading
+  that fits a banner being present and unseen.
+- Its text changes once per student, so through D8's 20-second backoff it says
+  nothing at all — the pause where the run is deliberately waiting and is least
+  distinguishable from a dead page.
+
+So the banner is **sticky**, and it carries a **spinner** as well as the count.
+The spinner is the part that keeps moving when nothing else does; under
+`prefers-reduced-motion` it is slowed, not stopped, because a ring that does not
+turn reads as the failure this removes.
+
+**Clearing it is four paths, not three.** The engine's three endings —
+completion, the breaker halt, the throttle halt — all leave `runState`, and the
+banner is bound to it. The fourth is the one D10 exists for: the store is
+written per student, so a tab closed on student 19 leaves `state: 'running'` in
+`localStorage`, and `openRestored()` restored that verbatim. A restored
+`running` is the one value that cannot be true — nothing is calling anything —
+and before this it merely showed a stale sentence. With a spinner on it, it
+becomes a page actively claiming liveness over a dead run, while
+`runState !== 'running'` hides the very result table the store was written to
+preserve. So a restored `running` is clamped to a **halt** with reason
+`interrupted`, and D5's re-run finishes it like any other.
+
+The text itself is `progressLine()` in `outcome.js`, built from the two counts
+the run already holds and never from the records.
+
+**It applies to all three serial waits, not just the run.**
+
+The **Clubworx check** between steps 4 and 5 (§6, strictly one student at a
+time) has the same shape and had the same gap: minutes for a class of 25, a
+preview row published per student, and a count that moves once per student. Same
+sticky banner, same spinner. Its two exits both clear it — the end of the loop,
+and §11's early stop on an unresolved plan — and neither `checkStudent` nor
+`lookupPlan` throws, so there is no third path to clamp the way the restored run
+needed.
+
+**D12's cancel** had the least of the three: no count at all. It is up to 150
+DELETEs plus a verifying re-read per student, which is minutes of a page saying
+nothing while it deletes things. It gets the spinner and a count, but **not**
+the sticky banner — nothing grows underneath it. The cancel rewrites the
+result table's rows in place rather than adding to it, and the panel the
+operator just clicked in is where they are already looking. Sticky is the answer
+to a table that pushes the banner away, which is not this.
+
+Its denominator is the awkward part, and it is `cancellableStudents()` in
+`outcome.js`. It is neither the row count nor the booking count the control
+above quotes ("Cancel 12 bookings from this run"): `cancelStudents` sends one
+call per student and skips a record with nothing this run booked, so a
+denominator that counted those would sit permanently short of its own total and
+read as the stall it was meant to disprove. It is deliberately the *same*
+predicate the engine skips on — two copies of that rule is how the counter
+starts lying. That is also why the line says the word "students": the control
+beside it counts bookings, and the two numbers differ.
+
 ### Doing it twice
 
 **D5 — Recovery is a restart-safe re-run. No stored run state, no resume.**

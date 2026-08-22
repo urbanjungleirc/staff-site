@@ -332,6 +332,22 @@ export function anyCancellable(records) {
   return (records ?? []).some((r) => cancellable(r).length > 0);
 }
 
+/**
+ * How many students the cancel loop will actually call for — #112.
+ *
+ * Not the row count, and not the booking count either. `cancelStudents` sends
+ * one call per student and SKIPS a record with nothing this run booked, so this
+ * has to agree with that skip or the progress it feeds stops short of its own
+ * total and reads as a stall. Same predicate, one place.
+ *
+ * The control above it counts *bookings* — "Cancel 12 bookings from this run" —
+ * because that is the unit of what is being taken back. The loop's unit is
+ * students, which is why the line it feeds says the word.
+ */
+export function cancellableStudents(records) {
+  return (records ?? []).filter((r) => cancellable(r).length > 0).length;
+}
+
 /** The run's tally, with the three permanence classes kept apart. */
 export function resultTotals(records) {
   const rows = records ?? [];
@@ -533,4 +549,22 @@ export function runRecordText(records, meta = {}) {
     null,
     2,
   );
+}
+
+/**
+ * The in-progress line — #112.
+ *
+ * Display only, and deliberately made of the two numbers the run already holds:
+ * how many students have come back, and how many were started. It never reads
+ * the records, so it cannot be wrong about what happened — it is about whether
+ * anything is still happening.
+ *
+ * The banner it sits in is cleared by the run *ending* (`runState` leaving
+ * `running`), not by this line, which is why `done === total` still reads as
+ * in-flight: `onRow` fires before the engine has decided whether to halt.
+ */
+export function progressLine({ done = 0, total = 0 } = {}) {
+  if (total <= 0) return '';
+  if (done <= 0) return `Starting ${plural(total, 'student')}…`;
+  return `${done} of ${plural(total, 'student')} done…`;
 }

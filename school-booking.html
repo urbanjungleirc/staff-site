@@ -68,14 +68,14 @@
      or missing module into a visible refusal rather than a page whose gates
      quietly do nothing. -->
 <script type="module">
-  import * as parser from './school-booking/parse.js?v=3';
-  import * as steps from './school-booking/steps.js?v=3';
-  import * as identity from './school-booking/identity.js?v=3';
-  import * as events from './school-booking/events.js?v=3';
-  import * as preview from './school-booking/preview.js?v=3';
-  import * as calendar from './school-booking/calendar.js?v=3';
-  import * as outcome from './school-booking/outcome.js?v=3';
-  import * as run from './school-booking/run.js?v=3';
+  import * as parser from './school-booking/parse.js?v=4';
+  import * as steps from './school-booking/steps.js?v=4';
+  import * as identity from './school-booking/identity.js?v=4';
+  import * as events from './school-booking/events.js?v=4';
+  import * as preview from './school-booking/preview.js?v=4';
+  import * as calendar from './school-booking/calendar.js?v=4';
+  import * as outcome from './school-booking/outcome.js?v=4';
+  import * as run from './school-booking/run.js?v=4';
   window.schoolListParser = parser;
   window.schoolBookingSteps = steps;
   window.schoolBookingIdentity = identity;
@@ -382,6 +382,32 @@
   .lane-need { border-left-color: #f59e0b; }
   .lane-bad  { border-left-color: #e11d48; }
   .lane-ok   { border-left-color: #10b981; }
+
+  /* #112 — something is still happening.
+
+     Used by all three of the page's serial, one-student-at-a-time waits: the
+     Clubworx check between steps 4 and 5, the run on step 6, and D12's cancel.
+     A count that changes once per student is not an activity indicator —
+     between two students, and right through D8's 20-second retry backoff, it
+     says nothing at all. This is the part that keeps saying something. */
+  @keyframes uj-spin { to { transform: rotate(360deg); } }
+
+  .spinner {
+    width: 0.85rem;
+    height: 0.85rem;
+    flex: none;
+    border-radius: 9999px;
+    border: 2px solid currentColor;
+    border-top-color: transparent;
+    animation: uj-spin 0.8s linear infinite;
+  }
+
+  /* Slowed rather than stopped. A ring that does not turn reads as a spinner
+     that has died, which is the exact impression this whole thing exists to
+     remove — so reduced motion gets a calmer one, not a frozen one. */
+  @media (prefers-reduced-motion: reduce) {
+    .spinner { animation-duration: 3s; }
+  }
 </style>
 </head>
 
@@ -1120,11 +1146,21 @@
         <!-- The check is serial and a class of 25 takes minutes, so the count
              says which student it is on. It lives here rather than on step 4's
              button because the page has already moved: answers are published
-             per student, so a check that stalls on 19 shows eighteen rows. -->
-        <div class="rounded-xl bg-sky-50 border border-sky-200 text-sky-900 px-3.5 py-2.5 text-sm mb-3"
+             per student, so a check that stalls on 19 shows eighteen rows.
+
+             #112, same as step 6's. Publishing per student means a table grows
+             underneath this and carries it off the top, and the count moves
+             once per student — so between two students there is nothing on
+             screen saying the check is alive. The spinner is that. -->
+        <div class="sticky top-0 z-10 rounded-xl bg-sky-50 border border-sky-200 text-sky-900 px-3.5 py-2.5 text-sm mb-3 flex items-start gap-2.5"
              x-show="checkState === 'running'" x-cloak>
-          <span x-text="checkProgress"></span>
-          One student at a time — the Clubworx allowance is shared with the whole gym.
+          <span class="spinner mt-1" aria-hidden="true"></span>
+          <span>
+            <!-- The live region is the count alone; on the whole banner the
+                 static sentence is re-read on every one of 25 updates. -->
+            <span role="status" x-text="checkProgress"></span>
+            One student at a time — the Clubworx allowance is shared with the whole gym.
+          </span>
         </div>
 
         <template x-if="preview">
@@ -1283,10 +1319,20 @@
           Bookings are the one thing that can be taken back.
         </p>
 
-        <div class="rounded-xl bg-sky-50 border border-sky-200 text-sky-900 px-3.5 py-2.5 text-sm mb-3"
+        <!-- #112. Sticky, because the fault reported at UAT was not a missing
+             banner — it was this one, above a table that adds a row per
+             student and pushes it off the top by the twelfth. An indicator
+             that has scrolled away is not an indicator. -->
+        <div class="sticky top-0 z-10 rounded-xl bg-sky-50 border border-sky-200 text-sky-900 px-3.5 py-2.5 text-sm mb-3 flex items-start gap-2.5"
              x-show="runState === 'running'" x-cloak>
-          <span x-text="runProgress"></span>
-          One student at a time — the Clubworx allowance is shared with the whole gym. Leave this tab open.
+          <span class="spinner mt-1" aria-hidden="true"></span>
+          <span>
+            <!-- The live region is the count and nothing else. On the whole
+                 banner it would re-read the static sentence below on every
+                 update, which on a class of 63 is sixty-three times. -->
+            <span role="status" x-text="runProgress"></span>
+            One student at a time — the Clubworx allowance is shared with the whole gym. Leave this tab open.
+          </span>
         </div>
 
         <!-- A halt says why, and says that what is above it is untouched. -->
@@ -1455,7 +1501,17 @@
             </div>
           </div>
 
-          <div class="text-xs mt-2" x-show="cancelState === 'running'" x-cloak>Cancelling, one student at a time…</div>
+          <!-- #112. Not sticky, unlike the other two: nothing grows underneath
+               this one. The cancel rewrites the table's rows in place rather
+               than adding to it, and the panel the operator just clicked in is
+               where they are already looking. -->
+          <div class="text-xs mt-2 flex items-center gap-2" x-show="cancelState === 'running'" x-cloak>
+            <span class="spinner" aria-hidden="true"></span>
+            <span>
+              <span role="status" x-text="cancelProgress"></span>
+              Cancelling, one student at a time…
+            </span>
+          </div>
           <div class="text-xs mt-2 text-rose-700" x-show="cancelState === 'halted'" x-cloak x-text="cancelMessage"></div>
         </div>
 
@@ -1597,6 +1653,10 @@ function schoolBooking() {
     expandedResult: null,
     cancelState: 'idle',
     cancelMessage: '',
+    // #112. The cancel's own count. Kept apart from `runProgress` because the
+    // two can never be on screen together and sharing one would make a stale
+    // line from the run readable during a cancel.
+    cancelProgress: '',
     cancelConfirming: false,
     // A run found in this browser's storage at load — D10's whole purpose. It
     // is offered, never auto-opened: it may be yesterday's, and the operator
@@ -2592,7 +2652,9 @@ function schoolBooking() {
       const fingerprint = this.preview.fingerprint;
       this.expandedResult = null;
       this.runRemaining = 0;
-      this.runProgress = `Starting ${students.length} student${students.length === 1 ? '' : 's'}…`;
+      // #112. The line is `outcome.js`'s, not the page's — one plural rule, in
+      // a place a test can reach.
+      this.runProgress = window.schoolBookingOutcome.progressLine({ done: 0, total: students.length });
       this.guardUnload(true);
       this.go(5);
 
@@ -2603,7 +2665,10 @@ function schoolBooking() {
           // Published and stored per student. An end-of-run write is the one
           // that is missing when the tab is closed on student 19.
           this.runRecords = [...records];
-          this.runProgress = `${records.length} of ${students.length} done…`;
+          this.runProgress = window.schoolBookingOutcome.progressLine({
+            done: records.length,
+            total: students.length,
+          });
           this.saveRun();
         },
       });
@@ -2739,6 +2804,14 @@ function schoolBooking() {
       this.running = true;
       this.cancelState = 'running';
       this.cancelMessage = '';
+      // #112. The denominator is the students the loop will actually call for,
+      // which is neither the row count nor the booking count the control above
+      // quotes: a record with nothing this run booked is skipped by the engine
+      // (D12's interlock), so counting it would leave this permanently short of
+      // its own total. `cancellableStudents` is the engine's own predicate.
+      const toCall = window.schoolBookingOutcome.cancellableStudents(this.runRecords);
+      let called = 0;
+      this.cancelProgress = window.schoolBookingOutcome.progressLine({ done: 0, total: toCall });
       this.guardUnload(true);
 
       const result = await window.schoolBookingRun.cancelStudents({
@@ -2746,6 +2819,10 @@ function schoolBooking() {
         call: (payload) => this.callWorker('/api/clubworx/unbook', payload),
         onRow: (record, records) => {
           this.runRecords = [...records];
+          // Counted here rather than off `records.length`: that array is every
+          // row in the run and does not move as the loop skips.
+          called += 1;
+          this.cancelProgress = window.schoolBookingOutcome.progressLine({ done: called, total: toCall });
           this.saveRun();
         },
       });
@@ -2753,6 +2830,7 @@ function schoolBooking() {
       this.runRecords = [...result.records];
       this.cancelState = result.state === 'halted' ? 'halted' : 'done';
       this.cancelMessage = result.message;
+      this.cancelProgress = '';
       this.running = false;
       this.guardUnload(false);
       // #111. Taking the bookings back retires the claim that this import is
@@ -2812,7 +2890,23 @@ function schoolBooking() {
       this.runRecords = this.restored.records ?? [];
       this.runAt = this.restored.at ?? null;
       this.runSessionStarts = this.restored.sessions ?? [];
-      this.runState = this.restored.state ?? 'complete';
+      // #112. The store is written per student (D10), so a tab closed on
+      // student 19 leaves `running` behind — and a restored `running` is the
+      // one state that cannot be true, because nothing is calling anything.
+      // Left as-is it puts a turning spinner and "Leave this tab open" over a
+      // dead page, and hides the result table behind `runState !== 'running'`,
+      // which is the very record the store exists to preserve. It is a halt,
+      // and D5's re-run is how it is finished — the same as any other.
+      const interrupted = this.restored.state === 'running';
+      this.runState = interrupted ? 'halted' : (this.restored.state ?? 'complete');
+      this.runReason = interrupted ? 'interrupted' : null;
+      this.runMessage = interrupted
+        ? 'This run did not finish — the tab was closed or reloaded while it was working. '
+          + 'Everything below is done and is not affected. Students the run never reached are '
+          + 'not listed, because nothing was recorded for them.'
+        : '';
+      this.runRemaining = 0;
+      this.runProgress = '';
       // #111. A fingerprint the stored run does not carry leaves the gate open
       // rather than closed: an older run predating this field is not evidence
       // that today's list has been applied, and guessing it would refuse an
