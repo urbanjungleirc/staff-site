@@ -9,6 +9,15 @@
       "path": "roster.html",
       "category": "Operations"
     },
+    {
+      "type": "tool",
+      "id": "school-booking",
+      "name": "School Group Booking",
+      "description": "Paste a school's student list, match it against Clubworx, and book the whole group into sessions.",
+      "shortName": "🎒",
+      "path": "school-booking.html",
+      "category": "Operations"
+    },
      {
       "type": "tool",
       "id": "slideshow",

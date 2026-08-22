@@ -111,9 +111,12 @@ school-booking.html     - the school booking page, steps 1-6 (#71, #72, #73, #10
                           the name filter is applied in the Worker's memory
                           AFTER the walk, so it shortens the table and never the
                           request count. The date fields are the house picker
-                          (calendar.js), not the browser's. Variant A of §9, decided on #54. NOT in
-                          tools.json and unreachable from the hub until #46's
-                          last step — §17's order, because `main` is production.
+                          (calendar.js), not the browser's. Variant A of §9, decided on #54. In
+                          tools.json and reachable from the hub: that entry is
+                          #74, the last step of #46 and the switch-on for
+                          everything before it, which is why §17 puts it last
+                          and why every earlier step was invisible to staff even
+                          while deployed — `main` is production.
                           Steps 1-5 READ; step 6 WRITES (#73). The page holds
                           only the confirm gate, the single-flight lock, the
                           storage and the rendering — the run itself is run.js
