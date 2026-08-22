@@ -33,6 +33,7 @@ import * as parser from '../parse.js';
 import * as steps from '../steps.js';
 
 const PAGE = new URL('../../school-booking.html', import.meta.url);
+const TOOLS = new URL('../../tools.json', import.meta.url);
 const html = readFileSync(PAGE, 'utf8');
 
 // `x-on:` and `@` are excluded on purpose: an event handler is where a function
@@ -258,11 +259,18 @@ describe('school-booking.html', () => {
     }
   });
 
-  test('the page is not reachable from the hub yet', () => {
+  test('the page is reachable from the hub', () => {
     // §17: the hub entry is the last step of #46, and it is what makes every
-    // earlier step visible to staff. Landing it early ships a half-built tool
-    // to the front desk, because `main` is production.
-    const tools = readFileSync(new URL('../../tools.json', import.meta.url), 'utf8');
-    expect(tools).not.toContain('school-booking');
+    // earlier step visible to staff, so #74 gates merging it on UAT passing
+    // against production — `main` is production, and merging is deploying.
+    // This is the inverse of the guard that held the entry back, so once the
+    // switch is thrown, silently dropping the entry fails rather than passing.
+    const tools = JSON.parse(readFileSync(TOOLS, 'utf8'));
+    const entry = tools.entries.find((e) => e.id === 'school-booking');
+    expect(entry, 'tools.json carries a school-booking entry').toBeTruthy();
+    expect(entry.path).toBe('school-booking.html');
+    // That the path is backed by a real file is checked with the hub's other
+    // invariants, in cloudflare-worker/test/tools-json.test.js — it is a rule
+    // about tools.json, not about this page.
   });
 });
