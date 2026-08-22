@@ -1068,6 +1068,29 @@ guard: it shows 0 new contacts, 0 new passes, N already booked. Warning against
 it would train staff to click through the warning on the one path D5 prescribes
 for recovery.
 
+> **Superseded 2026-08-22 by [#111](https://github.com/urbanjungleirc/staff-site/issues/111),
+> after #74's UAT.** The operator ran the tool against production, then walked
+> back from a finished result table and found Apply live on an unchanged list.
+> D13 is right that a *warning* would be corrosive, and it stays right — so what
+> #111 built is not a warning. Applying an unchanged import after a **settled**
+> run is refused outright, and the refusal cannot be clicked through.
+>
+> **D5 is untouched, and that is the whole design of the gate.** A run is
+> settled only when it both finished *and* left nobody behind, so the gate never
+> appears on the recovery path: not after a halt, not after a stranded student,
+> not after a failure. The predicate is `settledRun()` in `outcome.js` — it is
+> deliberately not a `state === 'complete'` test, because a run can reach the
+> end having stranded somebody, and that is precisely a re-run case.
+>
+> Cancelling the run's bookings also retires the claim, because it is no longer
+> true. Without that, taking the bookings back would leave Apply dark with
+> nothing on the page able to clear it — a refusal with no exit, which is worse
+> than the warning D13 rejected.
+>
+> What D13 got right and this preserves: the preview is still the guard. The
+> gate is one more blocker in the same list, in the same shape, read by the same
+> `ready` flag.
+
 **A double-click on Apply, or a mid-run resubmit, is different** and does need a
 single-flight lock: Apply disabled while a run is in progress, plus a
 `beforeunload` warning.

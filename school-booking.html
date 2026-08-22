@@ -68,14 +68,14 @@
      or missing module into a visible refusal rather than a page whose gates
      quietly do nothing. -->
 <script type="module">
-  import * as parser from './school-booking/parse.js?v=2';
-  import * as steps from './school-booking/steps.js?v=2';
-  import * as identity from './school-booking/identity.js?v=2';
-  import * as events from './school-booking/events.js?v=2';
-  import * as preview from './school-booking/preview.js?v=2';
-  import * as calendar from './school-booking/calendar.js?v=2';
-  import * as outcome from './school-booking/outcome.js?v=2';
-  import * as run from './school-booking/run.js?v=2';
+  import * as parser from './school-booking/parse.js?v=3';
+  import * as steps from './school-booking/steps.js?v=3';
+  import * as identity from './school-booking/identity.js?v=3';
+  import * as events from './school-booking/events.js?v=3';
+  import * as preview from './school-booking/preview.js?v=3';
+  import * as calendar from './school-booking/calendar.js?v=3';
+  import * as outcome from './school-booking/outcome.js?v=3';
+  import * as run from './school-booking/run.js?v=3';
   window.schoolListParser = parser;
   window.schoolBookingSteps = steps;
   window.schoolBookingIdentity = identity;
@@ -1590,6 +1590,10 @@ function schoolBooking() {
     runRemaining: 0,
     runAt: null,
     runSessionStarts: [],
+    // #111: what the last finished run covered, as `{ state, fingerprint }`.
+    // Only a `complete` one closes Apply, and only against an identical
+    // fingerprint — the rules are preview.js's, not this page's.
+    lastRun: null,
     expandedResult: null,
     cancelState: 'idle',
     cancelMessage: '',
@@ -2473,6 +2477,8 @@ function schoolBooking() {
         review: this.reviewed,
         plan: this.plan,
         decisions: this.decisions,
+        schoolTag: this.tag,
+        lastRun: this.lastRun,
       });
     },
 
@@ -2583,6 +2589,7 @@ function schoolBooking() {
       this.cancelMessage = '';
       this.runAt = new Date().toISOString();
       this.runSessionStarts = (this.preview.sessions ?? []).map((e) => e.event_start_at);
+      const fingerprint = this.preview.fingerprint;
       this.expandedResult = null;
       this.runRemaining = 0;
       this.runProgress = `Starting ${students.length} student${students.length === 1 ? '' : 's'}…`;
@@ -2609,6 +2616,18 @@ function schoolBooking() {
       this.runProgress = '';
       this.running = false;
       this.guardUnload(false);
+      // #111. The claim is about what was *applied*, so it carries the
+      // fingerprint taken before the run rather than one rebuilt from the page
+      // afterwards — the two agree today, and this stays true of a page that
+      // later lets the operator touch the list while a run is in flight.
+      // `settledRun` is what keeps the gate off D5's recovery re-run.
+      this.lastRun = {
+        settled: window.schoolBookingOutcome.settledRun(result.state, result.records),
+        fingerprint,
+      };
+      // So the gate is already on the preview when the operator walks back to
+      // it. Nothing else on that path rebuilds it.
+      this.refreshPreview();
       this.saveRun();
     },
 
@@ -2642,6 +2661,11 @@ function schoolBooking() {
         sessions: this.runSessionStarts,
         state: this.runState,
         records: this.runRecords,
+        // #111. Without these the gate dies with the tab, and reopening a
+        // finished run is exactly when an operator is most likely to press
+        // Apply again — they have just been shown a page that looks unfinished.
+        fingerprint: this.lastRun?.fingerprint ?? null,
+        settled: this.lastRun?.settled === true,
       });
     },
 
@@ -2731,6 +2755,14 @@ function schoolBooking() {
       this.cancelMessage = result.message;
       this.running = false;
       this.guardUnload(false);
+      // #111. Taking the bookings back retires the claim that this import is
+      // done, because it is no longer true: the contacts and passes survive,
+      // the bookings do not, and re-booking them is a thing an operator may now
+      // legitimately want. Leaving the gate closed here is the one false
+      // positive with no way out — the very reason those bookings were the only
+      // reversible thing in the first place.
+      this.lastRun = null;
+      this.refreshPreview();
       this.saveRun();
     },
 
@@ -2781,7 +2813,22 @@ function schoolBooking() {
       this.runAt = this.restored.at ?? null;
       this.runSessionStarts = this.restored.sessions ?? [];
       this.runState = this.restored.state ?? 'complete';
+      // #111. A fingerprint the stored run does not carry leaves the gate open
+      // rather than closed: an older run predating this field is not evidence
+      // that today's list has been applied, and guessing it would refuse an
+      // import nobody has run.
+      this.lastRun = this.restored.fingerprint
+        ? { settled: this.restored.settled === true, fingerprint: this.restored.fingerprint }
+        : null;
       this.restored = null;
+      // Only when there is already a preview to correct. It was built before
+      // this run was known about, so it is still offering Apply.
+      //
+      // Never build one that was not there: `x-if="preview"` is what keeps
+      // step 5's block off the screen, and a preview conjured here would render
+      // an empty table and a `nobody-to-book` blocker over the restored run the
+      // next line is about to show.
+      if (this.preview) this.refreshPreview();
       this.maxStepReached = 5;
       this.go(5);
     },

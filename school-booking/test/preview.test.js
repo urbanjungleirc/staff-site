@@ -11,6 +11,7 @@ import {
   matchDecision,
   permanenceLine,
   resolveMatch,
+  runFingerprint,
 } from '../preview.js';
 
 // A step-3 row, in the shape `review()` emits.
@@ -447,5 +448,134 @@ describe('step 3’s gates are hard-stops here too', () => {
     };
     const carried = build({ review: withAction }).blockers.find((b) => b.kind === 'count-mismatch');
     expect(carried.actions[0].answers).toBe('redeclare');
+  });
+});
+
+// #111: a completed run closes the door behind it.
+//
+// The tool proved idempotent against production during #74's UAT — a second
+// Apply on an unchanged list matches the contacts it already made, grants no
+// second pass, and does not rebook anybody. So this gate is not protecting the
+// data; it is protecting the operator's reading of the page. An Apply button
+// that is live when it provably has nothing to do teaches staff that the gate
+// above it means nothing, on the one screen where that lesson is expensive.
+//
+// It is a *fingerprint* rather than a flag because "already run" is a claim
+// about a particular list against particular sessions, not about the page. Add
+// a student and the claim expires; the flag would not have noticed.
+describe('the already-run gate', () => {
+  const lastRun = (over = {}) => ({
+    settled: true,
+    fingerprint: runFingerprint({ schoolTag: 'stmarys', preview: build() }),
+    ...over,
+  });
+
+  test('a completed run on the same list blocks Apply', () => {
+    const preview = build({ schoolTag: 'stmarys', lastRun: lastRun() });
+    const gate = preview.blockers.find((b) => b.kind === 'already-run');
+    expect(gate?.severity).toBe('block');
+    expect(preview.ready).toBe(false);
+  });
+
+  test('no run yet leaves Apply alone', () => {
+    expect(build({ schoolTag: 'stmarys' }).blockers.some((b) => b.kind === 'already-run')).toBe(false);
+  });
+
+  test('an added student re-opens Apply', () => {
+    // The realistic second run, and the one UAT actually exercised: the same
+    // list with more names on the end of it.
+    const more = build({
+      schoolTag: 'stmarys',
+      rows: [row(), row({ key: 4, firstName: 'Bo', lastName: 'Nguyen', dob: '2012-01-04' })],
+      matches: { 3: match(), 4: match() },
+      lastRun: lastRun(),
+    });
+    expect(more.blockers.some((b) => b.kind === 'already-run')).toBe(false);
+  });
+
+  test('a different session selection re-opens Apply', () => {
+    const elsewhere = build({
+      schoolTag: 'stmarys',
+      selection: selection({
+        events: [{ event_id: 'c', event_name: 'School Session', event_start_at: '2026-09-15T09:00:00+08:00' }],
+        sessions: 1,
+      }),
+      lastRun: lastRun(),
+    });
+    expect(elsewhere.blockers.some((b) => b.kind === 'already-run')).toBe(false);
+  });
+
+  test('a different school re-opens Apply', () => {
+    // The same list can legitimately be run twice under two tags — the tag is
+    // written onto every contact this run creates, so it is part of what a run
+    // *is*, not decoration around it.
+    expect(
+      build({ schoolTag: 'holycross', lastRun: lastRun() }).blockers.some((b) => b.kind === 'already-run'),
+    ).toBe(false);
+  });
+
+  test('an unsettled run does not block: §12 D5 says re-run it', () => {
+    // The trap this gate could easily walk into, and the reason `settled` is a
+    // question for outcome.js rather than a `state === 'complete'` test here.
+    // A run halted by the breaker never reached its tail; a run that finished
+    // having stranded a student left work behind. D5 makes re-running the
+    // recovery for both, and D13 refused even to *warn* against that path —
+    // so blocking it would be worse than the thing D13 rejected.
+    expect(
+      build({ schoolTag: 'stmarys', lastRun: lastRun({ settled: false }) })
+        .blockers.some((b) => b.kind === 'already-run'),
+    ).toBe(false);
+  });
+
+  test('resolving a match differently re-opens Apply', () => {
+    // Same names, same sessions — but the operator has since told the page to
+    // create a student it had matched. That is a different write.
+    const decided = build({
+      schoolTag: 'stmarys',
+      matches: { 3: match({ state: 'ambiguous', candidates: [contact()], reason: 'many-candidates' }) },
+      decisions: resolveMatch({}, 3, 'create'),
+      lastRun: lastRun(),
+    });
+    expect(decided.blockers.some((b) => b.kind === 'already-run')).toBe(false);
+  });
+});
+
+describe('runFingerprint', () => {
+  test('is stable across rebuilds of the same inputs', () => {
+    expect(runFingerprint({ schoolTag: 'stmarys', preview: build() }))
+      .toBe(runFingerprint({ schoolTag: 'stmarys', preview: build() }));
+  });
+
+  test('ignores row order, because the operator cannot control it', () => {
+    const a = build({
+      rows: [row(), row({ key: 4, firstName: 'Bo', lastName: 'Nguyen', dob: '2012-01-04' })],
+      matches: { 3: match(), 4: match() },
+    });
+    const b = build({
+      rows: [row({ key: 4, firstName: 'Bo', lastName: 'Nguyen', dob: '2012-01-04' }), row()],
+      matches: { 3: match(), 4: match() },
+    });
+    expect(runFingerprint({ schoolTag: 's', preview: a })).toBe(runFingerprint({ schoolTag: 's', preview: b }));
+  });
+
+  test('ignores the row key, which is a paste line number and not an identity', () => {
+    // The same list with a blank line pasted above it: every key shifts by one
+    // and nothing about the import has changed. Keying on it would re-open
+    // Apply on a list that has provably already been run.
+    const shifted = build({
+      rows: [row({ key: 4, lineNumbers: [4] })],
+      matches: { 4: match() },
+    });
+    expect(runFingerprint({ schoolTag: 's', preview: shifted }))
+      .toBe(runFingerprint({ schoolTag: 's', preview: build() }));
+  });
+
+  test('ignores a blocked row, which no run would have written', () => {
+    const withBlocked = build({
+      rows: [row(), row({ key: 9, needsHuman: true })],
+      matches: { 3: match() },
+    });
+    expect(runFingerprint({ schoolTag: 's', preview: withBlocked }))
+      .toBe(runFingerprint({ schoolTag: 's', preview: build() }));
   });
 });

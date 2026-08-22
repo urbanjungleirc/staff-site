@@ -43,7 +43,7 @@
 //
 // Bump this in lockstep with school-booking.html. alpine-bindings.test.js
 // fails if the two ever disagree.
-import { compareForm, readDate, writeForm } from './parse.js?v=2';
+import { compareForm, readDate, writeForm } from './parse.js?v=3';
 
 const DOMAIN = 'urbanjungleirc.com';
 
