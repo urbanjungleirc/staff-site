@@ -1117,6 +1117,71 @@ predicate the engine skips on — two copies of that rule is how the counter
 starts lying. That is also why the line says the word "students": the control
 beside it counts bookings, and the two numbers differ.
 
+**D16 — The result step leads with the confirmation, and the reset is one
+control reached from two ends.** Added on
+[#113](https://github.com/urbanjungleirc/staff-site/issues/113), from the same
+UAT as #111 and #112. The report: the most prominent thing on a finished run was
+*"Cancel bookings from this run"*, with no comparably prominent confirmation
+that the import had worked and no way to move on to the next school. Taking the
+bookings back is the exceptional act and read as the thing to do next.
+
+**The cancel is demoted and nothing else.** Its label, the count behind the
+label, D12's interlock, the confirm in front of it and the permanence sentence
+beside it are all untouched, and it stays visible rather than moving behind a
+disclosure. What changed is its weight, now that there is a primary control
+above it.
+
+**"Successful" is neither "the run ended" nor `settledRun`, and the banner is
+built on the stricter of the two.** `successLine()` in `outcome.js` is empty
+unless every row in the table reads `booked` or `already booked` — so a halt on
+D7's breaker or a throttle, a stranded student, a refusal, and a `needs you` row
+each keep it away. `settledRun` deliberately calls a run with a refused student
+*settled*, because re-running reproduces that refusal exactly and the already-run
+gate should close on it; but that student got nothing, and a banner saying the
+import worked over that row is a lie. `cancelled > 0` takes the banner back
+down: the bookings it would be confirming are gone. It is a string rather than a
+boolean plus a message, in the same shape as `strandedWarning`, so the markup
+shows the banner *on the text* and no template condition can disagree with the
+rule.
+
+D11 is untouched by this. The summary sentence stays where it was, in the same
+panel; the confirmation leads it and the panel's tone follows the outcome.
+
+**The reset is one control, `startAnotherImport()`, rendered on the result step
+and on step 1.** Step 1 needs it because an operator who has walked back there
+is looking at the last school's tag, list and sessions, and choosing a new
+school clears none of them. It clears the school, the paste, the count
+declaration, the resolutions, the session selection, the check, the preview and
+the result table, and returns to step 1 with the step strip wound back — a step
+that can still be clicked forward into is a step holding the last school's
+answers.
+
+Three things it deliberately does **not** clear:
+
+- **The stored run (D10).** Contacts and School Passes cannot be deleted, so
+  that record is the only evidence they were made. It is re-read on reset, so
+  the run just left comes back as the offer at the top of the page. Discarding
+  it stays a separate, named act.
+
+  **But D10 is one key, and the next run overwrites it.** Back-to-back imports
+  are now the designed flow, which makes that overwrite a routine event rather
+  than an edge case, and the reset's confirm says so: the run is offered back
+  *until the next import replaces it*, and copy-or-download is how to keep it.
+  Reassuring an operator that a record is safe while leading them into the act
+  that destroys it is worse than not mentioning it. A per-import history is the
+  real answer and is not this issue's; see §15.
+- **`lastRun`.** #111's gate is the escape valve's counterpart, not its victim:
+  this is how to start a *different* import, not a way to re-enable Apply on a
+  finished one. An identical list re-pasted after a reset meets the same block —
+  and #111's blocker text now names this control instead of saying "reload the
+  page", which was only ever honest because the control did not exist yet.
+- **`schools`.** A read of Clubworx, not an answer of the operator's.
+
+It refuses while the run or the cancel is in flight — both write into
+`runRecords` from a loop the reset cannot stop — and it asks first. What it
+clears is typing rather than data, but on step 3 that typing is a pasted class
+list with a log of hand resolutions on top of it.
+
 ### Doing it twice
 
 **D5 — Recovery is a restart-safe re-run. No stored run state, no resume.**
@@ -1259,6 +1324,13 @@ Carried forward deliberately. None blocks the build.
   refusal's message string is unrecorded, so §11's vocabulary will classify it
   `unknown` — safe, but uninformative — until a run captures it.
 
+- **Whether D10's record should survive more than one import.** It is one
+  `localStorage` key, so the next run overwrites the last run's record — and
+  D16's reset makes back-to-back imports the designed flow, which turns that
+  from an edge case into the normal path. Copy-and-download is the answer today
+  and the confirm says so plainly; a keyed-per-run history is the real one, and
+  is not #113's. Nothing depends on it: the record is a convenience over
+  Clubworx, which holds the writes themselves.
 - **Whether `POST /api/v2/members` works, and whether it can carry
   `membership_plan_id`.** The one write in the chain that has never been run —
   see the callout in §2. Resolved by the first implementation ticket, before

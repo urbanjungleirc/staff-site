@@ -2204,3 +2204,219 @@ describe('the cancel reports its progress (#112)', () => {
     expect(line).toMatch(/role="status"[^>]*x-text="cancelProgress"/);
   });
 });
+
+// ---------------------------------------------------------------------------
+// The result step confirms, and the reset starts the next school (#113)
+// ---------------------------------------------------------------------------
+// UAT of #74: the most prominent control on a finished run was "Cancel bookings
+// from this run", with no comparably prominent confirmation that the import had
+// worked and no way to move on to the next school. Two things this must not get
+// wrong — a confirmation over a run that did not work, and a reset that takes
+// the operator's only record of permanent writes away with it.
+describe('the result step’s confirmation and reset (#113)', () => {
+  test('a clean run is confirmed, and the confirmation names the students', async () => {
+    const app = await upToApply(component());
+    expect(app.runState).toBe('complete');
+    expect(app.successLine()).toContain('6 students');
+  });
+
+  test('a halted run is not confirmed — the banner reads from the outcome, not the ending', async () => {
+    const app = await upToPreview(component({
+      student: () => ({ status: 200, body: { ...STUDENT_OK, reason: 'throttled' } }),
+    }));
+    app.askApply();
+    await app.apply();
+    expect(app.runState).toBe('halted');
+    expect(app.successLine()).toBe('');
+  });
+
+  test('the reset clears the school, the list, the resolutions, the sessions and the table', async () => {
+    const app = await upToApply(component());
+    expect(app.stepIndex).toBe(5);
+
+    app.askReset();
+    expect(app.resetConfirming).toBe(true);
+    app.startAnotherImport();
+
+    expect(app.resetConfirming).toBe(false);
+    expect(app.tag).toBe('');
+    expect(app.rawPaste).toBe('');
+    expect(app.countValue).toBe('');
+    expect(app.declaredFor).toBeNull();
+    expect(app.parsed).toBeNull();
+    expect(app.reviewed).toBeNull();
+    expect(app.resolutions).toEqual({});
+    expect(app.picked).toEqual([]);
+    expect(app.selection.ready).toBe(false);
+    expect(app.matches).toEqual({});
+    expect(app.checkState).toBe('idle');
+    expect(app.preview).toBeNull();
+    expect(app.runRecords).toEqual([]);
+    expect(app.runState).toBe('idle');
+    // Back to the first step, and the strip goes with it: a step the operator
+    // can click forward into is a step holding the last school's answers.
+    expect(app.stepIndex).toBe(0);
+    expect(app.maxStepReached).toBe(0);
+  });
+
+  test('the reset keeps the record — the run is offered back, not destroyed', async () => {
+    // Contacts and School Passes cannot be deleted, so the stored run is the
+    // only record that they were made (D10). Clearing the screen must not be
+    // the thing that loses it.
+    const app = await upToApply(component());
+    app.startAnotherImport();
+    expect(app.restored, 'the finished run is offered again').toBeTruthy();
+    expect(app.restored.records).toHaveLength(6);
+    expect(app.__stored.get('uj-school-booking-run')).toBeTruthy();
+  });
+
+  test('the reset is not a way back into an import that has already run', async () => {
+    // #111's gate is what stops a second Apply on an unchanged list. The reset
+    // is the way to start a *different* import, not the way to re-enable Apply
+    // on a finished one, so what this browser has already run survives it.
+    const app = await upToApply(component());
+    app.startAnotherImport();
+    await upToPreview(app);
+    expect(app.preview.blockers.some((b) => b.kind === 'already-run')).toBe(true);
+  });
+
+  test('nothing resets mid-run', async () => {
+    // The engine is writing into `runRecords` from a loop this cannot stop.
+    const app = await upToApply(component());
+    app.running = true;
+    app.askReset();
+    expect(app.resetConfirming).toBe(false);
+    app.startAnotherImport();
+    expect(app.runRecords).toHaveLength(6);
+    expect(app.stepIndex).toBe(5);
+
+    app.running = false;
+    app.cancelState = 'running';
+    app.startAnotherImport();
+    expect(app.runRecords).toHaveLength(6);
+  });
+
+  test('the two confirms on this step are never open together', async () => {
+    // "Cancel 12 bookings?" and "Clear this and start another school?" on one
+    // screen, each with its own Yes, is a question the operator cannot answer.
+    const app = await upToApply(component());
+    app.askCancel();
+    expect(app.cancelConfirming).toBe(true);
+    app.askReset();
+    expect(app.cancelConfirming).toBe(false);
+    expect(app.resetConfirming).toBe(true);
+    app.askCancel();
+    expect(app.resetConfirming).toBe(false);
+    expect(app.cancelConfirming).toBe(true);
+  });
+
+  test('standing the reset down leaves everything where it was', async () => {
+    const app = await upToApply(component());
+    app.askReset();
+    app.standDownReset();
+    expect(app.resetConfirming).toBe(false);
+    expect(app.runRecords).toHaveLength(6);
+  });
+
+  test('step 1 offers the reset only when there is something to clear', async () => {
+    const app = component();
+    await settled(app);
+    expect(app.holdingAnImport()).toBe(false);
+    app.tag = 'newman';
+    expect(app.holdingAnImport()).toBe(true);
+    app.startAnotherImport();
+    expect(app.holdingAnImport()).toBe(false);
+  });
+});
+
+// The banner and the two reset controls are markup, and this repo has no DOM
+// test infrastructure and is not gaining any (#78). What they have to be is
+// bound to the rules rather than to a literal — a property of the page's text,
+// which is what these read. Same reasoning as `alpine-bindings.test.js`.
+describe('the confirmation and the reset are on the page, and bound (#113)', () => {
+  const summary = (() => {
+    const at = html.indexOf('x-text="resultLine()"');
+    expect(at, 'the result summary is not in the page').toBeGreaterThan(-1);
+    const open = html.lastIndexOf('<div class="rounded-xl', at);
+    return html.slice(open, html.indexOf('</section>', at));
+  })();
+
+  test('the confirmation’s words and its tone both come from successLine()', () => {
+    // A green panel with a literal "Import complete" in it would be a banner
+    // the outcome rules cannot switch off — the one failure mode this feature
+    // has. Both the text and the colour are asked for.
+    expect(summary).toContain('x-text="successLine()"');
+    expect(summary).toMatch(/:class="successLine\(\)[\s\S]*emerald[\s\S]*amber/);
+  });
+
+  test('D11’s summary is still shown either way', () => {
+    // The confirmation leads; it does not replace. The sentence the preview
+    // showed, in past tense, is the only way to check that what happened is
+    // what was agreed to.
+    expect(summary).toContain('x-text="resultLine()"');
+    expect(summary).toContain('x-text="strandedWarning()"');
+  });
+
+  test('the result step offers the reset, behind its confirm', () => {
+    expect(summary).toContain('@click="askReset()"');
+    expect(summary).toContain('@click="startAnotherImport()"');
+    expect(summary).toContain('@click="standDownReset()"');
+  });
+
+  test('step 1 carries the same control, and only when there is something to clear', () => {
+    const step = html.slice(html.indexOf('Which school is this?'), html.indexOf('x-text="schoolsNote()"'));
+    expect(step).toContain('x-show="holdingAnImport()"');
+    expect(step).toContain('@click="askReset()"');
+    expect(step).toContain('@click="startAnotherImport()"');
+  });
+
+  test('the cancel control is demoted and nothing else — #113 must not weaken it', () => {
+    // The only reversible thing this tool does. Its label is still the count
+    // the interlock allows, its confirm is still in front of it, and the
+    // permanence sentence is still beside it rather than in a footnote.
+    const panel = html.slice(html.indexOf('>Taking it back<'), html.indexOf('Back to the preview'));
+    expect(panel).toContain('@click="askCancel()"');
+    expect(panel).toContain('@click="cancelRun()"');
+    expect(panel).toContain('@click="standDownCancel()"');
+    expect(panel).toMatch(/x-text="`Cancel \$\{cancellableCount\(\)\}/);
+    expect(panel).toContain('the API has no delete for either');
+    // Still visible without opening anything: demoted is not hidden.
+    expect(panel).not.toMatch(/<details|x-show="showCancel/);
+  });
+});
+
+// The reset restates ~45 of the component literal's initial values, and nothing
+// in the language links the two copies. The risk is not today's code — it is a
+// field added to the literal in six months and not added here, which leaves one
+// school's answer on the page for the next school's import with no symptom
+// until it matters. This is the link: a reset page must be a fresh page.
+describe('the reset leaves nothing of the last import behind (#113)', () => {
+  test('every field matches a page that has never had an import on it', async () => {
+    const fresh = component();
+    await settled(fresh);
+
+    const app = await upToApply(component());
+    app.startAnotherImport();
+
+    // The three it keeps on purpose, each for a reason in the method's header:
+    // the record of permanent writes, what this browser has already run, and a
+    // read of Clubworx that is not an answer of the operator's.
+    const kept = new Set(['restored', 'lastRun', 'schools', 'schoolsState']);
+    // Re-seeded by `openDatePicker` on every open, from the date boxes or from
+    // today — never carried across an import, whatever they hold now.
+    const seeded = new Set(['dpYear', 'dpMonth']);
+
+    for (const key of Object.keys(fresh)) {
+      if (key.startsWith('__') || typeof fresh[key] === 'function') continue;
+      if (kept.has(key) || seeded.has(key)) continue;
+      expect(app[key], `\`${key}\` survived the reset — add it to startAnotherImport()`)
+        .toEqual(fresh[key]);
+    }
+
+    // And the keepers are actually kept, so the exemption list cannot quietly
+    // become the way a field escapes the check above.
+    expect(app.restored, 'the stored run is offered back').toBeTruthy();
+    expect(app.lastRun?.fingerprint, '#111 still knows what this browser ran').toBeTruthy();
+    expect(app.schools).toEqual(fresh.schools);
+  });
+});

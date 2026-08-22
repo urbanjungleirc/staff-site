@@ -26,6 +26,7 @@ import {
   runRecordText,
   settledRun,
   strandedWarning,
+  successLine,
   studentRecord,
 } from '../outcome.js';
 
@@ -578,5 +579,83 @@ describe('cancellableStudents (#112)', () => {
   test('it agrees with anyCancellable on the empty case', () => {
     const already = record({}, complete({ outcome: 'already-booked', bookings: [] }));
     expect(cancellableStudents([already])).toBe(0);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// The success confirmation (#113)
+// ---------------------------------------------------------------------------
+// UAT of #74 reported the result step leading with "Cancel bookings from this
+// run" and never saying, with equivalent weight, that the import worked. The
+// banner that fixes that has one way to be worse than the silence it replaces:
+// appearing over a run that did not work. "Successful" is not "the run ended"
+// and it is not "no failures" either — a complete run can hold a refused
+// student, a student whose pass needs a human, or bookings since cancelled.
+describe('successLine — the confirmation, and what it refuses to confirm', () => {
+  const booked = () => record({}, complete());
+  const alreadyThere = () => record(
+    { key: 2, contactKey: 'c9' },
+    complete({
+      contact: { contact_key: 'c9', state: 'matched' },
+      pass: { state: 'covering', expiration_date: null, detail: null },
+      bookings: [booking({ state: 'already booked', booking_id: null, bookingId: null })],
+    }),
+  );
+
+  test('a run where every student ended booked is confirmed, and says how many', () => {
+    const line = successLine('complete', [booked(), booked()]);
+    expect(line).toContain('2 students');
+    expect(line).toMatch(/booked/);
+  });
+
+  test('a student already booked before this run still counts as done', () => {
+    // Nothing is left for a human: they are in the sessions, which is what the
+    // operator came to achieve.
+    expect(successLine('complete', [booked(), alreadyThere()])).toBeTruthy();
+  });
+
+  test('a halt is never confirmed — students were never reached', () => {
+    expect(successLine('halted', [booked()])).toBe('');
+  });
+
+  test('a stranded student is never confirmed — a contact and a pass are left behind', () => {
+    const stranded = record({ key: 2 }, complete({ outcome: 'abandoned', ok: false, stranded: true }));
+    expect(successLine('complete', [booked(), stranded])).toBe('');
+  });
+
+  test('a refused student is never confirmed — that student got nothing', () => {
+    // settledRun() deliberately calls this run settled: re-running reproduces
+    // the refusal exactly, so the already-run gate should close. Being settled
+    // and having worked are two different questions, and this asks the second.
+    const refused = record({ key: 2 }, complete({ outcome: 'refused', ok: false, bookings: [] }));
+    expect(settledRun('complete', [booked(), refused])).toBe(true);
+    expect(successLine('complete', [booked(), refused])).toBe('');
+  });
+
+  test('a student whose pass needs a human is never confirmed', () => {
+    const needsHuman = record({ key: 2 }, complete({ outcome: 'needs-confirmation', ok: false, bookings: [] }));
+    expect(successLine('complete', [booked(), needsHuman])).toBe('');
+  });
+
+  test('bookings cancelled since take the confirmation back down', () => {
+    // The bookings this line would be confirming are gone. Left up, it is the
+    // sentence an operator would read to check whether the cancel worked.
+    const cancelled = { ...booked(), cancel: { cancelled: 2, cancelledIds: ['b1', 'b2'], failed: [], stillBooked: [], verified: true } };
+    expect(successLine('complete', [cancelled])).toBe('');
+  });
+
+  test('an empty run confirms nothing', () => {
+    expect(successLine('complete', [])).toBe('');
+  });
+
+  test('a row that booked nothing at all confirms nothing', () => {
+    // `display()` calls a `complete` row `already booked` whenever it booked
+    // nothing, and that includes a row with no bookings of any kind. There is
+    // no student in that state to point at today; the guard is here because
+    // the sentence it would print — "the student is booked" — is one nothing
+    // else on the page would contradict.
+    const nothing = record({}, complete({ bookings: [] }));
+    expect(nothing.state).toBe('already booked');
+    expect(successLine('complete', [nothing])).toBe('');
   });
 });
