@@ -1089,6 +1089,14 @@ preserve. So a restored `running` is clamped to a **halt** with reason
 The text itself is `progressLine()` in `outcome.js`, built from the two counts
 the run already holds and never from the records.
 
+**It applies to both serial waits, not just the run.** The Clubworx check
+between steps 4 and 5 (§6, strictly one student at a time) has the same shape
+and had the same gap: minutes for a class of 25, a preview row published per
+student, and a count that moves once per student. Same sticky banner, same
+spinner. Its two exits both clear it — the end of the loop, and §11's early stop
+on an unresolved plan — and neither `checkStudent` nor `lookupPlan` throws, so
+there is no third path to clamp the way the restored run needed.
+
 ### Doing it twice
 
 **D5 — Recovery is a restart-safe re-run. No stored run state, no resume.**

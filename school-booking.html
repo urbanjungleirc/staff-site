@@ -383,11 +383,13 @@
   .lane-bad  { border-left-color: #e11d48; }
   .lane-ok   { border-left-color: #10b981; }
 
-  /* #112 — the run is alive.
+  /* #112 — something is still happening.
 
-     A count that changes once per student is not an activity indicator: between
-     two students, and right through D8's 20-second retry backoff, it says
-     nothing at all. This is the part that keeps saying something. */
+     Used by both of the page's serial, one-student-at-a-time waits: the
+     Clubworx check between steps 4 and 5, and the run on step 6. A count that
+     changes once per student is not an activity indicator — between two
+     students, and right through D8's 20-second retry backoff, it says nothing
+     at all. This is the part that keeps saying something. */
   @keyframes uj-spin { to { transform: rotate(360deg); } }
 
   .spinner {
@@ -1144,11 +1146,21 @@
         <!-- The check is serial and a class of 25 takes minutes, so the count
              says which student it is on. It lives here rather than on step 4's
              button because the page has already moved: answers are published
-             per student, so a check that stalls on 19 shows eighteen rows. -->
-        <div class="rounded-xl bg-sky-50 border border-sky-200 text-sky-900 px-3.5 py-2.5 text-sm mb-3"
+             per student, so a check that stalls on 19 shows eighteen rows.
+
+             #112, same as step 6's. Publishing per student means a table grows
+             underneath this and carries it off the top, and the count moves
+             once per student — so between two students there is nothing on
+             screen saying the check is alive. The spinner is that. -->
+        <div class="sticky top-0 z-10 rounded-xl bg-sky-50 border border-sky-200 text-sky-900 px-3.5 py-2.5 text-sm mb-3 flex items-start gap-2.5"
              x-show="checkState === 'running'" x-cloak>
-          <span x-text="checkProgress"></span>
-          One student at a time — the Clubworx allowance is shared with the whole gym.
+          <span class="spinner mt-1" aria-hidden="true"></span>
+          <span>
+            <!-- The live region is the count alone; on the whole banner the
+                 static sentence is re-read on every one of 25 updates. -->
+            <span role="status" x-text="checkProgress"></span>
+            One student at a time — the Clubworx allowance is shared with the whole gym.
+          </span>
         </div>
 
         <template x-if="preview">

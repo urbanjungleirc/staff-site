@@ -121,11 +121,13 @@ school-booking.html     - the school booking page, steps 1-6 (#71, #72, #73, #10
                           only the confirm gate, the single-flight lock, the
                           storage and the rendering — the run itself is run.js
                           (#78's seam), and a component test asserts that steps
-                          1-5 issue no POST. Step 6's running banner is STICKY
-                          and carries the `.spinner` defined in this file's own
-                          style block (#112): the result table adds a row per
-                          student, so an indicator that scrolls away is not one,
-                          and a count that moves once per student says nothing
+                          1-5 issue no POST. BOTH serial waits — the Clubworx
+                          check between 4 and 5, and the run on 6 — have a
+                          STICKY banner carrying the `.spinner` defined in this
+                          file's own style block (#112). Each publishes a row
+                          per student, so the table growing underneath carries a
+                          static banner off the top, and a count that moves once
+                          per student says nothing between two students or
                           through D8's backoff. openRestored() CLAMPS a stored
                           `running` to a halt: the store is written per student,
                           so a tab closed mid-run leaves `running` behind, and a

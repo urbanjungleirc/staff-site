@@ -2072,3 +2072,44 @@ describe('a run the tab outlived does not restore as one still going (#112)', ()
     expect(app.runMessage).toBe('');
   });
 });
+
+// The Clubworx check between steps 4 and 5 is the same shape as the run and
+// had the same gap: serial, one student at a time, minutes for a class of 25,
+// publishing a preview row per student — so its banner scrolls away under a
+// growing table exactly as step 6's did, and its count moves once per student.
+// Same treatment, and the same reasoning.
+describe('the check between 4 and 5 shows it is working too', () => {
+  const banner = (() => {
+    const at = html.indexOf(`x-show="checkState === 'running'"`);
+    expect(at, 'the check banner is not in the page').toBeGreaterThan(-1);
+    const open = html.lastIndexOf('<div', at);
+    return html.slice(open, html.indexOf('</div>', at));
+  })();
+
+  test('it carries a spinner and stays on screen', () => {
+    expect(banner).toContain('spinner');
+    expect(banner).toContain('sticky');
+  });
+
+  test('the live region is the count, and the spinner is decoration', () => {
+    expect(banner).toMatch(/<span[^>]*class="[^"]*spinner[^"]*"[^>]*aria-hidden="true"/);
+    expect(banner).toMatch(/role="status"[^>]*x-text="checkProgress"/);
+  });
+
+  test('a check that ends clears it — including the plan refusal that ends it early', async () => {
+    // `toPreview` has two exits. The early one is §11's hard stop: an
+    // unresolved plan stops the check before it spends the allowance on reads
+    // for a run that cannot proceed. A spinner left turning on that path is a
+    // page that never comes back.
+    const app = await upToPreview(component({ plan: { ok: false, reason: 'not-found', error: 'no such plan' } }));
+    expect(app.plan.ok).toBe(false);
+    expect(app.checkState).toBe('done');
+    expect(app.checkProgress).toBe('');
+  });
+
+  test('a check that runs to the end clears it', async () => {
+    const app = await upToPreview(component());
+    expect(app.checkState).toBe('done');
+    expect(app.checkProgress).toBe('');
+  });
+});
