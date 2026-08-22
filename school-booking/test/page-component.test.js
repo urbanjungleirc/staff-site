@@ -1879,3 +1879,196 @@ describe('the already-run gate (#111)', () => {
     expect(app.preview.blockers.some((b) => b.kind === 'already-run')).toBe(false);
   });
 });
+
+// ---------------------------------------------------------------------------
+// The in-progress indicator (#112)
+// ---------------------------------------------------------------------------
+// UAT of #74 reported the page looking idle mid-run. It was not: the banner
+// with the count was on screen the whole time. It was just **above** a table
+// growing a row per student, so by student twelve the only thing saying the run
+// was alive had scrolled off the top — and in the moments that matter most, a
+// 20-second retry backoff or a paced pause, its text does not change either.
+//
+// The fix is display only, and these tests hold it to that: the run's own
+// numbers are untouched, and the indicator clears on all three of the endings
+// the engine has, not just the tidy one.
+
+describe('the in-progress indicator (#112)', () => {
+  test('mid-run it says where the run has got to', async () => {
+    let release;
+    const held = new Promise((resolve) => { release = resolve; });
+    const app = await upToPreview(component());
+    const original = globalThis.fetch;
+    const seen = [];
+    globalThis.fetch = vi.fn(async (...args) => {
+      seen.push(app.runProgress);
+      if (seen.length === 3) await held;
+      return original(...args);
+    });
+
+    const running = app.apply();
+    await Promise.resolve();
+    // Held open on the third student: this is the state the operator is
+    // looking at while nothing on the wire is moving.
+    await vi.waitFor(() => expect(seen).toHaveLength(3));
+    expect(app.running).toBe(true);
+    expect(app.runState).toBe('running');
+    expect(app.runProgress).toBe('2 of 6 done…');
+
+    release();
+    await running;
+    globalThis.fetch = original;
+
+    // The line before the first student came back names the size of the run
+    // rather than showing `0 of 6`, which reads as stalled at the one moment
+    // there is nothing to report yet.
+    expect(seen[0]).toBe('Starting 6 students…');
+    expect(seen[1]).toBe('1 of 6 done…');
+  });
+
+  test('a completed run clears it', async () => {
+    const app = await upToApply(component());
+    expect(app.runState).toBe('complete');
+    expect(app.runProgress).toBe('');
+    expect(app.running).toBe(false);
+  });
+
+  test('a halt on the circuit breaker clears it', async () => {
+    const app = await upToPreview(component({
+      student: () => ({ status: 200, body: { ...STUDENT_OK, ok: false, outcome: 'failed', reason: 'clubworx' } }),
+    }));
+    await app.apply();
+    expect(app.runState).toBe('halted');
+    expect(app.runReason).toBe('consecutive-failures');
+    expect(app.runProgress).toBe('');
+    expect(app.running).toBe(false);
+  });
+
+  test('a halt on a throttle clears it', async () => {
+    const app = await upToPreview(component({
+      student: (body, n) => (n <= 2
+        ? { status: 200, body: STUDENT_OK }
+        : { status: 429, body: { outcome: 'failed', reason: 'throttled', written: false } }),
+    }));
+    vi.useFakeTimers();
+    const running = app.apply();
+    await vi.runAllTimersAsync();
+    await running;
+    vi.useRealTimers();
+
+    expect(app.runState).toBe('halted');
+    expect(app.runReason).toBe('throttled');
+    // The quiet 20 seconds of backoff are exactly when the operator most needs
+    // to see the run is alive, and exactly when this line does not change. It
+    // is the spinner beside it that carries that; this only has to stop.
+    expect(app.runProgress).toBe('');
+    expect(app.running).toBe(false);
+  });
+
+  test('it is display only — the run makes the same calls either way', async () => {
+    const app = await upToApply(component());
+    expect(app.__writes).toHaveLength(6);
+    expect(app.runRecords).toHaveLength(6);
+    expect(app.resultLine()).toContain('6 contacts created (permanent)');
+  });
+});
+
+// The indicator itself is markup, and this repo has no DOM test infrastructure
+// and is not gaining any (#78). What the indicator has to be, though, is
+// visible and moving — two properties of the page's text, which is what these
+// read. The same reasoning as `alpine-bindings.test.js`: where the cheap check
+// is also the complete one for the class of fault, it is the right check.
+describe('the indicator is on the page, and moves (#112)', () => {
+  const banner = (() => {
+    const at = html.indexOf(`x-show="runState === 'running'"`);
+    expect(at, 'step 6’s running banner is not in the page').toBeGreaterThan(-1);
+    const open = html.lastIndexOf('<div', at);
+    return html.slice(open, html.indexOf('</div>', at));
+  })();
+
+  test('the banner carries a spinner, not only a line of text', () => {
+    // The text changes once per student. Between two students — and through a
+    // 20-second retry backoff — it is the only thing on screen that has to say
+    // "alive", and it says it by not changing.
+    expect(banner).toContain('spinner');
+  });
+
+  test('the spinner is decoration, and the banner announces itself instead', () => {
+    // A spinning ring has nothing to read out. The count beside it does, and
+    // `role="status"` is what gets it read without stealing focus mid-run.
+    expect(banner).toMatch(/<span[^>]*class="[^"]*spinner[^"]*"[^>]*aria-hidden="true"/);
+    // Scoped to the count. On the whole banner, every update re-reads the
+    // static sentence beside it — sixty-three times, for a class of 63.
+    expect(banner).toMatch(/role="status"[^>]*x-text="runProgress"/);
+  });
+
+  test('it stays on screen as the table grows underneath it', () => {
+    // The reported fault. The banner was there the whole time; by student
+    // twelve it was above the fold of a table adding a row per student.
+    expect(banner).toContain('sticky');
+  });
+
+  test('the spinner class is actually animated, and not at full speed for everyone', () => {
+    const style = html.slice(html.indexOf('<style>'), html.indexOf('</style>'));
+    expect(style).toMatch(/@keyframes\s+uj-spin/);
+    expect(style).toMatch(/\.spinner\s*\{[^}]*animation:[^}]*uj-spin/);
+    // Motion is the point, so it is slowed rather than stopped — a still ring
+    // reads as a dead spinner, which is the fault this is fixing, inverted.
+    expect(style).toMatch(/@media\s*\(prefers-reduced-motion:\s*reduce\)\s*\{[^}]*\.spinner/);
+  });
+});
+
+describe('a run the tab outlived does not restore as one still going (#112)', () => {
+  // The store is written per student (D10), so a tab closed on student 19
+  // leaves `state: 'running'` behind. Before #112 that restored as a stale
+  // sentence. With a spinner on it, it restores as a page actively claiming a
+  // run is in flight, with "Leave this tab open" under a ring that will turn
+  // for as long as the tab is open — the exact fault #112 removes, inverted,
+  // and on the one path D10 exists for.
+  const interrupted = {
+    at: '2026-08-22T09:00:00+08:00',
+    school: 'newman',
+    sessions: [],
+    state: 'running',
+    records: [
+      { key: 1, name: 'Ada Lovelace', state: 'booked', bookings: [], cancel: null },
+      { key: 2, name: 'Grace Hopper', state: 'booked', bookings: [], cancel: null },
+    ],
+  };
+
+  test('it opens as a halt, so nothing on screen says a run is working', async () => {
+    const app = await settled(component({ restored: interrupted }));
+    app.openRestored();
+    expect(app.runState).not.toBe('running');
+    expect(app.runState).toBe('halted');
+    expect(app.running).toBe(false);
+    expect(app.runProgress).toBe('');
+  });
+
+  test('it says the tab is why, rather than showing an empty red box', async () => {
+    const app = await settled(component({ restored: interrupted }));
+    app.openRestored();
+    expect(app.runReason).toBe('interrupted');
+    expect(app.runMessage).toMatch(/closed|reload/i);
+  });
+
+  test('the students that did land are on screen — that is what the record is for', async () => {
+    // `x-show="runRecords.length > 0 && runState !== 'running'"` hides the
+    // table while a run is going. Restoring as `running` hid the very rows the
+    // store was written to preserve.
+    const app = await settled(component({ restored: interrupted }));
+    app.openRestored();
+    expect(app.runRecords).toHaveLength(2);
+    expect(app.runRecords.length > 0 && app.runState !== 'running').toBe(true);
+  });
+
+  test('a run that did finish is untouched', async () => {
+    const app = await settled(component({
+      restored: { ...interrupted, state: 'complete' },
+    }));
+    app.openRestored();
+    expect(app.runState).toBe('complete');
+    expect(app.runReason).toBe(null);
+    expect(app.runMessage).toBe('');
+  });
+});

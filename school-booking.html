@@ -68,14 +68,14 @@
      or missing module into a visible refusal rather than a page whose gates
      quietly do nothing. -->
 <script type="module">
-  import * as parser from './school-booking/parse.js?v=3';
-  import * as steps from './school-booking/steps.js?v=3';
-  import * as identity from './school-booking/identity.js?v=3';
-  import * as events from './school-booking/events.js?v=3';
-  import * as preview from './school-booking/preview.js?v=3';
-  import * as calendar from './school-booking/calendar.js?v=3';
-  import * as outcome from './school-booking/outcome.js?v=3';
-  import * as run from './school-booking/run.js?v=3';
+  import * as parser from './school-booking/parse.js?v=4';
+  import * as steps from './school-booking/steps.js?v=4';
+  import * as identity from './school-booking/identity.js?v=4';
+  import * as events from './school-booking/events.js?v=4';
+  import * as preview from './school-booking/preview.js?v=4';
+  import * as calendar from './school-booking/calendar.js?v=4';
+  import * as outcome from './school-booking/outcome.js?v=4';
+  import * as run from './school-booking/run.js?v=4';
   window.schoolListParser = parser;
   window.schoolBookingSteps = steps;
   window.schoolBookingIdentity = identity;
@@ -382,6 +382,30 @@
   .lane-need { border-left-color: #f59e0b; }
   .lane-bad  { border-left-color: #e11d48; }
   .lane-ok   { border-left-color: #10b981; }
+
+  /* #112 — the run is alive.
+
+     A count that changes once per student is not an activity indicator: between
+     two students, and right through D8's 20-second retry backoff, it says
+     nothing at all. This is the part that keeps saying something. */
+  @keyframes uj-spin { to { transform: rotate(360deg); } }
+
+  .spinner {
+    width: 0.85rem;
+    height: 0.85rem;
+    flex: none;
+    border-radius: 9999px;
+    border: 2px solid currentColor;
+    border-top-color: transparent;
+    animation: uj-spin 0.8s linear infinite;
+  }
+
+  /* Slowed rather than stopped. A ring that does not turn reads as a spinner
+     that has died, which is the exact impression this whole thing exists to
+     remove — so reduced motion gets a calmer one, not a frozen one. */
+  @media (prefers-reduced-motion: reduce) {
+    .spinner { animation-duration: 3s; }
+  }
 </style>
 </head>
 
@@ -1283,10 +1307,20 @@
           Bookings are the one thing that can be taken back.
         </p>
 
-        <div class="rounded-xl bg-sky-50 border border-sky-200 text-sky-900 px-3.5 py-2.5 text-sm mb-3"
+        <!-- #112. Sticky, because the fault reported at UAT was not a missing
+             banner — it was this one, above a table that adds a row per
+             student and pushes it off the top by the twelfth. An indicator
+             that has scrolled away is not an indicator. -->
+        <div class="sticky top-0 z-10 rounded-xl bg-sky-50 border border-sky-200 text-sky-900 px-3.5 py-2.5 text-sm mb-3 flex items-start gap-2.5"
              x-show="runState === 'running'" x-cloak>
-          <span x-text="runProgress"></span>
-          One student at a time — the Clubworx allowance is shared with the whole gym. Leave this tab open.
+          <span class="spinner mt-1" aria-hidden="true"></span>
+          <span>
+            <!-- The live region is the count and nothing else. On the whole
+                 banner it would re-read the static sentence below on every
+                 update, which on a class of 63 is sixty-three times. -->
+            <span role="status" x-text="runProgress"></span>
+            One student at a time — the Clubworx allowance is shared with the whole gym. Leave this tab open.
+          </span>
         </div>
 
         <!-- A halt says why, and says that what is above it is untouched. -->
@@ -2592,7 +2626,9 @@ function schoolBooking() {
       const fingerprint = this.preview.fingerprint;
       this.expandedResult = null;
       this.runRemaining = 0;
-      this.runProgress = `Starting ${students.length} student${students.length === 1 ? '' : 's'}…`;
+      // #112. The line is `outcome.js`'s, not the page's — one plural rule, in
+      // a place a test can reach.
+      this.runProgress = window.schoolBookingOutcome.progressLine({ done: 0, total: students.length });
       this.guardUnload(true);
       this.go(5);
 
@@ -2603,7 +2639,10 @@ function schoolBooking() {
           // Published and stored per student. An end-of-run write is the one
           // that is missing when the tab is closed on student 19.
           this.runRecords = [...records];
-          this.runProgress = `${records.length} of ${students.length} done…`;
+          this.runProgress = window.schoolBookingOutcome.progressLine({
+            done: records.length,
+            total: students.length,
+          });
           this.saveRun();
         },
       });
@@ -2812,7 +2851,23 @@ function schoolBooking() {
       this.runRecords = this.restored.records ?? [];
       this.runAt = this.restored.at ?? null;
       this.runSessionStarts = this.restored.sessions ?? [];
-      this.runState = this.restored.state ?? 'complete';
+      // #112. The store is written per student (D10), so a tab closed on
+      // student 19 leaves `running` behind — and a restored `running` is the
+      // one state that cannot be true, because nothing is calling anything.
+      // Left as-is it puts a turning spinner and "Leave this tab open" over a
+      // dead page, and hides the result table behind `runState !== 'running'`,
+      // which is the very record the store exists to preserve. It is a halt,
+      // and D5's re-run is how it is finished — the same as any other.
+      const interrupted = this.restored.state === 'running';
+      this.runState = interrupted ? 'halted' : (this.restored.state ?? 'complete');
+      this.runReason = interrupted ? 'interrupted' : null;
+      this.runMessage = interrupted
+        ? 'This run did not finish — the tab was closed or reloaded while it was working. '
+          + 'Everything below is done and is not affected. Students the run never reached are '
+          + 'not listed, because nothing was recorded for them.'
+        : '';
+      this.runRemaining = 0;
+      this.runProgress = '';
       // #111. A fingerprint the stored run does not carry leaves the gate open
       // rather than closed: an older run predating this field is not evidence
       // that today's list has been applied, and guessing it would refuse an

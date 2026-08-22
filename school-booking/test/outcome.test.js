@@ -19,6 +19,7 @@ import {
   bookingRows,
   isFailure,
   notRunRecord,
+  progressLine,
   resultLine,
   resultTotals,
   runRecordText,
@@ -510,5 +511,41 @@ describe('settledRun — did this run leave anything worth doing again?', () => 
 
   test('an empty run is not a settled one', () => {
     expect(settledRun('halted', [])).toBe(false);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// #112 — the line that says the run is alive
+// ---------------------------------------------------------------------------
+// Display only. It reads two numbers the run already has and never touches what
+// the run does. It lives here rather than inline in the page because the page's
+// own copy of it was two template literals with a plural rule in each, which is
+// the shape that quietly says "1 students".
+
+describe('progressLine (#112)', () => {
+  test('a run with nothing in it has nothing to say', () => {
+    expect(progressLine({ done: 0, total: 0 })).toBe('');
+    expect(progressLine()).toBe('');
+  });
+
+  test('before the first student lands it names the size of what was started', () => {
+    expect(progressLine({ done: 0, total: 6 })).toBe('Starting 6 students…');
+  });
+
+  test('one student is one student', () => {
+    expect(progressLine({ done: 0, total: 1 })).toBe('Starting 1 student…');
+  });
+
+  test('mid-run it is a position in the list, not a percentage', () => {
+    // A count staff can check against the table under it. A percentage is a
+    // number with nothing on screen to reconcile it against.
+    expect(progressLine({ done: 3, total: 6 })).toBe('3 of 6 done…');
+  });
+
+  test('the last student still reads as in-flight — the run has not returned yet', () => {
+    // `onRow` fires before the engine decides whether to halt, so `6 of 6` is a
+    // real state and briefly on screen. The banner is cleared by the run
+    // ending, not by this line.
+    expect(progressLine({ done: 6, total: 6 })).toBe('6 of 6 done…');
   });
 });

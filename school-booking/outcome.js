@@ -534,3 +534,21 @@ export function runRecordText(records, meta = {}) {
     2,
   );
 }
+
+/**
+ * The in-progress line — #112.
+ *
+ * Display only, and deliberately made of the two numbers the run already holds:
+ * how many students have come back, and how many were started. It never reads
+ * the records, so it cannot be wrong about what happened — it is about whether
+ * anything is still happening.
+ *
+ * The banner it sits in is cleared by the run *ending* (`runState` leaving
+ * `running`), not by this line, which is why `done === total` still reads as
+ * in-flight: `onRow` fires before the engine has decided whether to halt.
+ */
+export function progressLine({ done = 0, total = 0 } = {}) {
+  if (total <= 0) return '';
+  if (done <= 0) return `Starting ${plural(total, 'student')}…`;
+  return `${done} of ${total} done…`;
+}
