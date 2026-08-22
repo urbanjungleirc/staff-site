@@ -121,14 +121,18 @@ school-booking.html     - the school booking page, steps 1-6 (#71, #72, #73, #10
                           only the confirm gate, the single-flight lock, the
                           storage and the rendering — the run itself is run.js
                           (#78's seam), and a component test asserts that steps
-                          1-5 issue no POST. BOTH serial waits — the Clubworx
-                          check between 4 and 5, and the run on 6 — have a
-                          STICKY banner carrying the `.spinner` defined in this
-                          file's own style block (#112). Each publishes a row
-                          per student, so the table growing underneath carries a
-                          static banner off the top, and a count that moves once
-                          per student says nothing between two students or
-                          through D8's backoff. openRestored() CLAMPS a stored
+                          1-5 issue no POST. ALL THREE serial waits — the
+                          Clubworx check between 4 and 5, the run on 6, and
+                          D12's cancel — carry the `.spinner` defined in this
+                          file's own style block (#112), because a count that
+                          moves once per student says nothing between two of
+                          them or through D8's backoff. The first two are also
+                          STICKY: each publishes a row per student, so the table
+                          growing underneath carries a static banner off the
+                          top. The cancel is NOT — it rewrites rows in place
+                          rather than adding them, and nothing grows under it.
+                          Its denominator is cancellableStudents(), not the row
+                          or booking count. openRestored() CLAMPS a stored
                           `running` to a halt: the store is written per student,
                           so a tab closed mid-run leaves `running` behind, and a
                           spinner on that is a dead page claiming to be alive.
@@ -212,9 +216,12 @@ school-booking/outcome.js - what one `POST /student` answer means, and what a
                           rendered as live. The three permanence classes are
                           counted apart, never collapsed into a success total.
                           progressLine() is #112's in-progress text — display
-                          only, built from the two counts the run already holds
-                          and never from the records, so it cannot be wrong
-                          about what happened. It is the SPINNER beside it that
+                          only, built from two counts and never from the
+                          records, so it cannot be wrong about what happened.
+                          cancellableStudents() is the cancel's denominator and
+                          MUST stay the same predicate run.js skips on, or the
+                          count stops short of its own total and reads as a
+                          stall. It is the SPINNER beside it that
                           carries liveness: this line changes once per student
                           and says nothing at all through D8's 20-second
                           backoff, which is the quiet the report was about.

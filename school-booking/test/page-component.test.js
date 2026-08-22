@@ -1913,7 +1913,7 @@ describe('the in-progress indicator (#112)', () => {
     await vi.waitFor(() => expect(seen).toHaveLength(3));
     expect(app.running).toBe(true);
     expect(app.runState).toBe('running');
-    expect(app.runProgress).toBe('2 of 6 done…');
+    expect(app.runProgress).toBe('2 of 6 students done…');
 
     release();
     await running;
@@ -1923,7 +1923,7 @@ describe('the in-progress indicator (#112)', () => {
     // rather than showing `0 of 6`, which reads as stalled at the one moment
     // there is nothing to report yet.
     expect(seen[0]).toBe('Starting 6 students…');
-    expect(seen[1]).toBe('1 of 6 done…');
+    expect(seen[1]).toBe('1 of 6 students done…');
   });
 
   test('a completed run clears it', async () => {
@@ -2111,5 +2111,96 @@ describe('the check between 4 and 5 shows it is working too', () => {
     const app = await upToPreview(component());
     expect(app.checkState).toBe('done');
     expect(app.checkProgress).toBe('');
+  });
+});
+
+// ---------------------------------------------------------------------------
+// The cancel says how far it has got too (#112)
+// ---------------------------------------------------------------------------
+// D12's cancel is the same paced, one-call-per-student loop as Apply, and it
+// had less to show for it than either of the others: no count at all, just
+// "Cancelling, one student at a time…". A whole-run cancel is up to 150 DELETEs
+// plus a verifying re-read per student, so it is minutes of a page saying
+// nothing while it deletes things.
+//
+// Its denominator is the awkward part. The loop SKIPS a record with nothing
+// this run booked, so it is neither the row count nor the booking count the
+// control above it quotes.
+
+describe('the cancel reports its progress (#112)', () => {
+  test('it counts the students it will actually call for, not the rows', async () => {
+    const app = await upToApply(component());
+    // Six students, two bookings each: the control offers 12 bookings, the
+    // loop makes 6 calls. The progress is in the loop's unit and says so.
+    expect(app.cancellableCount()).toBe(12);
+
+    const seen = [];
+    const original = globalThis.fetch;
+    globalThis.fetch = vi.fn(async (...args) => {
+      seen.push(app.cancelProgress);
+      return original(...args);
+    });
+    app.askCancel();
+    await app.cancelRun();
+    globalThis.fetch = original;
+
+    expect(seen[0]).toBe('Starting 6 students…');
+    expect(seen[1]).toBe('1 of 6 students done…');
+    expect(seen).toHaveLength(6);
+  });
+
+  test('a row this run did not book is not in the denominator', async () => {
+    // D12's interlock: an `already booked` row is never sent, so counting it
+    // would leave the progress permanently short of its own total.
+    const app = await upToApply(component({
+      student: (body, n) => (n <= 2
+        ? { status: 200, body: { ...STUDENT_OK, outcome: 'already-booked', bookings: [] } }
+        : { status: 200, body: STUDENT_OK }),
+    }));
+    const seen = [];
+    const original = globalThis.fetch;
+    globalThis.fetch = vi.fn(async (...args) => { seen.push(app.cancelProgress); return original(...args); });
+    app.askCancel();
+    await app.cancelRun();
+    globalThis.fetch = original;
+
+    expect(seen[0]).toBe('Starting 4 students…');
+    expect(seen).toHaveLength(4);
+  });
+
+  test('a completed cancel clears it', async () => {
+    const app = await upToApply(component());
+    app.askCancel();
+    await app.cancelRun();
+    expect(app.cancelState).toBe('done');
+    expect(app.cancelProgress).toBe('');
+    expect(app.running).toBe(false);
+  });
+
+  test('a throttled cancel clears it too', async () => {
+    const app = await upToApply(component({
+      unbook: (body, n) => (n <= 1
+        ? { status: 200, body: UNBOOK_OK }
+        : { status: 429, body: { ok: false, outcome: 'failed', reason: 'throttled', cancelled: 0, cancelledIds: [] } }),
+    }));
+    vi.useFakeTimers();
+    app.askCancel();
+    const cancelling = app.cancelRun();
+    await vi.runAllTimersAsync();
+    await cancelling;
+    vi.useRealTimers();
+
+    expect(app.cancelState).toBe('halted');
+    expect(app.cancelProgress).toBe('');
+    expect(app.running).toBe(false);
+  });
+
+  test('the line is on the page, with a spinner beside it', () => {
+    const at = html.indexOf(`x-show="cancelState === 'running'"`);
+    expect(at, 'the cancel’s running line is not in the page').toBeGreaterThan(-1);
+    const open = html.lastIndexOf('<div', at);
+    const line = html.slice(open, html.indexOf('</div>', at));
+    expect(line).toContain('spinner');
+    expect(line).toMatch(/role="status"[^>]*x-text="cancelProgress"/);
   });
 });

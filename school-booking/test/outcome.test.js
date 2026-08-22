@@ -18,6 +18,7 @@ import {
   cancellable,
   bookingRows,
   isFailure,
+  cancellableStudents,
   notRunRecord,
   progressLine,
   resultLine,
@@ -539,13 +540,43 @@ describe('progressLine (#112)', () => {
   test('mid-run it is a position in the list, not a percentage', () => {
     // A count staff can check against the table under it. A percentage is a
     // number with nothing on screen to reconcile it against.
-    expect(progressLine({ done: 3, total: 6 })).toBe('3 of 6 done…');
+    expect(progressLine({ done: 3, total: 6 })).toBe('3 of 6 students done…');
   });
 
   test('the last student still reads as in-flight — the run has not returned yet', () => {
     // `onRow` fires before the engine decides whether to halt, so `6 of 6` is a
     // real state and briefly on screen. The banner is cleared by the run
     // ending, not by this line.
-    expect(progressLine({ done: 6, total: 6 })).toBe('6 of 6 done…');
+    expect(progressLine({ done: 6, total: 6 })).toBe('6 of 6 students done…');
+  });
+});
+
+describe('cancellableStudents (#112)', () => {
+  // The cancel loop SKIPS a record with nothing this run booked, so the
+  // denominator of its progress is not the row count. This has to agree with
+  // run.js's own `cancellable(record).length === 0 → continue`, or the counter
+  // stops short of its own total and reads as a stall.
+  const booked = () => record({}, complete());
+
+  test('a run nothing was booked in has nobody to send', () => {
+    expect(cancellableStudents([])).toBe(0);
+    expect(cancellableStudents()).toBe(0);
+  });
+
+  test('it counts students, not bookings — one call per student is the shape', () => {
+    // Two students, two bookings each: four bookings, two calls.
+    expect(cancellableStudents([booked(), booked()])).toBe(2);
+  });
+
+  test('an already-booked row is not one of them — D12’s interlock', () => {
+    // The booking predates this run and may be one a real member made
+    // themselves. It is never sent, so it is never counted.
+    const already = record({}, complete({ outcome: 'already-booked', bookings: [] }));
+    expect(cancellableStudents([booked(), already])).toBe(1);
+  });
+
+  test('it agrees with anyCancellable on the empty case', () => {
+    const already = record({}, complete({ outcome: 'already-booked', bookings: [] }));
+    expect(cancellableStudents([already])).toBe(0);
   });
 });

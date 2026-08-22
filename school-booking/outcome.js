@@ -332,6 +332,22 @@ export function anyCancellable(records) {
   return (records ?? []).some((r) => cancellable(r).length > 0);
 }
 
+/**
+ * How many students the cancel loop will actually call for — #112.
+ *
+ * Not the row count, and not the booking count either. `cancelStudents` sends
+ * one call per student and SKIPS a record with nothing this run booked, so this
+ * has to agree with that skip or the progress it feeds stops short of its own
+ * total and reads as a stall. Same predicate, one place.
+ *
+ * The control above it counts *bookings* — "Cancel 12 bookings from this run" —
+ * because that is the unit of what is being taken back. The loop's unit is
+ * students, which is why the line it feeds says the word.
+ */
+export function cancellableStudents(records) {
+  return (records ?? []).filter((r) => cancellable(r).length > 0).length;
+}
+
 /** The run's tally, with the three permanence classes kept apart. */
 export function resultTotals(records) {
   const rows = records ?? [];
@@ -550,5 +566,5 @@ export function runRecordText(records, meta = {}) {
 export function progressLine({ done = 0, total = 0 } = {}) {
   if (total <= 0) return '';
   if (done <= 0) return `Starting ${plural(total, 'student')}…`;
-  return `${done} of ${total} done…`;
+  return `${done} of ${plural(total, 'student')} done…`;
 }

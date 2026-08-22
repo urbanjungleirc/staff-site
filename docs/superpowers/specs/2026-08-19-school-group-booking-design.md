@@ -1089,13 +1089,33 @@ preserve. So a restored `running` is clamped to a **halt** with reason
 The text itself is `progressLine()` in `outcome.js`, built from the two counts
 the run already holds and never from the records.
 
-**It applies to both serial waits, not just the run.** The Clubworx check
-between steps 4 and 5 (§6, strictly one student at a time) has the same shape
-and had the same gap: minutes for a class of 25, a preview row published per
-student, and a count that moves once per student. Same sticky banner, same
-spinner. Its two exits both clear it — the end of the loop, and §11's early stop
-on an unresolved plan — and neither `checkStudent` nor `lookupPlan` throws, so
-there is no third path to clamp the way the restored run needed.
+**It applies to all three serial waits, not just the run.**
+
+The **Clubworx check** between steps 4 and 5 (§6, strictly one student at a
+time) has the same shape and had the same gap: minutes for a class of 25, a
+preview row published per student, and a count that moves once per student. Same
+sticky banner, same spinner. Its two exits both clear it — the end of the loop,
+and §11's early stop on an unresolved plan — and neither `checkStudent` nor
+`lookupPlan` throws, so there is no third path to clamp the way the restored run
+needed.
+
+**D12's cancel** had the least of the three: no count at all. It is up to 150
+DELETEs plus a verifying re-read per student, which is minutes of a page saying
+nothing while it deletes things. It gets the spinner and a count, but **not**
+the sticky banner — nothing grows underneath it. The cancel rewrites the
+result table's rows in place rather than adding to it, and the panel the
+operator just clicked in is where they are already looking. Sticky is the answer
+to a table that pushes the banner away, which is not this.
+
+Its denominator is the awkward part, and it is `cancellableStudents()` in
+`outcome.js`. It is neither the row count nor the booking count the control
+above quotes ("Cancel 12 bookings from this run"): `cancelStudents` sends one
+call per student and skips a record with nothing this run booked, so a
+denominator that counted those would sit permanently short of its own total and
+read as the stall it was meant to disprove. It is deliberately the *same*
+predicate the engine skips on — two copies of that rule is how the counter
+starts lying. That is also why the line says the word "students": the control
+beside it counts bookings, and the two numbers differ.
 
 ### Doing it twice
 

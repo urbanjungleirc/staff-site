@@ -385,11 +385,11 @@
 
   /* #112 — something is still happening.
 
-     Used by both of the page's serial, one-student-at-a-time waits: the
-     Clubworx check between steps 4 and 5, and the run on step 6. A count that
-     changes once per student is not an activity indicator — between two
-     students, and right through D8's 20-second retry backoff, it says nothing
-     at all. This is the part that keeps saying something. */
+     Used by all three of the page's serial, one-student-at-a-time waits: the
+     Clubworx check between steps 4 and 5, the run on step 6, and D12's cancel.
+     A count that changes once per student is not an activity indicator —
+     between two students, and right through D8's 20-second retry backoff, it
+     says nothing at all. This is the part that keeps saying something. */
   @keyframes uj-spin { to { transform: rotate(360deg); } }
 
   .spinner {
@@ -1501,7 +1501,17 @@
             </div>
           </div>
 
-          <div class="text-xs mt-2" x-show="cancelState === 'running'" x-cloak>Cancelling, one student at a time…</div>
+          <!-- #112. Not sticky, unlike the other two: nothing grows underneath
+               this one. The cancel rewrites the table's rows in place rather
+               than adding to it, and the panel the operator just clicked in is
+               where they are already looking. -->
+          <div class="text-xs mt-2 flex items-center gap-2" x-show="cancelState === 'running'" x-cloak>
+            <span class="spinner" aria-hidden="true"></span>
+            <span>
+              <span role="status" x-text="cancelProgress"></span>
+              Cancelling, one student at a time…
+            </span>
+          </div>
           <div class="text-xs mt-2 text-rose-700" x-show="cancelState === 'halted'" x-cloak x-text="cancelMessage"></div>
         </div>
 
@@ -1643,6 +1653,10 @@ function schoolBooking() {
     expandedResult: null,
     cancelState: 'idle',
     cancelMessage: '',
+    // #112. The cancel's own count. Kept apart from `runProgress` because the
+    // two can never be on screen together and sharing one would make a stale
+    // line from the run readable during a cancel.
+    cancelProgress: '',
     cancelConfirming: false,
     // A run found in this browser's storage at load — D10's whole purpose. It
     // is offered, never auto-opened: it may be yesterday's, and the operator
@@ -2790,6 +2804,14 @@ function schoolBooking() {
       this.running = true;
       this.cancelState = 'running';
       this.cancelMessage = '';
+      // #112. The denominator is the students the loop will actually call for,
+      // which is neither the row count nor the booking count the control above
+      // quotes: a record with nothing this run booked is skipped by the engine
+      // (D12's interlock), so counting it would leave this permanently short of
+      // its own total. `cancellableStudents` is the engine's own predicate.
+      const toCall = window.schoolBookingOutcome.cancellableStudents(this.runRecords);
+      let called = 0;
+      this.cancelProgress = window.schoolBookingOutcome.progressLine({ done: 0, total: toCall });
       this.guardUnload(true);
 
       const result = await window.schoolBookingRun.cancelStudents({
@@ -2797,6 +2819,10 @@ function schoolBooking() {
         call: (payload) => this.callWorker('/api/clubworx/unbook', payload),
         onRow: (record, records) => {
           this.runRecords = [...records];
+          // Counted here rather than off `records.length`: that array is every
+          // row in the run and does not move as the loop skips.
+          called += 1;
+          this.cancelProgress = window.schoolBookingOutcome.progressLine({ done: called, total: toCall });
           this.saveRun();
         },
       });
@@ -2804,6 +2830,7 @@ function schoolBooking() {
       this.runRecords = [...result.records];
       this.cancelState = result.state === 'halted' ? 'halted' : 'done';
       this.cancelMessage = result.message;
+      this.cancelProgress = '';
       this.running = false;
       this.guardUnload(false);
       // #111. Taking the bookings back retires the claim that this import is
