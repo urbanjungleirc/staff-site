@@ -568,3 +568,51 @@ export function progressLine({ done = 0, total = 0 } = {}) {
   if (done <= 0) return `Starting ${plural(total, 'student')}…`;
   return `${done} of ${plural(total, 'student')} done…`;
 }
+
+/**
+ * The confirmation, and the conditions it refuses to appear under — #113.
+ *
+ * UAT of #74 found the result step leading with *"Cancel bookings from this
+ * run"* and never saying, with equivalent weight, that the import had worked.
+ * The banner that answers that has exactly one way of being worse than the
+ * silence it replaces: appearing over a run that did not work. So it is a
+ * string that is empty unless the run is clean, in the same shape as
+ * `strandedWarning` — the page shows the banner on the text, and there is one
+ * place deciding whether there is any.
+ *
+ * **"Successful" is neither "the run ended" nor `settledRun`.** They answer
+ * different questions and this needs the stricter one:
+ *
+ *   - `settledRun` asks *"is there anything worth doing again?"*, which is why
+ *     it calls a run with a **refused** student settled — re-running reproduces
+ *     that refusal exactly, so the already-run gate should close on it. But a
+ *     refused student got nothing, and a banner saying the import worked over
+ *     that row is the lie this comment exists to prevent.
+ *   - A **`needs you`** row is the same: considered, not a fault, and still a
+ *     student nobody has booked.
+ *
+ * So the test is every row, not a count: a run is confirmed only when the whole
+ * table reads `booked` or `already booked`. A student already in the session
+ * counts — they are booked, which is what the operator came to achieve, and
+ * whether this run put them there is D11's business, not this line's.
+ *
+ * `cancelled > 0` takes it back down. The bookings it would be confirming are
+ * gone, and a confirmation left standing after a cancel is the sentence an
+ * operator would read to check whether the cancel worked.
+ */
+export function successLine(state, records) {
+  const rows = records ?? [];
+  if (state !== 'complete' || rows.length === 0) return '';
+  if (!rows.every((r) => r.state === 'booked' || r.state === 'already booked')) return '';
+  const t = resultTotals(rows);
+  if (t.cancelled > 0) return '';
+  // `display()` reads a `complete` row that booked nothing as `already
+  // booked`, which includes a row holding no bookings of any kind. Nothing
+  // reaches this page in that state today — a selection with no sessions
+  // cannot get past step 4 — but the sentence below would be the page's only
+  // word on such a row, and it would say the student is booked.
+  if (t.bookings + t.alreadyBooked === 0) return '';
+  return `This import is done — ${
+    t.students === 1 ? 'the student is' : `all ${t.students} students are`
+  } booked.`;
+}

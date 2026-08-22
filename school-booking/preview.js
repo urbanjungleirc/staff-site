@@ -380,13 +380,16 @@ export function buildPreview({ rows, matches, selection, review, plan, decisions
       kind: 'already-run',
       severity: 'block',
       title: 'This import has already been run',
-      // Names only what exists today. #113 adds a "start another import"
-      // control, and this line should point at that instead once it lands —
-      // until then, reloading is the honest instruction, and the run is safe
-      // to reload away from because storage offers it back (D10).
+      // Names the control that exists — #113's reset, which is the escape
+      // valve this gate was always meant to have. Before it landed this line
+      // said "reload the page", because pointing at a control that is not
+      // there is worse than pointing at a clumsy one. The reset deliberately
+      // does NOT re-open this gate: it starts a different import, and an
+      // identical list re-pasted after one meets this same block.
       detail: 'Nothing here has changed since it ran, so applying again would repeat work that is '
         + 'already done. Add or resolve a student, or change the sessions, and this clears itself. '
-        + 'To import a different school, reload the page — this run is saved in this browser.',
+        + 'To import a different school, use "Start another import" — it is on the result step and '
+        + 'on step 1. This run stays saved in this browser.',
       actions: [],
     });
   }

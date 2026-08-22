@@ -136,6 +136,23 @@ school-booking.html     - the school booking page, steps 1-6 (#71, #72, #73, #10
                           `running` to a halt: the store is written per student,
                           so a tab closed mid-run leaves `running` behind, and a
                           spinner on that is a dead page claiming to be alive.
+                          The result step LEADS with the confirmation (#113):
+                          one panel, tone and heading following the outcome,
+                          D11's summary unmoved inside it. Both the words and
+                          the colour come from outcome.js's successLine(), so
+                          there is no literal a template could show over a run
+                          that did not work. D12's cancel was DEMOTED and
+                          nothing else — same label, same count, same interlock,
+                          same confirm, still visible. startAnotherImport() is
+                          ONE control rendered twice, here and on step 1, and it
+                          keeps three things: the stored run (re-read, so it
+                          comes back as the offer at the top), `lastRun` (#111
+                          still blocks an identical re-paste — this starts a
+                          different import, it does not re-open a finished one)
+                          and `schools`. A component test asserts a reset page
+                          equals a fresh one field by field — the reset restates
+                          the component literal's initial values and nothing in
+                          the language links the two copies.
 school-booking/events.js - what a SELECTION of sessions is: the same-name,
                           same-location pre-tick (no recurrence field exists,
                           so any automatic rule is a guess), the lead-time and
@@ -225,6 +242,13 @@ school-booking/outcome.js - what one `POST /student` answer means, and what a
                           carries liveness: this line changes once per student
                           and says nothing at all through D8's 20-second
                           backoff, which is the quiet the report was about.
+                          successLine() is #113's confirmation and is STRICTER
+                          than settledRun(): every row must read `booked` or
+                          `already booked`, so a refusal or a `needs you` keeps
+                          it away even though settledRun() calls that run
+                          settled. The two answer different questions — "is
+                          there anything worth doing again?" and "did this
+                          work?" — and a cancel since takes the second back.
 school-booking/parse.js - turns a pasted school student list into rows plus the
                           list-level inferences (layout, column mapping, date
                           orientation). Pure and unit tested; §7 of the design
