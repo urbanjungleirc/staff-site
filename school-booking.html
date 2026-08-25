@@ -68,14 +68,14 @@
      or missing module into a visible refusal rather than a page whose gates
      quietly do nothing. -->
 <script type="module">
-  import * as parser from './school-booking/parse.js?v=5';
-  import * as steps from './school-booking/steps.js?v=5';
-  import * as identity from './school-booking/identity.js?v=5';
-  import * as events from './school-booking/events.js?v=5';
-  import * as preview from './school-booking/preview.js?v=5';
-  import * as calendar from './school-booking/calendar.js?v=5';
-  import * as outcome from './school-booking/outcome.js?v=5';
-  import * as run from './school-booking/run.js?v=5';
+  import * as parser from './school-booking/parse.js?v=6';
+  import * as steps from './school-booking/steps.js?v=6';
+  import * as identity from './school-booking/identity.js?v=6';
+  import * as events from './school-booking/events.js?v=6';
+  import * as preview from './school-booking/preview.js?v=6';
+  import * as calendar from './school-booking/calendar.js?v=6';
+  import * as outcome from './school-booking/outcome.js?v=6';
+  import * as run from './school-booking/run.js?v=6';
   window.schoolListParser = parser;
   window.schoolBookingSteps = steps;
   window.schoolBookingIdentity = identity;
@@ -1153,6 +1153,21 @@
                   <button type="button" class="chip" @click="answerSelection(action)" x-text="action.label"></button>
                 </template>
               </div>
+
+              <!-- ADR 0007. Attached to the blocker it is about, so the session
+                   being kept is the one on screen beside the sentence. It is a
+                   confirmation and not a formality: the restriction has to be
+                   lifted by hand in Clubworx, and the cost of clicking past
+                   this is sixty refusals and a halted run. -->
+              <div class="mt-2 rounded-lg bg-white border border-neutral-300 px-3 py-2"
+                   x-show="leadTimeConfirm === blocker.eventId" x-cloak>
+                <div class="text-[0.78rem] text-neutral-700" x-text="leadTimeConfirmLine()"></div>
+                <div class="flex gap-2 mt-2">
+                  <button type="button" class="chip border-solid border-uj text-uj"
+                          @click="confirmLeadTimeOverride()">Yes — the restriction is lifted</button>
+                  <button type="button" class="chip" @click="cancelLeadTimeOverride()">Cancel</button>
+                </div>
+              </div>
             </div>
           </template>
         </div>
@@ -1216,6 +1231,20 @@
                     <template x-for="action in blocker.actions" :key="action.key">
                       <button type="button" class="chip" @click="answerSelection(action)" x-text="action.label"></button>
                     </template>
+                  </div>
+
+                  <!-- The same confirmation as step 4's. Both lists dispatch
+                       through `answerSelection`, so a confirmation on only one
+                       of them is an action that silently does nothing on the
+                       other. -->
+                  <div class="mt-2 rounded-lg bg-white border border-neutral-300 px-3 py-2"
+                       x-show="leadTimeConfirm === blocker.eventId" x-cloak>
+                    <div class="text-[0.78rem] text-neutral-700" x-text="leadTimeConfirmLine()"></div>
+                    <div class="flex gap-2 mt-2">
+                      <button type="button" class="chip border-solid border-uj text-uj"
+                              @click="confirmLeadTimeOverride()">Yes — the restriction is lifted</button>
+                      <button type="button" class="chip" @click="cancelLeadTimeOverride()">Cancel</button>
+                    </div>
                   </div>
                 </div>
               </template>
@@ -1691,7 +1720,15 @@ function schoolBooking() {
     // on every render of step 4, including the first, and an Alpine expression
     // that throws leaves its `:disabled` unapplied — which would *enable* the
     // forward button on the one render where nothing has been checked.
-    selection: { events: [], blockers: [], ready: false, sessions: 0, students: 0, bookings: 0, firstSession: null, lastSession: null },
+    selection: { events: [], blockers: [], ready: false, acknowledgedEventIds: [], sessions: 0, students: 0, bookings: 0, firstSession: null, lastSession: null },
+
+    // ADR 0007 — the sessions an operator has stated they lifted the Clubworx
+    // booking restriction for, keyed by event id, and the one waiting on its
+    // confirmation. One at a time and never a set: the choice is per session
+    // throughout, and a control that acknowledged them all would be the silent
+    // adjustment with a button on it.
+    leadTimeAcknowledgements: {},
+    leadTimeConfirm: null,
 
     // The check between 4 and 5
     // The plan name, not its id: an id is a number nobody can check against the
@@ -2344,6 +2381,11 @@ function schoolBooking() {
         // group ends up booked into a session nobody chose.
         const present = new Set(this.events.map((e) => String(e.event_id)));
         this.picked = this.picked.filter((id) => present.has(String(id)));
+        // ADR 0007's statements go with the ticks they are about: an
+        // acknowledgement about a session nobody can see is one nobody can take
+        // back, and a session searched up again later must arrive refusing
+        // rather than pre-forgiven.
+        this.keepAcknowledgementsForPicked();
       } catch (error) {
         this.events = [];
         this.eventsTotal = 0;
@@ -2376,7 +2418,23 @@ function schoolBooking() {
     togglePick(id) {
       const key = String(id);
       this.picked = this.isPicked(key) ? this.picked.filter((p) => p !== key) : [...this.picked, key];
+      this.keepAcknowledgementsForPicked();
       this.refreshSelection();
+    },
+
+    // ADR 0007. An acknowledgement is a statement about a session **in this
+    // run**, so it lasts exactly as long as the tick does. Un-ticking drops it,
+    // and ticking the session again asks the question again — otherwise a
+    // session could come back pre-forgiven by a confirmation nobody re-took,
+    // which is the one thing a confirmation is for. Strict is the safe
+    // direction here: the damage this feature is shaped around is a restriction
+    // left lifted, never a question asked twice.
+    keepAcknowledgementsForPicked() {
+      const ticked = new Set(this.picked.map(String));
+      this.leadTimeAcknowledgements = Object.fromEntries(
+        Object.entries(this.leadTimeAcknowledgements).filter(([id]) => ticked.has(id)),
+      );
+      if (!ticked.has(String(this.leadTimeConfirm))) this.leadTimeConfirm = null;
     },
 
     // §8's one-click series. The rule is same name, same location, ahead of the
@@ -2385,6 +2443,7 @@ function schoolBooking() {
     // "pick this first" is a statement about which session is first.
     pickSeries(id) {
       this.picked = window.schoolBookingEvents.preTicked(this.events, id);
+      this.keepAcknowledgementsForPicked();
       this.refreshSelection();
     },
 
@@ -2452,7 +2511,7 @@ function schoolBooking() {
     // being painted the same red as a lead-time hard-stop, with no reason
     // beside it, against §11's "warn, never block".
     eventLane(event) {
-      const refusal = window.schoolBookingEvents.sessionRefusal(event);
+      const refusal = this.refusalFor(event);
       if (refusal?.severity === 'block') return 'lane-bad';
       if (refusal) return 'lane-need';
       return this.isPicked(event.event_id) ? 'lane-ok' : 'lane';
@@ -2462,13 +2521,11 @@ function schoolBooking() {
     // own refusal — "Sorry! This class is now closed for bookings." — names
     // none of them and reads like a capacity problem (D9).
     eventWarning(event) {
-      return window.schoolBookingEvents.sessionRefusal(event)?.message ?? '';
+      return this.refusalFor(event)?.message ?? '';
     },
 
     eventWarningTone(event) {
-      return window.schoolBookingEvents.sessionRefusal(event)?.severity === 'block'
-        ? 'text-rose-700'
-        : 'text-amber-700';
+      return this.refusalFor(event)?.severity === 'block' ? 'text-rose-700' : 'text-amber-700';
     },
 
     refreshSelection() {
@@ -2481,6 +2538,12 @@ function schoolBooking() {
         // edit the dates without pressing Search, and a series checked against
         // dates nobody loaded would clear the warning by typing.
         windowTo: this.loadedTo,
+        // ADR 0007. The report ignores an entry naming a session that is not
+        // ticked or not in the window, so nothing has to be pruned for
+        // correctness — `loadEvents` prunes it anyway, so that a session
+        // dropped and later searched up again comes back refusing rather than
+        // forgiven by a decision nobody re-took.
+        acknowledged: this.leadTimeAcknowledgements,
       });
     },
 
@@ -2489,11 +2552,81 @@ function schoolBooking() {
         || 'No sessions picked yet.';
     },
 
-    // The one-click removal D9 asks for. Removing is the only thing a blocker
-    // here can do, and the page dispatches on `answers` exactly as step 3 does,
-    // so a blocker kind added in the module cannot arrive without its control.
+    // D9's one-click removal, and ADR 0007's second answer beside it. The page
+    // dispatches on `answers` exactly as step 3 does, so a blocker kind added
+    // in the module cannot arrive without its control — and the dispatcher
+    // still knows no blocker kinds.
     answerSelection(action) {
       if (action.answers === 'remove') this.togglePick(action.value);
+      else if (action.answers === 'acknowledge-lead-time') this.askLeadTimeOverride(action.value);
+      else if (action.answers === 'unacknowledge-lead-time') this.takeBackLeadTimeOverride(action.value);
+    },
+
+    // --- ADR 0007, the lead-time override ---------------------------------
+    // Asking is not taking, and the name says so: nothing about the selection
+    // moves here. The answer opens a confirmation, and the confirmation is the
+    // whole safeguard — somebody has to go and lift a restriction in Clubworx
+    // by hand, and the failure mode of not doing it is sixty refusals and a
+    // halted run. Only `confirmLeadTimeOverride` writes to the log.
+    askLeadTimeOverride(eventId) {
+      this.leadTimeConfirm = String(eventId);
+    },
+
+    cancelLeadTimeOverride() {
+      this.leadTimeConfirm = null;
+    },
+
+    confirmLeadTimeOverride() {
+      const eventId = this.leadTimeConfirm;
+      if (!eventId) return;
+      this.leadTimeAcknowledgements = window.schoolBookingEvents
+        .acknowledgeLeadTime(this.leadTimeAcknowledgements, eventId, { kind: 'lifted' });
+      this.leadTimeConfirm = null;
+      this.afterAcknowledgement();
+    },
+
+    takeBackLeadTimeOverride(eventId) {
+      // No confirmation on the way back. Taking one back restores the refusal,
+      // and nothing that only ever makes the tool stricter needs a gate.
+      this.leadTimeAcknowledgements = window.schoolBookingEvents
+        .acknowledgeLeadTime(this.leadTimeAcknowledgements, eventId, null);
+      // Only if it was this session's question. A confirmation open on one
+      // session is not answered by a decision taken about another.
+      if (this.leadTimeConfirm === String(eventId)) this.leadTimeConfirm = null;
+      this.afterAcknowledgement();
+    },
+
+    isLeadTimeAcknowledged(eventId) {
+      return window.schoolBookingEvents.leadTimeAcknowledged(this.leadTimeAcknowledgements, eventId);
+    },
+
+    // The one place the page asks what is wrong with a session, so the three
+    // row-styling helpers below cannot drift apart over whether an
+    // acknowledgement counts.
+    refusalFor(event) {
+      return window.schoolBookingEvents
+        .sessionRefusal(event, this.isLeadTimeAcknowledged(event?.event_id));
+    },
+
+    // The selection always, and the preview when there is one to keep honest:
+    // its blockers are the selection's, carried verbatim, so a decision taken
+    // on either screen has to reach both.
+    afterAcknowledgement() {
+      this.refreshSelection();
+      if (this.preview) this.refreshPreview();
+    },
+
+    // The session, and the condition, in the plainest words available. The
+    // consequence is concrete on purpose — the mechanics of this feature are
+    // simple and the copy is the part that actually prevents the damage.
+    leadTimeConfirmLine() {
+      const id = this.leadTimeConfirm;
+      if (!id) return '';
+      const event = this.events.find((e) => String(e.event_id) === String(id));
+      const label = event ? window.schoolBookingEvents.sessionLabel(event) : 'This session';
+      return `${label} — the booking restriction on this class must be lifted in Clubworx before `
+        + 'the run starts, or every booking for it will fail. The failures arrive as ordinary '
+        + 'refusals, and the third one in a row halts the run. Lift it first, then run.';
     },
 
     // The dates are seeded and the read waits. A term-wide window is ~900
@@ -2719,6 +2852,10 @@ function schoolBooking() {
         preview: this.preview,
         rows: this.reviewed?.rows ?? [],
         email: this.marker(),
+        // ADR 0007. Read off the selection rather than the log, so a statement
+        // about a session that is no longer ticked — or no longer in the loaded
+        // window — never reaches the write chain.
+        acknowledgedEventIds: this.selection.acknowledgedEventIds ?? [],
       });
       if (students.length === 0) return;
 
@@ -3127,7 +3264,12 @@ function schoolBooking() {
       this.pastedIdOk = false;
       this.pastedIdEvent = null;
       this.picked = [];
-      this.selection = { events: [], blockers: [], ready: false, sessions: 0, students: 0, bookings: 0, firstSession: null, lastSession: null };
+      this.selection = { events: [], blockers: [], ready: false, acknowledgedEventIds: [], sessions: 0, students: 0, bookings: 0, firstSession: null, lastSession: null };
+      // A statement about the last import's sessions is not a statement about
+      // this one's, and this is the one field where carrying it over would
+      // silently pre-forgive a session nobody has looked at yet.
+      this.leadTimeAcknowledgements = {};
+      this.leadTimeConfirm = null;
 
       this.plan = null;
       this.matches = {};

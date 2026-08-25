@@ -8,7 +8,9 @@
 
 import { describe, expect, test } from 'vitest';
 import {
+  acknowledgeLeadTime,
   defaultWindow,
+  leadTimeAcknowledged,
   sessionRefusal,
   preTicked,
   resolvePastedId,
@@ -205,9 +207,12 @@ describe('selectionReport', () => {
     const blocker = report.blockers.find((b) => b.kind === 'lead-time');
     expect(blocker.severity).toBe('block');
     // D9: the fix is offered, never taken. A session dropped on the page's own
-    // initiative is the silent adjustment the whole design refuses.
+    // initiative is the silent adjustment the whole design refuses. ADR 0007
+    // adds a second answer beside it — keeping the session — and neither is
+    // taken by the page itself.
     expect(blocker.actions).toEqual([
       { key: 'remove:c', label: 'Remove this session', answers: 'remove', value: 'c' },
+      { key: 'ack:c', label: 'Keep it and book anyway', answers: 'acknowledge-lead-time', value: 'c' },
     ]);
     expect(blocker.detail).toMatch(/24 hours/);
   });
@@ -280,6 +285,267 @@ describe('selectionReport', () => {
     const warning = report.blockers.find((b) => b.kind === 'truncated');
     expect(warning.severity).toBe('warn');
     expect(report.ready).toBe(true);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// ADR 0007 — the lead time is an operator override, not a law
+// ---------------------------------------------------------------------------
+
+describe('acknowledgeLeadTime — the per-session decision log', () => {
+  test('an acknowledgement is recorded against the event id', () => {
+    expect(acknowledgeLeadTime({}, 'c', { kind: 'lifted' })).toEqual({ c: { kind: 'lifted' } });
+  });
+
+  test('a new object comes back, so an undo is observable', () => {
+    // Alpine re-renders from the returned value. The same object mutated in
+    // place leaves the screen showing the decision that was just taken back.
+    const before = {};
+    const after = acknowledgeLeadTime(before, 'c', { kind: 'lifted' });
+    expect(before).toEqual({});
+    expect(after).not.toBe(before);
+  });
+
+  test('taking one back leaves nothing behind', () => {
+    // Unlike step 3's log there is no gate here asking *did staff work this* —
+    // so an un-acknowledged session is exactly a session nobody acknowledged.
+    const log = acknowledgeLeadTime({}, 'c', { kind: 'lifted' });
+    expect(acknowledgeLeadTime(log, 'c', null)).toEqual({});
+  });
+
+  test('ids are keyed as strings, so a numeric id and a pasted one agree', () => {
+    const log = acknowledgeLeadTime({}, 101, { kind: 'lifted' });
+    expect(leadTimeAcknowledged(log, '101')).toBe(true);
+    expect(leadTimeAcknowledged(log, 101)).toBe(true);
+    expect(leadTimeAcknowledged(log, '102')).toBe(false);
+  });
+
+  test('an empty log acknowledges nothing', () => {
+    expect(leadTimeAcknowledged(undefined, 'c')).toBe(false);
+  });
+});
+
+describe('selectionReport — an acknowledged session is kept, not hidden', () => {
+  const ok = event({ event_id: 'a' });
+  const soon = (id, over = {}) => event({
+    event_id: id,
+    event_start_at: '2026-08-21T18:00:00+08:00',
+    bookable: false,
+    lead: { hoursAhead: 4, past: false, withinLeadTime: true, minLeadHours: 24, unreadable: false },
+    ...over,
+  });
+  const lifted = (...ids) => Object.fromEntries(ids.map((id) => [String(id), { kind: 'lifted' }]));
+
+  test('an acknowledged session warns instead of blocking, and names the lifted restriction', () => {
+    const report = selectionReport({
+      events: [ok, soon('c')],
+      selected: ['a', 'c'],
+      studentCount: 6,
+      acknowledged: lifted('c'),
+    });
+    const blocker = report.blockers.find((b) => b.kind === 'lead-time');
+    expect(blocker.severity).toBe('warn');
+    expect(blocker.detail).toMatch(/restriction/i);
+    expect(blocker.detail).toMatch(/Clubworx/);
+  });
+
+  test('it stays in the list — a session that vanishes is invisible and unexplained', () => {
+    // The shape D9 rejects, wearing a different hat.
+    const report = selectionReport({
+      events: [soon('c')],
+      selected: ['c'],
+      studentCount: 6,
+      acknowledged: lifted('c'),
+    });
+    expect(report.blockers.filter((b) => b.kind === 'lead-time')).toHaveLength(1);
+  });
+
+  test('it keeps its removal and gains the way back', () => {
+    // ADR 0007: "Each too-soon session keeps its own blocker and its existing
+    // removal, and gains a second answer beside it." The only warning here that
+    // carries a removal, and it earned the exception by having been a block one
+    // click ago — the removal was already on offer.
+    const report = selectionReport({
+      events: [soon('c')],
+      selected: ['c'],
+      studentCount: 6,
+      acknowledged: lifted('c'),
+    });
+    const blocker = report.blockers.find((b) => b.kind === 'lead-time');
+    expect(blocker.actions).toEqual([
+      { key: 'remove:c', label: 'Remove this session', answers: 'remove', value: 'c' },
+      { key: 'unack:c', label: 'Take that back', answers: 'unacknowledge-lead-time', value: 'c' },
+    ]);
+  });
+
+  test('acknowledging every too-soon session flips the selection to ready', () => {
+    const report = selectionReport({
+      events: [soon('c'), soon('d')],
+      selected: ['c', 'd'],
+      studentCount: 6,
+      acknowledged: lifted('c', 'd'),
+    });
+    expect(report.ready).toBe(true);
+  });
+
+  test('acknowledging some of several does not', () => {
+    // Readiness is still derived from the absence of any block. Nothing new is
+    // gated; the remaining session simply still blocks.
+    const report = selectionReport({
+      events: [soon('c'), soon('d')],
+      selected: ['c', 'd'],
+      studentCount: 6,
+      acknowledged: lifted('c'),
+    });
+    expect(report.ready).toBe(false);
+    expect(report.blockers.filter((b) => b.severity === 'block')).toHaveLength(1);
+  });
+
+  test('taking an acknowledgement back restores the block', () => {
+    const log = acknowledgeLeadTime(acknowledgeLeadTime({}, 'c', { kind: 'lifted' }), 'c', null);
+    const report = selectionReport({
+      events: [soon('c')], selected: ['c'], studentCount: 6, acknowledged: log,
+    });
+    expect(report.ready).toBe(false);
+    expect(report.blockers.find((b) => b.kind === 'lead-time').severity).toBe('block');
+  });
+
+  test('an acknowledgement naming an event outside the loaded window changes nothing', () => {
+    // Re-searching the dates must not resurrect a stale one, and an id nobody
+    // can see on screen is one nobody took responsibility for.
+    const report = selectionReport({
+      events: [soon('c')],
+      selected: ['c'],
+      studentCount: 6,
+      acknowledged: lifted('gone'),
+    });
+    expect(report.ready).toBe(false);
+    expect(report.acknowledgedEventIds).toEqual([]);
+  });
+
+  test('an acknowledgement on a session nobody ticked is inert', () => {
+    const report = selectionReport({
+      events: [ok, soon('c')],
+      selected: ['a'],
+      studentCount: 6,
+      acknowledged: lifted('c'),
+    });
+    expect(report.acknowledgedEventIds).toEqual([]);
+    expect(report.ready).toBe(true);
+  });
+
+  test('an acknowledgement on a session that is not too soon is inert', () => {
+    const report = selectionReport({
+      events: [ok], selected: ['a'], studentCount: 6, acknowledged: lifted('a'),
+    });
+    expect(report.acknowledgedEventIds).toEqual([]);
+    expect(report.blockers).toEqual([]);
+  });
+
+  test('an unreadable start time is NOT overridable', () => {
+    // "We cannot check this" must never become "you may override this".
+    const broken = event({
+      event_id: 'f',
+      event_start_at: 'whenever',
+      bookable: false,
+      lead: { hoursAhead: null, past: null, withinLeadTime: null, minLeadHours: 24, unreadable: true },
+    });
+    const report = selectionReport({
+      events: [broken], selected: ['f'], studentCount: 6, acknowledged: lifted('f'),
+    });
+    const blocker = report.blockers.find((b) => b.kind === 'unreadable-session');
+    expect(blocker.severity).toBe('block');
+    expect(blocker.actions.map((a) => a.answers)).toEqual(['remove']);
+    expect(report.ready).toBe(false);
+    expect(report.acknowledgedEventIds).toEqual([]);
+  });
+
+  test('an already-started session is NOT overridable', () => {
+    // Not a restriction the gym can lift.
+    const past = event({
+      event_id: 'e',
+      event_start_at: '2026-08-01T09:00:00+08:00',
+      bookable: false,
+      lead: { hoursAhead: -480, past: true, withinLeadTime: false, minLeadHours: 24, unreadable: false },
+    });
+    const report = selectionReport({
+      events: [past], selected: ['e'], studentCount: 6, acknowledged: lifted('e'),
+    });
+    const blocker = report.blockers.find((b) => b.kind === 'past-session');
+    expect(blocker.severity).toBe('block');
+    expect(blocker.actions.map((a) => a.answers)).toEqual(['remove']);
+    expect(report.ready).toBe(false);
+    expect(report.acknowledgedEventIds).toEqual([]);
+  });
+
+  test('too soon AND full still reports the lead time first, and keeps the capacity warning once acknowledged', () => {
+    // The lead time outranks the room because only one of them refuses. Once
+    // it stops refusing, the room is the thing left worth saying.
+    // Clubworx declines to say how many spaces are left, so `full` is the only
+    // thing carrying the room — the case where suppressing it would lose it.
+    const both = soon('c', { event_full: true, spaces_available: null });
+
+    const blocked = selectionReport({ events: [both], selected: ['c'], studentCount: 6 });
+    expect(blocked.blockers[0]).toMatchObject({ kind: 'lead-time', severity: 'block' });
+
+    const report = selectionReport({
+      events: [both], selected: ['c'], studentCount: 6, acknowledged: lifted('c'),
+    });
+    expect(report.blockers.map((b) => b.kind)).toEqual(['lead-time', 'full']);
+    expect(report.blockers.every((b) => b.severity === 'warn')).toBe(true);
+    expect(report.ready).toBe(true);
+  });
+
+  test('the room is never said twice, acknowledged or not', () => {
+    // A count of zero raises `spaces` on its own today, and `full` would say
+    // the same thing beside it — the two-banners-one-message fault #71 fixed.
+    const both = soon('c', { event_full: true, spaces_available: 0 });
+
+    const blocked = selectionReport({ events: [both], selected: ['c'], studentCount: 6 });
+    expect(blocked.blockers.map((b) => b.kind)).toEqual(['lead-time', 'spaces']);
+
+    const report = selectionReport({
+      events: [both], selected: ['c'], studentCount: 6, acknowledged: lifted('c'),
+    });
+    expect(report.blockers.map((b) => b.kind)).toEqual(['lead-time', 'full']);
+  });
+
+  test('the acknowledged ids travel with the report, in timetable order', () => {
+    const report = selectionReport({
+      events: [soon('d', { event_start_at: '2026-08-21T19:00:00+08:00' }), soon('c')],
+      selected: ['c', 'd'],
+      studentCount: 6,
+      acknowledged: lifted('c', 'd'),
+    });
+    expect(report.acknowledgedEventIds).toEqual(['c', 'd']);
+  });
+
+  test('a selection with no acknowledgements reports none', () => {
+    const report = selectionReport({ events: [ok], selected: ['a'], studentCount: 6 });
+    expect(report.acknowledgedEventIds).toEqual([]);
+  });
+});
+
+describe('sessionRefusal — an acknowledged session says so on the row too', () => {
+  const soon = event({
+    event_id: 'c',
+    bookable: false,
+    lead: { hoursAhead: 4, past: false, withinLeadTime: true, minLeadHours: 24, unreadable: false },
+  });
+
+  test('acknowledged, it drops to a warning and names the lifted restriction', () => {
+    // The picker's row styling asks this too, so the row and the blocker can
+    // never disagree about whether the run can proceed — §16's fault shape.
+    expect(sessionRefusal(soon, true)).toEqual({
+      kind: 'lead-time',
+      severity: 'warn',
+      message: expect.stringMatching(/restriction/i),
+    });
+  });
+
+  test('unacknowledged, nothing moves', () => {
+    expect(sessionRefusal(soon).severity).toBe('block');
+    expect(sessionRefusal(soon, false).severity).toBe('block');
   });
 });
 

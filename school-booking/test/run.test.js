@@ -417,6 +417,29 @@ describe('runList — turning the preview into calls', () => {
     ]);
   });
 
+  test('a run with no acknowledgements sends the payload it sends today', () => {
+    // ADR 0007's key appears only when a human vouched for something. Absent is
+    // the honest encoding of "nobody acknowledged anything", and it keeps a
+    // no-override run byte-identical to the one before this feature existed.
+    const [ada] = runList({ preview, rows, email: 'noreply+x@urbanjungleirc.com' });
+    expect(ada.payload).not.toHaveProperty('lead_time_acknowledged_event_ids');
+
+    const none = runList({ preview, rows, email: 'noreply+x@urbanjungleirc.com', acknowledgedEventIds: [] });
+    expect(none[0].payload).not.toHaveProperty('lead_time_acknowledged_event_ids');
+  });
+
+  test('the acknowledged event ids travel with every student', () => {
+    // Per student, because the gate they narrow is a per-student backstop in
+    // the write chain — one call per student is the whole shape of this run.
+    const list = runList({
+      preview, rows, email: 'noreply+x@urbanjungleirc.com', acknowledgedEventIds: ['e1'],
+    });
+    expect(list).toHaveLength(2);
+    for (const student of list) {
+      expect(student.payload.lead_time_acknowledged_event_ids).toEqual(['e1']);
+    }
+  });
+
   test('a preview with no resolved plan produces no calls at all', () => {
     const list = runList({ preview: { ...preview, plan: null }, rows, email: 'noreply+x@urbanjungleirc.com' });
     expect(list).toEqual([]);
