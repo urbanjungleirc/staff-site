@@ -30,6 +30,21 @@ describe('isUnsent', () => {
     expect(isUnsent({ is_physical: true, customer_email: null, email_sent: false })).toBe(false);
   });
 
+  // Found live: the only two rows in the whole book that matched the original
+  // predicate were both suppressed, so the badge's entire real-world output was
+  // rows it should never have flagged. Suppressed is a decision, not a failure.
+  test('a suppressed voucher is never unsent — nobody is waiting for it', () => {
+    expect(isUnsent(emailed({ email_sent: false, send_state: 'suppressed' }))).toBe(false);
+  });
+
+  // The states that ARE failures still flag, or the badge stops meaning
+  // anything.
+  test('a permanent or transient failure still flags', () => {
+    expect(isUnsent(emailed({ email_sent: false, send_state: 'permanent' }))).toBe(true);
+    expect(isUnsent(emailed({ email_sent: false, send_state: 'transient' }))).toBe(true);
+    expect(isUnsent(emailed({ email_sent: false, send_state: null }))).toBe(true);
+  });
+
   test('an emailed voucher with no address on file is not unsent', () => {
     // There is nothing to resend to, and the detail view already says so.
     expect(isUnsent(emailed({ customer_email: null, email_sent: false }))).toBe(false);

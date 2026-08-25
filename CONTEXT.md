@@ -128,6 +128,9 @@ checkbox and the column all read *physical*.
 A voucher that was due to reach someone by email and hasn't — the counterpart
 to a physical one, which is never unsent because no email was ever due.
 
+A **suppressed** voucher is not unsent either. Nobody is waiting for it: the
+member opted out, so the send was a decision not to email, not a failure to.
+
 Defined canonically in the **vouchers** repo, `docs/CONTEXT.md`, because it is a
 state of the voucher record rather than of this page. The hub renders it in
 three places (the create result, the detail view, the search list) and asks
