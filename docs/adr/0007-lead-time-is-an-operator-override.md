@@ -8,6 +8,11 @@
 > drops a too-soon session by itself, and that staff never meet Clubworx's own
 > message — stands unchanged and is load-bearing here.
 
+> Companion: [ADR 0005](0005-school-pass-runs-26-weeks.md), the other hard-stop
+> in this run's pre-write gate. Both are about a Clubworx rule the tool cannot
+> see directly; 0005 changed the rule in Clubworx to fit the work, and this one
+> lets an operator suspend it for a session. Neither encodes the rule in code.
+
 ## Context
 
 A School Group Booking run refuses any selected School Session starting inside
@@ -31,14 +36,15 @@ The cost of that is not theoretical. A school sends its list on the morning of a
 session often enough to matter, and today the front desk answers it by booking
 sixty students by hand in Clubworx — the exact work this tool exists to remove.
 
-**The rule is enforced twice, independently.** The picker raises the blocker, and
-the Worker's write chain re-checks the lead time per student as a backstop before
-any write, refusing with its own lead-time reason and naming the offending event
-ids. The two are deliberately separate: D14 keeps the Worker from re-validating
-the event list, so the backstop is a guard at the point of writing rather than a
-second source of truth. Any override that reaches only the picker produces a run
-in which every student is refused. This is the fact that makes the change
-architectural rather than cosmetic, and it is why it earns an ADR.
+**The rule is enforced twice, independently.** Session selection raises the
+blocker, and the Worker's write chain re-checks the lead time per student as a
+backstop before any write, refusing with its own lead-time reason and naming the
+offending event ids. The two are deliberately separate: D14 keeps the Worker from
+re-validating the event list, so the backstop is a guard at the point of writing
+rather than a second source of truth. Any override reaching only session
+selection produces a run in which every student is refused. This is the fact that
+makes the change architectural rather than cosmetic, and it is why it earns an
+ADR.
 
 ## Decision
 
@@ -112,11 +118,11 @@ does not re-validate the event list, and its lead-time gate remains a guard at
 the point of writing. It now knows which sessions a human vouched for. It still
 decides nothing about them.
 
-**The picker and the write chain must not be able to disagree.** They already
-share one definition of the rule; they now also share one list of exceptions. The
-sequencing follows from that — the Worker's gate is narrowed **before** the page
-can offer an override, so there is never a build in which a screen promises
-something the write chain would refuse.
+**Session selection and the write chain must not be able to disagree.** They
+already share one definition of the rule; they now also share one list of
+exceptions. The sequencing follows from that — the Worker's gate is narrowed
+**before** the page can offer an override, so there is never a build in which a
+screen promises something the write chain would refuse.
 
 **§11's hard-stop table is now wrong about one of its rows**, and the domain
 vocabulary's *Lead time* entry with it. Both are amended alongside this ADR. Left
