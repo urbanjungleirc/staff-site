@@ -569,7 +569,7 @@ describe('POST /student', () => {
     const h = handlerWith(accepts(OPERATOR), {
       runStudent: async args => {
         seen = args;
-        return (await completes()()) ;
+        return await completes()();
       },
     });
 

@@ -166,6 +166,36 @@ describe('refusals before any permanent write', () => {
     expect(out.outcome).toBe('complete');
   });
 
+  it('still refuses a session that has already started, acknowledged or not', async () => {
+    // ADR 0007: only the lead-time refusal is overridable. An already-started
+    // session is not a restriction the gym can lift, so no confirmation can
+    // buy it. The Worker has no separate past-session gate — a started session
+    // reaches the lead-time filter as a NEGATIVE delta — so the narrowing has
+    // to exclude it explicitly or acknowledging one books it.
+    const client = makeClient({});
+    const out = await run(client, {
+      events: [{ event_id: 101, starts_at: '2026-08-19T02:00:00Z' }], // a day ago
+      leadTimeAcknowledgedEventIds: [101],
+    });
+
+    expect(out).toMatchObject({ outcome: 'refused', reason: 'lead-time', written: false });
+    expect(out.leadTimeEventIds).toEqual([101]);
+    expect(client.calls).toHaveLength(0);
+  });
+
+  it('treats a session starting exactly now as started, not as overridable', async () => {
+    // The boundary belongs on the refusing side: at the instant it starts there
+    // is nothing left to book.
+    const client = makeClient({});
+    const out = await run(client, {
+      events: [{ event_id: 101, starts_at: NOW }],
+      leadTimeAcknowledgedEventIds: [101],
+    });
+
+    expect(out).toMatchObject({ outcome: 'refused', reason: 'lead-time' });
+    expect(out.leadTimeEventIds).toEqual([101]);
+  });
+
   it('still refuses a session whose start cannot be read, acknowledged or not', async () => {
     // "We cannot check this" must never become "you may override this".
     const client = makeClient({});

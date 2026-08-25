@@ -375,6 +375,14 @@ const startOf = event => {
  * explains nothing — the operator is told the session they just vouched for is
  * refused.
  *
+ * Anything that is not a list becomes an empty one rather than throwing. The
+ * route already coerces a malformed body field, so this is the second guard
+ * on a value that decides whether a permanent write happens — and the chain is
+ * exported and called directly, by the tests here and by anything later. The
+ * failure it forecloses is the one this file's header warns about: a value
+ * guessed past is the one that writes. Empty is the fail-closed answer, since
+ * an empty set excuses nothing.
+ *
  * @param {unknown} ids
  * @returns {Set<string>}
  */
@@ -480,9 +488,23 @@ export async function runStudentChain({
   // sixty-student list started late in the evening, and under a flag both book
   // silently. The acknowledgement is read here and nowhere else: the rule
   // itself still lives once, in `events.js`, and is imported above.
+  //
+  // **Only a session that has not started yet can be excused.** ADR 0007 keeps
+  // an already-started session a hard-stop — it is not a restriction the gym
+  // can lift, so no confirmation can buy it. This gate has no separate
+  // past-session check (the page's `sessionRefusal()` does): a started session
+  // arrives here as a NEGATIVE delta and is caught by the same comparison. So
+  // the exclusion has to be written down here, or the same late-evening list
+  // the ids exist to protect books a session that is already under way.
+  //
+  // Note what this deliberately does NOT do: it does not give a started
+  // session its own reason. Nothing about a request carrying no
+  // acknowledgements may move, and today such a session refuses as
+  // `lead-time`.
   const acknowledged = acknowledgedSet(leadTimeAcknowledgedEventIds);
+  const excused = (event, at) => at > startedAt && acknowledged.has(String(event.event_id));
   const tooSoon = events.filter(
-    (e, i) => starts[i] - startedAt < MIN_LEAD_HOURS * MS_PER_HOUR && !acknowledged.has(String(e.event_id)),
+    (e, i) => starts[i] - startedAt < MIN_LEAD_HOURS * MS_PER_HOUR && !excused(e, starts[i]),
   );
   if (tooSoon.length > 0) {
     // D9 — dropping the event automatically was rejected as a silent

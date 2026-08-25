@@ -426,6 +426,12 @@ Three things it deliberately is not:
 - **Not a way past an unreadable start.** A session whose `starts_at` will not
   parse is refused as `bad-request` whether it was acknowledged or not — "we
   cannot check this" must never become "you may override this".
+- **Not a way past a session that has already started.** Only the lead time is
+  a restriction the gym can lift. There is no separate past-session gate here —
+  a started session reaches the lead-time comparison as a *negative* delta — so
+  the narrowing excludes it explicitly. Its refusal is unchanged: still
+  `lead-time`, because nothing about a request carrying no acknowledgements may
+  move.
 - **Not a change to the minimum.** `MIN_LEAD_HOURS` stays defined once, in
   `src/events.js`, and is imported here. This narrows *who the rule is applied
   to*; it never re-derives what the rule is.

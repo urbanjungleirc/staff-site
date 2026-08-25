@@ -744,10 +744,13 @@ blocker, and the write chain re-checks per student as a backstop before any
 write. Neither is the whole rule, and the minimum itself is defined once and
 re-exported to the write chain.
 
-> **Becoming an operator override — decided 2026-08-25, not yet built**
+> **Becoming an operator override — decided 2026-08-25, half built**
 > ([ADR 0007](docs/adr/0007-lead-time-is-an-operator-override.md),
 > [#143](https://github.com/urbanjungleirc/staff-site/issues/143)–[#146](https://github.com/urbanjungleirc/staff-site/issues/146)).
-> Until those land, the hard-stop above is the whole truth of what the tool does.
+> The **write chain** now narrows its backstop to sessions absent from the
+> acknowledged list (#143). Nothing offers an operator a way to acknowledge one
+> yet, so the hard-stop above is still the whole truth of what *staff* can do —
+> and a request that names no acknowledgements behaves exactly as it always has.
 >
 > The minimum is a *lift-able* Clubworx booking restriction, not a property of
 > time: a manager can remove it on the specific conflicted class, run the
