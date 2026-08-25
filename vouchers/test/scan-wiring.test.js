@@ -203,6 +203,50 @@ describe('where a scan lands', () => {
   });
 });
 
+// Rule 4 of ADR 0006: a voucher code goes to the redeem form however it
+// arrived. Physical cards carry a printed code and no QR, so typing is the
+// counter path for a whole class of vouchers.
+describe('a typed code lands where a scanned one does', () => {
+  const submitSearch = () => between('async submitSearch() {', '\n      },');
+
+  test('the search form submits through submitSearch()', () => {
+    expect(page).toContain('@submit.prevent="submitSearch()"');
+  });
+
+  test('a code goes to the same place a scan does, and stops there', () => {
+    const fn = submitSearch();
+    expect(fn).toContain('isScannableCode');
+
+    // The return is the load-bearing half. Without it the jump navigates to the
+    // detail view and search() then sets the view straight back to the list,
+    // so the redeem form appears and vanishes. Asserted INSIDE the branch —
+    // an indexOf comparison passes vacuously when the return is gone (-1 is
+    // less than everything), which is how this escaped the first time.
+    const branch = fn.slice(fn.indexOf('isScannableCode'), fn.indexOf('}', fn.indexOf('isScannableCode')));
+    expect(branch).toContain('await this.openScannedCode(code);');
+    expect(branch).toContain('return;');
+  });
+
+  test('anything that is not a code is still a search', () => {
+    expect(submitSearch()).toContain('await this.search();');
+  });
+
+  // search() is also called on load, by the dashboard drill-downs and by the
+  // background refresh. A jump inside it would fire on paths nobody asked for
+  // — including a return to the search view with a code still in the box,
+  // which would bounce staff straight back out of it.
+  test('search() itself never jumps', () => {
+    const fn = between('async search() {', '\n      },');
+    expect(fn).not.toContain('openScannedCode');
+    expect(fn).not.toContain('isScannableCode');
+  });
+
+  test('the load and drill-down paths still call search(), not submitSearch()', () => {
+    expect(between('showActiveVouchers() {', '\n      },')).toContain('await this.search();');
+    expect(page).not.toMatch(/this\.submitSearch\(\)/);
+  });
+});
+
 // Not scanning as such, but it exists BECAUSE of scanning: a scan reaches this
 // modal without staff having read the detail page, so the modal has to say what
 // it is about to take money off.

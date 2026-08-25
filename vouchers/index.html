@@ -953,7 +953,7 @@
       <!-- The text box is the control staff reach for every time; status and the
            date range are occasional. So the box and its button own the primary
            row, and the rest sits below under a quieter "Filter" heading. -->
-      <form @submit.prevent="search()" class="mb-5">
+      <form @submit.prevent="submitSearch()" class="mb-5">
         <div class="flex gap-2 flex-wrap mb-3">
           <input type="search" x-model="q" placeholder="Name, email, code, receipt or phone…"
             class="flex-1 min-w-[200px] border border-neutral-200 rounded-xl px-3.5 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-uj/20 focus:border-uj bg-white placeholder-neutral-400" />
@@ -4153,6 +4153,29 @@
       },
 
       // ── Search ───────────────────────────────────────────────────────────
+      // A voucher code goes to the redeem form however it arrived. Physical
+      // cards carry a printed code and no QR, so typing is the counter path for
+      // a whole class of vouchers, and giving it a different destination would
+      // mean two rules for the same thing (ADR 0006, rule 4).
+      //
+      // This lives on SUBMIT and not inside search(), deliberately. search() is
+      // also called on load, by the dashboard drill-downs and by the background
+      // refresh; a jump in there would fire on paths nobody asked for. Typing a
+      // code and pressing Enter is a deliberate act, and only that jumps.
+      //
+      // A code is exact, so there is nothing to search for — the lookup either
+      // finds the voucher or reports that there is no such voucher, exactly as
+      // a scan does.
+      async submitSearch() {
+        const scan = window.scanInput;
+        const code = scan?.normaliseScanned?.(this.q) ?? '';
+        if (scan?.isScannableCode?.(code)) {
+          await this.openScannedCode(code);
+          return;
+        }
+        await this.search();
+      },
+
       async search() {
         this.searchLoading = true;
         this.searchError = '';
