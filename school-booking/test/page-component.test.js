@@ -1555,6 +1555,180 @@ describe('the override reaches the wire (#144)', () => {
   });
 });
 
+describe('the lifted sessions are named on the confirmation step (#145)', () => {
+  const SOON_LABEL = 'School Session — Newman, 2026-08-22';
+
+  test('the run consequence names the session whose restriction was lifted', async () => {
+    const app = await withSoon();
+    app.askLeadTimeOverride('e0');
+    app.confirmLeadTimeOverride();
+    await app.toPreview();
+
+    const line = app.liftedRestrictionsLine();
+    // The same label the picker and the blocker use, not a second spelling.
+    expect(line).toContain(SOON_LABEL);
+    expect(app.selection.blockers.find((b) => b.kind === 'lead-time').detail)
+      .toContain(SOON_LABEL);
+    expect(line).toMatch(/restriction/i);
+    expect(line).toMatch(/fail/i);
+  });
+
+  test('a run nobody overrode says nothing at all', async () => {
+    const app = await upToPreview(component());
+    expect(app.liftedRestrictionsLine()).toBe('');
+    // And the permanence sentence is still there beside the silence.
+    expect(app.permanenceLine()).not.toBe('');
+  });
+
+  test('the permanence sentence is unchanged by an override', async () => {
+    const app = await withSoon();
+    app.askLeadTimeOverride('e0');
+    app.confirmLeadTimeOverride();
+    await app.toPreview();
+    const withOverride = app.permanenceLine();
+    expect(withOverride).not.toBe('');
+
+    // The same run, one acknowledgement lighter. What the run writes has not
+    // changed, so the sentence about what it writes must not have either — the
+    // override changes what is said *beside* it, never it.
+    app.takeBackLeadTimeOverride('e0');
+    expect(app.permanenceLine()).toBe(withOverride);
+    expect(app.liftedRestrictionsLine()).toBe('');
+  });
+
+  test("the acknowledged session's own warning still reaches the preview", async () => {
+    const app = await withSoon();
+    app.askLeadTimeOverride('e0');
+    app.confirmLeadTimeOverride();
+    await app.toPreview();
+
+    const carried = app.preview.blockers.find((b) => b.kind === 'lead-time');
+    expect(carried).toBeTruthy();
+    expect(carried.severity).toBe('warn');
+    expect(app.preview.ready).toBe(true);
+  });
+
+  test('taking the acknowledgement back on the preview clears the line, with no reload', async () => {
+    const app = await withSoon();
+    app.askLeadTimeOverride('e0');
+    app.confirmLeadTimeOverride();
+    await app.toPreview();
+    expect(app.liftedRestrictionsLine()).toContain(SOON_LABEL);
+
+    // The preview's own blocker list, which is the selection's carried verbatim.
+    const takeBack = app.preview.blockers
+      .find((b) => b.kind === 'lead-time')
+      .actions.find((a) => a.answers === 'unacknowledge-lead-time');
+    app.answerSelection(takeBack);
+
+    expect(app.liftedRestrictionsLine()).toBe('');
+    expect(app.preview.ready).toBe(false);
+  });
+
+  test('and re-taking it there brings the line back, still without a reload', async () => {
+    // The only way onto step 5 is with every block cleared, so an override can
+    // never be *first* taken from here — but it can be taken back and re-taken,
+    // and both directions have to reach this line.
+    const app = await withSoon();
+    app.askLeadTimeOverride('e0');
+    app.confirmLeadTimeOverride();
+    await app.toPreview();
+
+    app.takeBackLeadTimeOverride('e0');
+    expect(app.liftedRestrictionsLine()).toBe('');
+
+    app.askLeadTimeOverride('e0');
+    app.confirmLeadTimeOverride();
+    expect(app.liftedRestrictionsLine()).toContain(SOON_LABEL);
+    expect(app.preview.ready).toBe(true);
+  });
+
+  test('two lifted sessions are both named', async () => {
+    const second = { ...SOON, event_id: 'e0b', event_start_at: '2026-08-22T13:00:00+08:00' };
+    const app = await withEvents(component({ eventList: [SOON, second, ...EVENTS] }));
+    app.pickSeries('e0');
+    app.askLeadTimeOverride('e0');
+    app.confirmLeadTimeOverride();
+    app.askLeadTimeOverride('e0b');
+    app.confirmLeadTimeOverride();
+    await app.toPreview();
+
+    const line = app.liftedRestrictionsLine();
+    expect(line).toMatch(/^2 sessions /);
+    expect(line.split(SOON_LABEL).length - 1).toBe(2);
+  });
+
+  test('an acknowledgement taken back at the SELECTION step reaches the preview', async () => {
+    // The criterion names step 4 specifically. Walking back there with a live
+    // preview is the path a real operator takes — approve, hesitate, go back —
+    // and it is the one `afterSelectionChange` exists for.
+    const app = await withSoon();
+    app.askLeadTimeOverride('e0');
+    app.confirmLeadTimeOverride();
+    await app.toPreview();
+    expect(app.liftedRestrictionsLine()).toContain(SOON_LABEL);
+
+    app.go(3); // back to the session picker, preview still built
+    app.answerSelection(leadTimeBlocker(app).actions
+      .find((a) => a.answers === 'unacknowledge-lead-time'));
+
+    expect(app.preview).toBeTruthy();
+    expect(app.liftedRestrictionsLine()).toBe('');
+    expect(app.preview.ready).toBe(false);
+  });
+
+  test('un-ticking an acknowledged session at selection takes its name off too', async () => {
+    // The tick and the statement are one act (#144). The name has to go with
+    // them, or the run is approved against a session it will not book.
+    const app = await withSoon();
+    app.askLeadTimeOverride('e0');
+    app.confirmLeadTimeOverride();
+    await app.toPreview();
+
+    app.go(3);
+    app.togglePick('e0');
+
+    expect(app.picked).toEqual(['e1', 'e2']);
+    expect(app.liftedRestrictionsLine()).toBe('');
+  });
+
+  test('a tick changed anywhere rebuilds the preview, not just this line', async () => {
+    // The staleness this line exposed was never only about this line. Step 5's
+    // own blocker list offers "Remove this session", so a preview describing
+    // the old booking count was reachable from the screen that approves the
+    // run — and the permanence sentence is the number that matters there.
+    const app = await withSoon();
+    app.askLeadTimeOverride('e0');
+    app.confirmLeadTimeOverride();
+    await app.toPreview();
+
+    const three = app.preview.totals.bookings;
+    expect(app.preview.sessions).toHaveLength(3);
+
+    // Straight off the preview's own blocker, the way an operator would.
+    app.answerSelection(app.preview.blockers
+      .find((b) => b.kind === 'lead-time')
+      .actions.find((a) => a.answers === 'remove'));
+
+    expect(app.preview.sessions).toHaveLength(2);
+    expect(app.preview.totals.bookings).toBeLessThan(three);
+    expect(app.permanenceLine()).toContain(`${app.preview.totals.bookings} bookings`);
+    // And the removed session is not still named as lifted.
+    expect(app.liftedRestrictionsLine()).toBe('');
+  });
+
+  test('the page renders it above the table and again where the run starts', () => {
+    // Twice on purpose: the consequence area is where the run is approved and
+    // the confirm block is where it is started, and the restriction has to be
+    // off in Clubworx by the second one.
+    expect(html.split('x-text="liftedRestrictionsLine()"').length - 1).toBe(2);
+    // Its own x-show at both, so it is absent rather than an empty amber box.
+    expect(html.split('x-show="liftedRestrictionsLine()"').length - 1).toBe(2);
+    // And the permanence line still has its own, unchanged.
+    expect(html).toContain('x-show="permanenceLine()"');
+  });
+});
+
 describe('the override confirmation is on the page, and bound (#144)', () => {
   test('the blocker list renders it against the session it is about', () => {
     // Both blocker lists dispatch through `answerSelection`, so a confirmation

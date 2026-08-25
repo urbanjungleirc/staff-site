@@ -42,6 +42,12 @@
 // are counted exactly, and returning students are named as a pass that has not
 // been settled rather than folded into the total either way.
 
+// Asked, not restated. A session reads the same here as it does on the step
+// that picked it and in the blocker that named it — #145 says "the same session
+// label used elsewhere", and a second spelling of a date is how two screens
+// come to disagree about which Tuesday they mean.
+import { sessionLabel } from './events.js?v=7';
+
 const plural = (n, noun) => `${n} ${noun}${n === 1 ? '' : 's'}`;
 // "School Pass" does not take a bare -s, and it is the noun this line is most
 // about. Spelled here rather than patched after the fact.
@@ -246,6 +252,46 @@ export function permanenceLine(preview) {
 }
 
 /**
+ * The sessions this run will book with their Clubworx restriction lifted by
+ * hand — #145, ADR 0007.
+ *
+ * The per-session confirmation (#144) is taken at the moment of
+ * *acknowledgement*, on the blocker. This is read at the moment of *approval*,
+ * over the whole run. They are two different readings and both are needed: an
+ * operator who acknowledged a Tuesday session two steps ago should not have to
+ * remember it to approve the run honestly.
+ *
+ * It says nothing when there is nothing to say. A line that is always present
+ * is a line that stops being read — the same argument that keeps the permanence
+ * sentence off all 63 rows.
+ *
+ * This does not replace the session's own blocker. That is carried into step 5
+ * verbatim from selection, warning and actions intact, so the override is
+ * visible both as a per-session warning and as this run-level fact.
+ */
+export function liftedRestrictionsLine(preview) {
+  const lifted = preview?.liftedSessionLabels ?? [];
+  if (lifted.length === 0) return '';
+
+  // Semicolons, because a session label contains a comma of its own: "School
+  // Session, 2026-09-01, School Session, 2026-09-08" reads as four things.
+  const named = lifted.join('; ');
+  const one = lifted.length === 1;
+
+  // "On your word" rather than "lifted by hand" a second time: the heading
+  // above this says what was done, and what this sentence has to add is *who
+  // said so*. Nothing has checked it — ADR 0007's whole safety is a person
+  // agreeing to go and lift a restriction, and an override taken without
+  // actually lifting one fails loudly, once per student, halting the run on the
+  // third. That is an acceptable failure mode precisely because it is said out
+  // loud first, and this is the last place to say it before Apply.
+  return `${plural(lifted.length, 'session')} ${one ? 'is' : 'are'} being booked on your word that `
+    + `${one ? 'its' : 'their'} Clubworx booking restriction has been lifted: ${named}. `
+    + `Every booking for ${one ? 'it' : 'them'} will fail if the restriction is still on when the `
+    + 'run starts.';
+}
+
+/**
  * What a run *is*, reduced to one comparable string — #111.
  *
  * The gate this feeds needs to answer "has this exact work already been done?",
@@ -368,6 +414,15 @@ export function buildPreview({ rows, matches, selection, review, plan, decisions
     });
   }
 
+  // Derived from the sessions actually picked, never from the id list alone:
+  // `selectionReport` only ever emits an id for a session on screen, and
+  // deriving the labels the same way means an id that outlives its session
+  // names nothing rather than naming an empty string.
+  const acknowledgedIds = new Set((picked.acknowledgedEventIds ?? []).map(String));
+  const liftedSessionLabels = (picked.events ?? [])
+    .filter((event) => acknowledgedIds.has(String(event?.event_id)))
+    .map((event) => sessionLabel(event));
+
   const fingerprint = runFingerprint({ schoolTag, preview: { rows: previewed, sessions: picked.events ?? [] } });
 
   // #111. `settled` is outcome.js's answer to "did this run leave anything
@@ -400,6 +455,13 @@ export function buildPreview({ rows, matches, selection, review, plan, decisions
     blockers,
     ready: !blockers.some((b) => b.severity === 'block'),
     plan: plan?.ok ? plan.plan : null,
+    // #145. Named for what it holds — label strings, not sessions and not ids.
+    // Everything downstream of here is a sentence a person reads; the ids the
+    // Worker needs travel on the selection report, which is where the run picks
+    // them up. Derived here rather than emitted by `selectionReport` on purpose:
+    // the ids are the contract (ADR 0007), and a second array of labels shipped
+    // beside them is two lists that have to stay in step.
+    liftedSessionLabels,
     sessions: picked.events ?? [],
     lastSession: picked.lastSession ?? null,
     fingerprint,

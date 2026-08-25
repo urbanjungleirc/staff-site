@@ -734,7 +734,8 @@ keep.
 
 The **one-day minimum** between booking and a School Session starting,
 server-enforced and knowable client-side from the event start. A selected event
-inside it hard-stops the run before any write.
+inside it hard-stops the run before any write **unless an operator states they
+have lifted its Clubworx booking restriction** (ADR 0007) — see below.
 
 Staff must never meet Clubworx's own message here — *"Sorry! This class is now
 closed for bookings."* — which names no cause and reads like a capacity problem.
@@ -744,31 +745,33 @@ blocker, and the write chain re-checks per student as a backstop before any
 write. Neither is the whole rule, and the minimum itself is defined once and
 re-exported to the write chain.
 
-> **Becoming an operator override — decided 2026-08-25, half built**
+> **An operator override — decided 2026-08-25, built except the reminder**
 > ([ADR 0007](docs/adr/0007-lead-time-is-an-operator-override.md),
 > [#143](https://github.com/urbanjungleirc/staff-site/issues/143)–[#146](https://github.com/urbanjungleirc/staff-site/issues/146)).
-> The **write chain** now narrows its backstop to sessions absent from the
-> acknowledged list (#143). Nothing offers an operator a way to acknowledge one
-> yet, so the hard-stop above is still the whole truth of what *staff* can do —
-> and a request that names no acknowledgements behaves exactly as it always has.
+> The **write chain** narrows its backstop to sessions absent from the
+> acknowledged list (#143), the **session picker** offers the override and takes
+> the confirmation (#144), and the **confirmation step** names every session
+> carrying a lifted restriction above the preview table and again where the run
+> is started (#145). Still open: #146, the post-run reminder to put the
+> restriction back.
 >
 > The minimum is a *lift-able* Clubworx booking restriction, not a property of
 > time: a manager can remove it on the specific conflicted class, run the
-> bookings, and put it back. So a too-soon session will be keepable by an
-> operator who confirms they have done that — **per session**, never for a whole
-> run, with the session staying visible as overridden rather than disappearing,
-> and only for the lead time. An unreadable start time or an already-started
-> session stays a hard-stop either way.
+> bookings, and put it back. So a too-soon session is keepable by an operator
+> who confirms they have done that — **per session**, never for a whole run,
+> with the session staying visible as overridden rather than disappearing, and
+> only for the lead time. An unreadable start time or an already-started session
+> stays a hard-stop either way.
 >
 > Because the rule is enforced twice, an override travels to the Worker as the
 > **explicit list of acknowledged event ids**, so everything nobody acknowledged
 > is still refused. Never a run-wide flag: a session that crosses into the lead
 > time between selection and the write must still be caught.
 >
-> *Avoid*, once it is built: treating a lifted restriction as spent when the run
-> ends. The lasting damage in this whole area is a **class left open to public
-> booking** because nobody put the restriction back, which is why the run will
-> remind and why the reminder belongs in the run record.
+> *Avoid*: treating a lifted restriction as spent when the run ends. The lasting
+> damage in this whole area is a **class left open to public booking** because
+> nobody put the restriction back, which is why the run must remind (#146) and
+> why the reminder belongs in the run record.
 
 ### Unknown refusal
 

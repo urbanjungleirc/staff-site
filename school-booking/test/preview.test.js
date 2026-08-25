@@ -8,6 +8,7 @@ import { describe, expect, test } from 'vitest';
 import {
   buildPreview,
   consequenceLine,
+  liftedRestrictionsLine,
   matchDecision,
   permanenceLine,
   resolveMatch,
@@ -294,6 +295,91 @@ describe('the permanence line', () => {
   test('with nothing bookable there is no sentence to make', () => {
     const preview = build({ matches: { 3: match({ state: 'unmatchable', reason: 'no-dob' }) } });
     expect(permanenceLine(preview)).toBe('');
+  });
+});
+
+describe('the lifted restrictions line', () => {
+  // #145. Read at the moment of approval, over the whole run — where the
+  // per-session confirmation (#144) was read at the moment of acknowledgement.
+  // An operator who acknowledged a session two steps ago should not have to
+  // remember it to approve the run honestly.
+
+  const acknowledged = (ids) => selection({ acknowledgedEventIds: ids });
+
+  test('it names every acknowledged session, by the label used everywhere else', () => {
+    const preview = build({ selection: acknowledged(['a']) });
+    expect(liftedRestrictionsLine(preview)).toContain('School Session, 2026-09-01');
+  });
+
+  test('two acknowledged sessions are both named, and separated readably', () => {
+    // The label itself contains a comma, so a comma-joined list reads as four
+    // things rather than two.
+    const line = liftedRestrictionsLine(build({ selection: acknowledged(['a', 'b']) }));
+    expect(line).toContain('School Session, 2026-09-01');
+    expect(line).toContain('School Session, 2026-09-08');
+    expect(line).not.toContain('2026-09-01, School Session');
+    expect(line).toMatch(/2026-09-01; School Session/);
+  });
+
+  test('it says nothing at all when nothing was acknowledged', () => {
+    // A line that is always present is a line that stops being read.
+    expect(liftedRestrictionsLine(build())).toBe('');
+    expect(liftedRestrictionsLine(build({ selection: acknowledged([]) }))).toBe('');
+  });
+
+  test('it names the acknowledged sessions and not the rest of the selection', () => {
+    const line = liftedRestrictionsLine(build({ selection: acknowledged(['b']) }));
+    expect(line).toContain('2026-09-08');
+    expect(line).not.toContain('2026-09-01');
+  });
+
+  test('the count agrees with the names, in both grammars', () => {
+    expect(liftedRestrictionsLine(build({ selection: acknowledged(['a']) })))
+      .toMatch(/^1 session is being booked on your word that its /);
+    expect(liftedRestrictionsLine(build({ selection: acknowledged(['a', 'b']) })))
+      .toMatch(/^2 sessions are being booked on your word that their /);
+  });
+
+  test('it names the consequence of the restriction still being on', () => {
+    // ADR 0007: an override taken without actually lifting the restriction
+    // fails loudly, one refusal per student. This is the last place to say so
+    // before the run starts.
+    const line = liftedRestrictionsLine(build({ selection: acknowledged(['a']) }));
+    expect(line).toMatch(/fail/i);
+  });
+
+  test('an id naming no picked session names nothing', () => {
+    // selectionReport only ever emits ids for sessions on screen, so this is
+    // defence against a caller that is not it — and against an acknowledgement
+    // surviving a session being un-ticked.
+    expect(liftedRestrictionsLine(build({ selection: acknowledged(['ghost']) }))).toBe('');
+  });
+
+  test('the permanence sentence is untouched by an acknowledgement', () => {
+    const plain = permanenceLine(build());
+    expect(plain).not.toBe('');
+    expect(permanenceLine(build({ selection: acknowledged(['a', 'b']) }))).toBe(plain);
+  });
+
+  test("an acknowledged session's own warning still reaches the preview's blockers", () => {
+    // Carried verbatim from selection, as every selection blocker is — this
+    // line is the aggregate beside them, never a replacement for them.
+    const preview = build({
+      selection: selection({
+        acknowledgedEventIds: ['a'],
+        blockers: [{
+          key: 'lead-time:a',
+          kind: 'lead-time',
+          eventId: 'a',
+          severity: 'warn',
+          title: 'A session starts too soon — its restriction is being lifted by hand',
+          detail: 'School Session, 2026-09-01 — Starts within the lead time.',
+          actions: [],
+        }],
+      }),
+    });
+    expect(preview.blockers.map((b) => b.key)).toContain('lead-time:a');
+    expect(preview.ready).toBe(true);
   });
 });
 

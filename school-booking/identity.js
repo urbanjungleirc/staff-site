@@ -24,7 +24,7 @@
 // already has a contact comes back as `new`, and a second permanent contact is
 // written for them. Nothing throws: both spellings are individually valid, and
 // contacts cannot be deleted.
-import { compareForm } from './parse.js?v=6';
+import { compareForm } from './parse.js?v=7';
 
 // ---------------------------------------------------------------------------
 // Match states (P2b)

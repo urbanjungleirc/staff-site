@@ -68,14 +68,14 @@
      or missing module into a visible refusal rather than a page whose gates
      quietly do nothing. -->
 <script type="module">
-  import * as parser from './school-booking/parse.js?v=6';
-  import * as steps from './school-booking/steps.js?v=6';
-  import * as identity from './school-booking/identity.js?v=6';
-  import * as events from './school-booking/events.js?v=6';
-  import * as preview from './school-booking/preview.js?v=6';
-  import * as calendar from './school-booking/calendar.js?v=6';
-  import * as outcome from './school-booking/outcome.js?v=6';
-  import * as run from './school-booking/run.js?v=6';
+  import * as parser from './school-booking/parse.js?v=7';
+  import * as steps from './school-booking/steps.js?v=7';
+  import * as identity from './school-booking/identity.js?v=7';
+  import * as events from './school-booking/events.js?v=7';
+  import * as preview from './school-booking/preview.js?v=7';
+  import * as calendar from './school-booking/calendar.js?v=7';
+  import * as outcome from './school-booking/outcome.js?v=7';
+  import * as run from './school-booking/run.js?v=7';
   window.schoolListParser = parser;
   window.schoolBookingSteps = steps;
   window.schoolBookingIdentity = identity;
@@ -1221,6 +1221,26 @@
               <div class="font-semibold" x-text="permanenceLine()"></div>
             </div>
 
+            <!-- #145, ADR 0007. Beside the permanence line rather than inside
+                 it: the two are different facts, and the permanence box goes
+                 away when nothing is bookable while a lifted restriction is
+                 still a thing somebody has to put back. Its own x-show, so it
+                 is absent — not empty — when nothing was acknowledged.
+
+                 The acknowledged session's own warning is in the blocker list
+                 below, carried over from selection. This is the aggregate the
+                 operator approves the run against, which is what the per-session
+                 confirmation two steps ago could not be. -->
+            <div class="rounded-xl px-3.5 py-3 text-sm mb-3 bg-amber-50 border border-amber-300 border-l-4 border-l-amber-500 text-amber-900"
+                 x-show="liftedRestrictionsLine()" x-cloak>
+              <!-- A heading and a lighter sentence, where the permanence box is
+                   one bold line. Same amber — the severity is the same — but a
+                   different shape, so two stacked panels do not read as one
+                   sentence split in half. -->
+              <div class="font-semibold">Booking restrictions lifted by hand</div>
+              <div class="mt-1" x-text="liftedRestrictionsLine()"></div>
+            </div>
+
             <div class="space-y-2 mb-3">
               <template x-for="blocker in preview.blockers" :key="blocker.key">
                 <div class="rounded-xl px-3.5 py-2.5 text-sm"
@@ -1341,6 +1361,11 @@
               <div class="font-semibold">Before this starts</div>
               <div class="mt-1" x-text="runCost()"></div>
               <div class="mt-1" x-text="permanenceLine()"></div>
+              <!-- The same sentence again, because this is the click that
+                   starts the run and the restriction has to be off in Clubworx
+                   by then. Absent when nothing was acknowledged. -->
+              <div class="mt-1" x-show="liftedRestrictionsLine()" x-cloak
+                   x-text="liftedRestrictionsLine()"></div>
               <div class="text-xs mt-1 opacity-90">
                 Leave this tab open. Every student is written one at a time, and closing the page
                 mid-run loses the record of what was created.
@@ -2395,7 +2420,9 @@ function schoolBooking() {
         this.loadedFrom = '';
         this.loadedTo = '';
       }
-      this.refreshSelection();
+      // A narrower window drops ticks and the acknowledgements with them, so
+      // this changes the selection as surely as a click does.
+      this.afterSelectionChange();
     },
 
     eventsNote() {
@@ -2419,7 +2446,7 @@ function schoolBooking() {
       const key = String(id);
       this.picked = this.isPicked(key) ? this.picked.filter((p) => p !== key) : [...this.picked, key];
       this.keepAcknowledgementsForPicked();
-      this.refreshSelection();
+      this.afterSelectionChange();
     },
 
     // ADR 0007. An acknowledgement is a statement about a session **in this
@@ -2444,7 +2471,7 @@ function schoolBooking() {
     pickSeries(id) {
       this.picked = window.schoolBookingEvents.preTicked(this.events, id);
       this.keepAcknowledgementsForPicked();
-      this.refreshSelection();
+      this.afterSelectionChange();
     },
 
     // Resolved, then confirmed — never selected outright. §8: the paste is a
@@ -2582,7 +2609,7 @@ function schoolBooking() {
       this.leadTimeAcknowledgements = window.schoolBookingEvents
         .acknowledgeLeadTime(this.leadTimeAcknowledgements, eventId, { kind: 'lifted' });
       this.leadTimeConfirm = null;
-      this.afterAcknowledgement();
+      this.afterSelectionChange();
     },
 
     takeBackLeadTimeOverride(eventId) {
@@ -2593,7 +2620,7 @@ function schoolBooking() {
       // Only if it was this session's question. A confirmation open on one
       // session is not answered by a decision taken about another.
       if (this.leadTimeConfirm === String(eventId)) this.leadTimeConfirm = null;
-      this.afterAcknowledgement();
+      this.afterSelectionChange();
     },
 
     isLeadTimeAcknowledged(eventId) {
@@ -2611,7 +2638,21 @@ function schoolBooking() {
     // The selection always, and the preview when there is one to keep honest:
     // its blockers are the selection's, carried verbatim, so a decision taken
     // on either screen has to reach both.
-    afterAcknowledgement() {
+    //
+    // Every change to the selection comes through here, not just an
+    // acknowledgement (#145). A tick is a change to what the run books, and
+    // step 5's own blocker list offers "Remove this session" — so a tick
+    // changed from either screen left the preview describing a run that no
+    // longer existed: the old booking count, the old permanence sentence, and
+    // the name of a session nobody is booking any more.
+    //
+    // Rebuilt rather than discarded. A step-3 edit calls `discardPreview` and
+    // throws the Clubworx check away with it, which is right there — the
+    // students changed. Here they have not, and the check is 3 requests a
+    // student out of a gym-wide allowance. The preview is a pure function of
+    // what step 3, the check and the selection hold, so rebuilding it costs
+    // nothing and cannot be stale.
+    afterSelectionChange() {
       this.refreshSelection();
       if (this.preview) this.refreshPreview();
     },
@@ -2779,6 +2820,13 @@ function schoolBooking() {
 
     permanenceLine() {
       return window.schoolBookingPreview.permanenceLine(this.preview);
+    },
+
+    // #145. Derived from the preview, so `afterSelectionChange` rebuilding it
+    // is the whole of "reflected here without a reload" — there is no second
+    // copy of the acknowledgement list on this side to keep in step.
+    liftedRestrictionsLine() {
+      return window.schoolBookingPreview.liftedRestrictionsLine(this.preview);
     },
 
     consequenceLine(line) {
