@@ -39,7 +39,7 @@
 // written something the Worker answers 200 and carries `reason: "throttled"`,
 // because the body is then the only record of what was written.
 
-import { cancelRows, cancellable, isFailure, notRunRecord, studentRecord } from './outcome.js?v=5';
+import { cancelRows, cancellable, isFailure, notRunRecord, studentRecord } from './outcome.js?v=6';
 
 /** #51 measured ~18 s of throttling. Two attempts, then the page is told. */
 export const RETRY_BACKOFF_MS = 20_000;
@@ -272,10 +272,17 @@ export function runStore(storage, key) {
  * @param {object} opts.preview `buildPreview`'s result
  * @param {object[]} opts.rows step 3's rows, which carry the **write form** of the name
  * @param {string} opts.email the school marker
+ * @param {string[]} [opts.acknowledgedEventIds] the sessions an operator stated
+ *   they have lifted the Clubworx booking restriction for (ADR 0007). Sent per
+ *   student, because the gate they narrow is a per-student backstop in the
+ *   write chain. Omitted from the payload entirely when there are none, so a
+ *   run nobody overrode is the run this route already took.
  */
-export function runList({ preview, rows, email } = {}) {
+export function runList({ preview, rows, email, acknowledgedEventIds = [] } = {}) {
   const plan = preview?.plan ?? null;
   if (!plan?.membership_plan_id || !email) return [];
+
+  const acknowledged = (Array.isArray(acknowledgedEventIds) ? acknowledgedEventIds : []).map(String);
 
   const source = new Map((rows ?? []).map((r) => [r.key, r]));
   const events = (preview?.sessions ?? []).map((e) => ({
@@ -309,6 +316,7 @@ export function runList({ preview, rows, email } = {}) {
           membership_plan_id: plan.membership_plan_id,
           membership_duration: plan.membership_duration ?? '',
           events,
+          ...(acknowledged.length > 0 ? { lead_time_acknowledged_event_ids: acknowledged } : {}),
         },
       };
     });

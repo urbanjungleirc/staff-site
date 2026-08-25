@@ -231,13 +231,20 @@ export function sessionLabel(event) {
  * so §11 makes it "warn, never block". Reading `bookable` alone paints a
  * warnable session as a refused one.
  *
+ * @param {object} event
+ * @param {boolean} [acknowledged] Whether an operator has stated they lifted
+ *   this session's Clubworx booking restriction (ADR 0007). Only the lead time
+ *   moves under it — see the branch.
  * @returns {{kind: string, severity: 'block'|'warn', message: string}|null}
  *   null when there is nothing wrong with the session.
  */
-export function sessionRefusal(event) {
+export function sessionRefusal(event, acknowledged = false) {
   const lead = event?.lead ?? {};
 
   if (lead.unreadable === true) {
+    // ADR 0007 stops here deliberately: an unreadable start time means the rule
+    // could not be checked at all, and "we cannot check this" must never become
+    // "you may override this".
     return {
       kind: 'unreadable-session',
       severity: 'block',
@@ -246,10 +253,23 @@ export function sessionRefusal(event) {
   }
 
   if (lead.past === true) {
+    // Not overridable either — an already-started session is not a restriction
+    // the gym can lift.
     return { kind: 'past-session', severity: 'block', message: 'Already started.' };
   }
 
   if (lead.withinLeadTime === true) {
+    // The one refusal an operator can answer for (ADR 0007). It drops to a
+    // warning and stays on screen: a session that disappears once acknowledged
+    // is invisible and unexplained, which is the shape D9 exists to prevent.
+    if (acknowledged) {
+      return {
+        kind: 'lead-time',
+        severity: 'warn',
+        message: 'Starts within the lead time. Its Clubworx booking restriction must be lifted '
+          + 'before the run starts, or every booking for it will fail.',
+      };
+    }
     return {
       kind: 'lead-time',
       severity: 'block',
@@ -260,8 +280,18 @@ export function sessionRefusal(event) {
     };
   }
 
-  // Ranked below the lead time on purpose: a session that is both too soon and
-  // full is refused for the reason that actually refuses it.
+  return capacityRefusal(event);
+}
+
+/**
+ * What Clubworx says about the room — a warning, never a hard-stop (§11).
+ *
+ * Split out from `sessionRefusal` because it is ranked *below* the lead time
+ * there and an acknowledged session has to reach it anyway: the lead time
+ * outranks the room because only one of them refuses the run, so once it stops
+ * refusing, the room is the thing left worth saying.
+ */
+function capacityRefusal(event) {
   if (event?.event_full === true || event?.spaces_available === 0) {
     return {
       kind: 'full',
@@ -269,7 +299,6 @@ export function sessionRefusal(event) {
       message: 'Clubworx reports no spaces — a number that has been wrong in both directions.',
     };
   }
-
   return null;
 }
 
@@ -280,12 +309,109 @@ const REFUSAL_TITLES = {
   full: 'Clubworx reports no spaces on a session',
 };
 
+// The acknowledged lead time is the same blocker saying a different thing, so
+// it is the same key with a different headline rather than a second kind.
+const ACKNOWLEDGED_LEAD_TIME_TITLE = 'A session starts too soon — its restriction is being lifted by hand';
+
 const removal = (event) => ({
   key: `remove:${event.event_id}`,
   label: 'Remove this session',
   answers: 'remove',
   value: String(event.event_id),
 });
+
+// ADR 0007's second answer, offered only beside the lead time and only while it
+// still refuses. The page raises a confirmation on it; nothing here takes it.
+const acknowledgement = (event) => ({
+  key: `ack:${event.event_id}`,
+  label: 'Keep it and book anyway',
+  answers: 'acknowledge-lead-time',
+  value: String(event.event_id),
+});
+
+const takeBack = (event) => ({
+  key: `unack:${event.event_id}`,
+  label: 'Take that back',
+  answers: 'unacknowledge-lead-time',
+  value: String(event.event_id),
+});
+
+/**
+ * What a session's blocker offers, in one place.
+ *
+ * D9's removal answers a session that **refuses the run**; offering it beside a
+ * warning turns "worth a look" into "click here to make this go away", which is
+ * why a warning carries no removal anywhere here. An acknowledged session is
+ * the same rule seen from the other side: it no longer refuses, so it offers
+ * the way back and nothing else.
+ */
+function answersFor(event, refusal, overridden) {
+  // An acknowledged session KEEPS its removal — ADR 0007: "Each too-soon
+  // session keeps its own blocker and its existing removal, and gains a second
+  // answer beside it." It is the one warning here that carries one, and it has
+  // earned the exception by having been a block a click ago: the removal was
+  // already on offer, so leaving it is not a new invitation to silence a
+  // warning. Un-ticking drops the acknowledgement with it (see the page), so
+  // this cannot leave a statement behind about a session nobody is booking.
+  if (overridden) return [removal(event), takeBack(event)];
+  if (refusal.severity !== 'block') return [];
+  // Only the lead time is answerable. An unreadable start means the rule could
+  // not be checked at all, and an already-started session is not a restriction
+  // the gym can lift — both get the removal alone.
+  return refusal.kind === 'lead-time'
+    ? [removal(event), acknowledgement(event)]
+    : [removal(event)];
+}
+
+/** One session's blocker, in the shape step 4 and step 5 both render. */
+const sessionBlocker = (event, refusal, { title, actions = [] } = {}) => ({
+  key: `${refusal.kind}:${event.event_id}`,
+  kind: refusal.kind,
+  // Named so a surface can attach something to the session itself — the
+  // confirmation ADR 0007 raises is rendered against this.
+  eventId: String(event.event_id),
+  severity: refusal.severity,
+  title: title ?? REFUSAL_TITLES[refusal.kind],
+  detail: `${sessionLabel(event)} — ${refusal.message}`,
+  actions,
+});
+
+// ---------------------------------------------------------------------------
+// The acknowledgement log — ADR 0007
+// ---------------------------------------------------------------------------
+
+/**
+ * Record — or take back — one operator's statement that they have lifted a
+ * session's Clubworx booking restriction.
+ *
+ * The same shape as step 3's resolution log and step 5's match-decision log,
+ * and for the same reason: a new object comes back rather than the original
+ * mutated, because Alpine re-renders from the returned value and an undo that
+ * mutates in place is an undo nobody can see.
+ *
+ * Simpler than step 3's, like step 5's: there is no gate here asking *did staff
+ * work these sessions*, so taking one back leaves nothing behind. An
+ * un-acknowledged session is exactly a session nobody acknowledged.
+ *
+ * Keyed by event id **as a string**, so a numeric Clubworx id and one pasted
+ * off a screen are the same key — the same comparison the Worker's own gate
+ * makes on the far end of this list.
+ *
+ * @param {object} acknowledgements the current log
+ * @param {string|number} eventId the session acknowledged
+ * @param {{kind: 'lifted'}|null} action or null to take it back
+ */
+export function acknowledgeLeadTime(acknowledgements, eventId, action) {
+  const next = { ...(acknowledgements ?? {}) };
+  if (action === null || action === undefined) delete next[String(eventId)];
+  else next[String(eventId)] = action;
+  return next;
+}
+
+/** Has this session been acknowledged? */
+export function leadTimeAcknowledged(acknowledgements, eventId) {
+  return Boolean((acknowledgements ?? {})[String(eventId)]);
+}
 
 /**
  * Everything step 4 blocks on, and the two numbers step 5 needs from it.
@@ -301,10 +427,17 @@ const removal = (event) => ({
  * @param {number} opts.studentCount Students the run would book.
  * @param {boolean} [opts.truncated] Whether the Worker said it could not read the window to the end.
  * @param {string} [opts.windowTo] The last day loaded, so a series running past it can be named.
+ * @param {object} [opts.acknowledged] The ADR 0007 log, keyed by event id. An
+ *   entry naming a session that is not ticked, not in the window, or not too
+ *   soon is inert — the report is derived from the sessions actually on screen,
+ *   so re-searching the dates cannot resurrect a stale acknowledgement.
  */
-export function selectionReport({ events, selected, studentCount = 0, truncated = false, windowTo = '' } = {}) {
+export function selectionReport({
+  events, selected, studentCount = 0, truncated = false, windowTo = '', acknowledged = {},
+} = {}) {
   const picked = selectedEvents(events, selected);
   const blockers = [];
+  const acknowledgedEventIds = [];
 
   if (picked.length === 0) {
     blockers.push({
@@ -333,23 +466,34 @@ export function selectionReport({ events, selected, studentCount = 0, truncated 
     // removal when it is a `block`: D9's one-click fix answers a session that
     // refuses the run, and offering it beside a warning turns "worth a look"
     // into "click here to make this go away".
-    const refusal = sessionRefusal(event);
+    //
+    // An acknowledgement only counts once the session has actually reached this
+    // loop: it has to be ticked, in the loaded window, and still too soon. That
+    // is what makes a stale entry inert rather than a thing to prune.
+    const lifted = leadTimeAcknowledged(acknowledged, event.event_id);
+    const refusal = sessionRefusal(event, lifted);
+    const overridden = lifted && refusal?.kind === 'lead-time';
+    if (overridden) acknowledgedEventIds.push(String(event.event_id));
+
     if (refusal) {
-      blockers.push({
-        key: `${refusal.kind}:${event.event_id}`,
-        kind: refusal.kind,
-        severity: refusal.severity,
-        title: REFUSAL_TITLES[refusal.kind],
-        detail: `${sessionLabel(event)} — ${refusal.message}`,
-        actions: refusal.severity === 'block' ? [removal(event)] : [],
-      });
+      blockers.push(sessionBlocker(event, refusal, {
+        title: overridden ? ACKNOWLEDGED_LEAD_TIME_TITLE : REFUSAL_TITLES[refusal.kind],
+        actions: answersFor(event, refusal, overridden),
+      }));
     }
+
+    // Once the lead time stops refusing, the room is the thing left worth
+    // saying — and `sessionRefusal` never reached it, because the lead time
+    // outranks it there.
+    const capacity = overridden ? capacityRefusal(event) : null;
+    if (capacity) blockers.push(sessionBlocker(event, capacity));
 
     // Room is a second question from "is it full", and both are warnings.
     // A null is not a zero — it is Clubworx declining to say, passed through
     // untouched by the Worker for exactly this reason.
     const spaces = event.spaces_available;
-    if (refusal?.kind !== 'full' && typeof spaces === 'number' && studentCount > 0 && spaces < studentCount) {
+    const reportedFull = refusal?.kind === 'full' || capacity?.kind === 'full';
+    if (!reportedFull && typeof spaces === 'number' && studentCount > 0 && spaces < studentCount) {
       blockers.push({
         key: `spaces:${event.event_id}`,
         kind: 'spaces',
@@ -391,7 +535,14 @@ export function selectionReport({ events, selected, studentCount = 0, truncated 
   return {
     events: picked,
     blockers,
+    // Unchanged, and deliberately: readiness has always been the absence of any
+    // block, so an acknowledged session un-darkens Apply by dropping to a warn
+    // rather than by any new gate being wired (ADR 0007).
     ready: !blockers.some((b) => b.severity === 'block'),
+    // The list the run carries to the Worker, in timetable order. Ids, never a
+    // flag — a flag would also excuse a session that crossed into the lead time
+    // after selection, and one the operator never saw.
+    acknowledgedEventIds,
     sessions: picked.length,
     students: studentCount,
     bookings: picked.length * studentCount,

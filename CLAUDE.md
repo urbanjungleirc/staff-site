@@ -153,11 +153,30 @@ school-booking.html     - the school booking page, steps 1-6 (#71, #72, #73, #10
                           equals a fresh one field by field — the reset restates
                           the component literal's initial values and nothing in
                           the language links the two copies.
+                          ADR 0007 (#144) added `leadTimeAcknowledgements` — the
+                          per-session log of too-soon sessions an operator has
+                          stated they lifted the Clubworx restriction for — and
+                          `leadTimeConfirm`, the one session waiting on its
+                          confirmation. Both are cleared by the reset: a
+                          statement about the last import's sessions is not a
+                          statement about this one's.
+                          askLeadTimeOverride() only OPENS that confirmation;
+                          confirmLeadTimeOverride() is the only thing that
+                          writes to the log. keepAcknowledgementsForPicked() is
+                          the rule that keeps it honest — an acknowledgement
+                          lasts exactly as long as its tick, so un-ticking (by
+                          checkbox, by the blocker's removal, or by a re-search
+                          that drops the session) withdraws it and ticking the
+                          session again asks the question again. The
+                          confirmation is rendered in BOTH blocker lists,
+                          because both dispatch through answerSelection() and a
+                          confirmation on only one of them is a chip that
+                          silently does nothing on the other.
 school-booking/events.js - what a SELECTION of sessions is: the same-name,
                           same-location pre-tick (no recurrence field exists,
-                          so any automatic rule is a guess), the lead-time and
-                          past-session hard-stops with D9's one-click removal,
-                          and the spaces warning that never blocks.
+                          so any automatic rule is a guess), the past-session
+                          and unreadable-start hard-stops with D9's one-click
+                          removal, and the spaces warning that never blocks.
                           sessionRefusal() is the ONE place deciding what is
                           wrong with a session and how serious — the blocker
                           list and the picker's row styling both ask it. Do not
@@ -165,6 +184,20 @@ school-booking/events.js - what a SELECTION of sessions is: the same-name,
                           room" in with "too close to the start", and only the
                           second refuses a booking, so reading it alone paints
                           a warnable session as a refused one.
+                          The lead time is NO LONGER a hard-stop: ADR 0007 made
+                          it an operator override, so a too-soon session keeps
+                          its removal and gains a second answer — acknowledge
+                          that its Clubworx booking restriction has been lifted
+                          by hand, and it drops to `warn` and stays listed. It
+                          is the ONLY overridable refusal; an unreadable start
+                          means the rule could not be checked at all, and an
+                          already-started session is not a restriction the gym
+                          can lift. acknowledgeLeadTime() is the decision log,
+                          keyed by event id and per session throughout — there
+                          is no control that clears them all. The report
+                          derives `acknowledgedEventIds` from the sessions
+                          actually ticked and loaded, and that list (never a
+                          flag) is what narrows the Worker's own backstop.
                           The paste-an-id fallback resolves HERE, against the
                           window already on screen — GET /events/:id answers 404
                           for every id, real or invented (#97), so a message
@@ -215,6 +248,14 @@ school-booking/run.js   - step 6's engine: Apply's per-student loop, D8's retry
                           and not the status: once a call has written something
                           the Worker answers 200 carrying `reason: "throttled"`,
                           because the body is then the only record of the write.
+                          runList() carries ADR 0007's acknowledged sessions as
+                          `lead_time_acknowledged_event_ids`, per student,
+                          because the gate they narrow is a per-student backstop
+                          in the write chain. OMITTED from the payload entirely
+                          when there are none, so a run nobody overrode is the
+                          run this route already took. The ids come off the
+                          SELECTION, never the log, so a statement about a
+                          session no longer ticked cannot reach the Worker.
 school-booking/outcome.js - what one `POST /student` answer means, and what a
                           run of them adds up to. Two exports are safety rules
                           rather than presentation: isFailure() feeds the

@@ -74,6 +74,16 @@ const EVENTS = [
   },
 ];
 
+// A Newman session that starts inside the lead time, ahead of the two above so
+// `pickSeries` ticks all three. ADR 0007's whole subject.
+const SOON = {
+  event_id: 'e0', event_name: 'School Session — Newman', event_start_at: '2026-08-22T09:00:00+08:00',
+  event_end_at: '2026-08-22T10:30:00+08:00', location_id: 'loc-1', location_name: 'Urban Jungle',
+  free_class: false, event_full: false, spaces_available: 30,
+  lead: { hoursAhead: 4, past: false, withinLeadTime: true, minLeadHours: 24, unreadable: false },
+  bookable: false,
+};
+
 const PLAN = {
   ok: true,
   plan: {
@@ -1317,6 +1327,248 @@ describe('step 4 says each thing once', () => {
     app.pickSeries('e1');
     expect(app.selection.sessions).toBe(2);
     expect(app.sessionsLine()).toBe('2 sessions × 6 students = 12 bookings.');
+  });
+});
+
+// ---------------------------------------------------------------------------
+// ADR 0007 / #144 — a too-soon session an operator keeps
+// ---------------------------------------------------------------------------
+
+const withSoon = async (opts = {}) => {
+  const app = await withEvents(component({ eventList: [SOON, ...EVENTS], ...opts }));
+  app.pickSeries('e0'); // e0, e1, e2 — the whole Newman series
+  return app;
+};
+
+const leadTimeBlocker = (app) => app.selection.blockers.find((b) => b.kind === 'lead-time');
+
+describe('the lead-time override (ADR 0007, #144)', () => {
+  test('a too-soon session still blocks, and now offers keeping it beside removing it', async () => {
+    const app = await withSoon();
+    expect(app.picked).toEqual(['e0', 'e1', 'e2']);
+    expect(app.selection.ready).toBe(false);
+
+    const blocker = leadTimeBlocker(app);
+    expect(blocker.severity).toBe('block');
+    expect(blocker.actions.map((a) => a.answers)).toEqual(['remove', 'acknowledge-lead-time']);
+  });
+
+  test('taking the second answer raises a confirmation rather than acting on it', async () => {
+    // It is a confirmation, not a formality to click past: the whole safety of
+    // this feature is a human agreeing to go and lift a restriction by hand.
+    const app = await withSoon();
+    app.answerSelection(leadTimeBlocker(app).actions[1]);
+
+    expect(app.leadTimeConfirm).toBe('e0');
+    expect(app.selection.ready).toBe(false);
+    expect(leadTimeBlocker(app).severity).toBe('block');
+  });
+
+  test('the confirmation names the session and what happens if the restriction is not lifted', async () => {
+    const app = await withSoon();
+    app.answerSelection(leadTimeBlocker(app).actions[1]);
+
+    const line = app.leadTimeConfirmLine();
+    expect(line).toContain('School Session — Newman');
+    expect(line).toContain('2026-08-22');
+    expect(line).toMatch(/restriction/i);
+    expect(line).toMatch(/Clubworx/);
+    // The consequence, concretely: refusals, and the third in a row stops it.
+    expect(line).toMatch(/every booking/i);
+    expect(line).toMatch(/halt|stop/i);
+  });
+
+  test('cancelling leaves the session refusing, and nothing acknowledged', async () => {
+    const app = await withSoon();
+    app.answerSelection(leadTimeBlocker(app).actions[1]);
+    app.cancelLeadTimeOverride();
+
+    expect(app.leadTimeConfirm).toBe(null);
+    expect(app.selection.ready).toBe(false);
+    expect(app.selection.acknowledgedEventIds).toEqual([]);
+  });
+
+  test('confirming drops it to a warning, keeps it on screen, and un-darkens Apply', async () => {
+    const app = await withSoon();
+    app.answerSelection(leadTimeBlocker(app).actions[1]);
+    app.confirmLeadTimeOverride();
+
+    expect(app.leadTimeConfirm).toBe(null);
+    const blocker = leadTimeBlocker(app);
+    // Still listed. A session that vanishes once acknowledged is invisible and
+    // unexplained — the shape D9 already rejected.
+    expect(blocker).toBeTruthy();
+    expect(blocker.severity).toBe('warn');
+    expect(blocker.detail).toMatch(/restriction/i);
+    expect(app.selection.ready).toBe(true);
+    expect(app.selection.acknowledgedEventIds).toEqual(['e0']);
+  });
+
+  test('the picker row agrees with the blocker about severity', async () => {
+    // §16's fault shape: two surfaces contradicting each other about whether a
+    // run can proceed. The row asks the same module the report does.
+    const app = await withSoon();
+    const soon = app.events.find((e) => e.event_id === 'e0');
+    expect(app.eventLane(soon)).toBe('lane-bad');
+    expect(app.eventWarningTone(soon)).toBe('text-rose-700');
+
+    app.answerSelection(leadTimeBlocker(app).actions[1]);
+    app.confirmLeadTimeOverride();
+
+    expect(app.eventLane(soon)).toBe('lane-need');
+    expect(app.eventWarningTone(soon)).toBe('text-amber-700');
+    expect(app.eventWarning(soon)).toMatch(/restriction/i);
+  });
+
+  test('an acknowledgement can be taken back, and the block comes back with it', async () => {
+    const app = await withSoon();
+    app.answerSelection(leadTimeBlocker(app).actions[1]);
+    app.confirmLeadTimeOverride();
+    expect(app.selection.ready).toBe(true);
+
+    // Still two answers, the removal first — an acknowledged session keeps it.
+    const answers = leadTimeBlocker(app).actions;
+    expect(answers.map((a) => a.answers)).toEqual(['remove', 'unacknowledge-lead-time']);
+
+    app.answerSelection(answers[1]);
+    expect(leadTimeBlocker(app).severity).toBe('block');
+    expect(app.selection.ready).toBe(false);
+    expect(app.selection.acknowledgedEventIds).toEqual([]);
+  });
+
+  test('acknowledging one of two too-soon sessions does not open the door', async () => {
+    const second = { ...SOON, event_id: 'e0b', event_start_at: '2026-08-22T13:00:00+08:00' };
+    const app = await withEvents(component({ eventList: [SOON, second, ...EVENTS] }));
+    app.pickSeries('e0');
+    expect(app.picked).toEqual(['e0', 'e0b', 'e1', 'e2']);
+
+    app.askLeadTimeOverride('e0');
+    app.confirmLeadTimeOverride();
+    expect(app.selection.ready).toBe(false);
+    expect(app.selection.acknowledgedEventIds).toEqual(['e0']);
+
+    // Per session, throughout. There is no control that clears them all.
+    app.askLeadTimeOverride('e0b');
+    app.confirmLeadTimeOverride();
+    expect(app.selection.ready).toBe(true);
+    expect(app.selection.acknowledgedEventIds).toEqual(['e0', 'e0b']);
+  });
+
+  test('un-ticking an acknowledged session withdraws it, and ticking it again asks again', async () => {
+    // The statement is about a session in this run. A session that comes back
+    // pre-forgiven by a confirmation nobody re-took is the one thing the
+    // confirmation exists to prevent.
+    const app = await withSoon();
+    app.askLeadTimeOverride('e0');
+    app.confirmLeadTimeOverride();
+    app.togglePick('e0');
+
+    expect(app.picked).toEqual(['e1', 'e2']);
+    expect(app.selection.acknowledgedEventIds).toEqual([]);
+
+    app.togglePick('e0');
+    expect(app.picked).toContain('e0');
+    expect(leadTimeBlocker(app).severity).toBe('block');
+    expect(app.selection.ready).toBe(false);
+  });
+
+  test('removing an acknowledged session from its own blocker withdraws the statement too', async () => {
+    // The removal and the checkbox are the same act, so they cannot leave the
+    // log in two different states.
+    const app = await withSoon();
+    app.askLeadTimeOverride('e0');
+    app.confirmLeadTimeOverride();
+
+    app.answerSelection(leadTimeBlocker(app).actions[0]); // Remove this session
+    expect(app.picked).toEqual(['e1', 'e2']);
+    expect(app.leadTimeAcknowledgements).toEqual({});
+    expect(app.selection.ready).toBe(true);
+  });
+
+  test('a re-search cannot resurrect an acknowledgement for a session it dropped', async () => {
+    // The tick is already dropped when a window no longer holds the session
+    // (loadEvents), and the statement about it goes with it. Otherwise the
+    // session comes back ticked-and-forgiven by a decision nobody re-took.
+    const list = [SOON, ...EVENTS];
+    const app = await withEvents(component({ eventList: list }));
+    app.pickSeries('e0');
+    app.askLeadTimeOverride('e0');
+    app.confirmLeadTimeOverride();
+    expect(app.selection.ready).toBe(true);
+
+    list.shift(); // a narrower window, without the too-soon session
+    await app.loadEvents();
+    expect(app.picked).toEqual(['e1', 'e2']);
+
+    list.unshift(SOON); // and back again
+    await app.loadEvents();
+    app.pickSeries('e0');
+    expect(leadTimeBlocker(app).severity).toBe('block');
+    expect(app.selection.ready).toBe(false);
+  });
+
+  test('an unreadable or already-started session is never overridable', async () => {
+    const broken = {
+      ...SOON, event_id: 'x1', event_name: 'School Session — Harlow', event_start_at: 'whenever',
+      lead: { hoursAhead: null, past: null, withinLeadTime: null, minLeadHours: 24, unreadable: true },
+    };
+    const past = {
+      ...SOON, event_id: 'x2', event_name: 'School Session — Harlow', event_start_at: '2026-08-01T09:00:00+08:00',
+      lead: { hoursAhead: -480, past: true, withinLeadTime: false, minLeadHours: 24, unreadable: false },
+    };
+    const app = await withEvents(component({ eventList: [broken, past, ...EVENTS] }));
+    app.picked = ['x1', 'x2'];
+    app.refreshSelection();
+
+    for (const kind of ['unreadable-session', 'past-session']) {
+      const blocker = app.selection.blockers.find((b) => b.kind === kind);
+      expect(blocker.severity).toBe('block');
+      expect(blocker.actions.map((a) => a.answers)).toEqual(['remove']);
+    }
+    expect(app.selection.ready).toBe(false);
+  });
+});
+
+describe('the override reaches the wire (#144)', () => {
+  test('every student carries the acknowledged ids', async () => {
+    const app = await withSoon();
+    app.askLeadTimeOverride('e0');
+    app.confirmLeadTimeOverride();
+    await app.toPreview();
+    app.askApply();
+    await app.apply();
+
+    expect(app.__writes).toHaveLength(6);
+    for (const write of app.__writes) {
+      expect(write.body.lead_time_acknowledged_event_ids).toEqual(['e0']);
+      // Narrowed, never switched off: the other two sessions are not on it.
+      expect(write.body.events.map((e) => e.event_id)).toEqual(['e0', 'e1', 'e2']);
+    }
+  });
+
+  test('a run nobody overrode sends no acknowledgement key at all', async () => {
+    const app = await upToApply(component());
+    expect(app.__writes).toHaveLength(6);
+    for (const write of app.__writes) {
+      expect(write.body).not.toHaveProperty('lead_time_acknowledged_event_ids');
+    }
+  });
+});
+
+describe('the override confirmation is on the page, and bound (#144)', () => {
+  test('the blocker list renders it against the session it is about', () => {
+    // Both blocker lists dispatch through `answerSelection`, so a confirmation
+    // rendered on only one of them is an action that silently does nothing on
+    // the other.
+    const lists = html.split('@click="answerSelection(action)"').length - 1;
+    expect(lists).toBe(2);
+    expect(html.split('leadTimeConfirm === blocker.eventId').length - 1).toBe(lists);
+  });
+
+  test('the confirmation offers both ways out', () => {
+    expect(html).toContain('confirmLeadTimeOverride()');
+    expect(html).toContain('cancelLeadTimeOverride()');
+    expect(html).toContain('leadTimeConfirmLine()');
   });
 });
 
