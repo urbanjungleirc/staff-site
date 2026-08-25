@@ -39,7 +39,7 @@
 // written something the Worker answers 200 and carries `reason: "throttled"`,
 // because the body is then the only record of what was written.
 
-import { cancelRows, cancellable, isFailure, notRunRecord, studentRecord } from './outcome.js?v=7';
+import { cancelRows, cancellable, isFailure, notRunRecord, studentRecord } from './outcome.js?v=8';
 
 /** #51 measured ~18 s of throttling. Two attempts, then the page is told. */
 export const RETRY_BACKOFF_MS = 20_000;

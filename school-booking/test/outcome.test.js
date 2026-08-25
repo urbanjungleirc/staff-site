@@ -25,6 +25,7 @@ import {
   resultTotals,
   runRecordText,
   settledRun,
+  liftedRestrictionsReminder,
   strandedWarning,
   successLine,
   studentRecord,
@@ -657,5 +658,63 @@ describe('successLine — the confirmation, and what it refuses to confirm', () 
     const nothing = record({}, complete({ bookings: [] }));
     expect(nothing.state).toBe('already booked');
     expect(successLine('complete', [nothing])).toBe('');
+  });
+});
+
+// ---------------------------------------------------------------------------
+// #146 — the restrictions this run left lifted
+// ---------------------------------------------------------------------------
+// A failed booking is loud and self-correcting; a restriction left lifted is
+// silent — a class open to public booking until somebody notices. So the
+// reminder is made of the sessions an operator *acknowledged*, never of what
+// the run managed to book, and it says the same thing whether the run finished
+// or halted on its third failure.
+
+describe('the restrictions left lifted — #146', () => {
+  const LABEL = 'School Session — Newman, 2026-08-22';
+  const SECOND = 'School Session — Newman, 2026-08-29';
+
+  test('it names every lifted session and says who has to put it back', () => {
+    const line = liftedRestrictionsReminder([LABEL]);
+    expect(line).toContain(LABEL);
+    expect(line).toMatch(/restriction/i);
+    // The obligation, in the imperative: the tool never restores one itself.
+    expect(line).toMatch(/put it back/i);
+    // And the stakes, which are the reason this ticket exists.
+    expect(line).toMatch(/public booking/i);
+  });
+
+  test('two lifted sessions are both named, and the sentence agrees with itself', () => {
+    const line = liftedRestrictionsReminder([LABEL, SECOND]);
+    expect(line).toMatch(/^⚠ 2 sessions were/);
+    expect(line).toContain(LABEL);
+    expect(line).toContain(SECOND);
+    // Semicolons — a session label carries a comma of its own.
+    expect(line).toContain(`${LABEL}; ${SECOND}`);
+  });
+
+  test('a run nobody overrode says nothing at all, rather than a zero', () => {
+    expect(liftedRestrictionsReminder([])).toBe('');
+    expect(liftedRestrictionsReminder(null)).toBe('');
+    expect(liftedRestrictionsReminder(undefined)).toBe('');
+  });
+
+  test('the record staff keep carries the obligation with it', () => {
+    const text = runRecordText([record({}, complete())], {
+      school: 'newman',
+      at: '2026-08-25T10:00:00+08:00',
+      lifted: [LABEL],
+    });
+    const parsed = JSON.parse(text);
+    expect(parsed.lifted).toContain(LABEL);
+    expect(parsed.lifted).toMatch(/restriction/i);
+    // The rest of the record is untouched by it.
+    expect(parsed.students).toHaveLength(1);
+    expect(parsed.summary).toBe(resultLine([record({}, complete())]));
+  });
+
+  test('a record from a run with no override carries an empty obligation', () => {
+    const parsed = JSON.parse(runRecordText([record({}, complete())], { school: 'newman' }));
+    expect(parsed.lifted).toBe('');
   });
 });

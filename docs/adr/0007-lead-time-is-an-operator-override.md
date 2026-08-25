@@ -1,6 +1,6 @@
 # ADR 0007 — the lead time is an operator override, not a law
 
-- **Status**: Accepted — pending implementation ([#143](https://github.com/urbanjungleirc/staff-site/issues/143), [#144](https://github.com/urbanjungleirc/staff-site/issues/144), [#145](https://github.com/urbanjungleirc/staff-site/issues/145), [#146](https://github.com/urbanjungleirc/staff-site/issues/146))
+- **Status**: Accepted — built ([#143](https://github.com/urbanjungleirc/staff-site/issues/143), [#144](https://github.com/urbanjungleirc/staff-site/issues/144), [#145](https://github.com/urbanjungleirc/staff-site/issues/145), [#146](https://github.com/urbanjungleirc/staff-site/issues/146))
 - **Date**: 2026-08-25
 - **Context**: school group booking ([#138](https://github.com/urbanjungleirc/staff-site/issues/138)); design spec [`2026-08-19-school-group-booking-design.md`](../superpowers/specs/2026-08-19-school-group-booking-design.md) §11, D9
 

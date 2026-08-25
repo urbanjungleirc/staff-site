@@ -516,6 +516,47 @@ export function strandedWarning(records) {
 }
 
 /**
+ * The restrictions this run left lifted — #146, ADR 0007.
+ *
+ * Takes the session labels an operator **acknowledged**, not the run's records.
+ * That is the whole point of the function's signature: the lifted sessions are
+ * known before the first write, and a run halted by D7's breaker produces no
+ * record at all for the acknowledged session — which is exactly the case where
+ * a restriction is most likely to still be off. A reminder derived from results
+ * would go missing precisely when it matters most.
+ *
+ * It is the counterpart to `strandedWarning` and sits beside it: both say *this
+ * run left something for a human to finish in Clubworx*. The difference is
+ * which way the failure is loud. A stranded student is visible on their own row
+ * for as long as the page is open; a restriction left off is visible nowhere —
+ * the class simply takes public bookings until somebody notices. So this one
+ * names the stakes out loud rather than only the obligation.
+ *
+ * Nothing here touches Clubworx. It reminds; a person acts.
+ */
+export function liftedRestrictionsReminder(sessions) {
+  // `filter(Boolean)` where preview.js's twin has none, and the asymmetry is
+  // deliberate: that one reads labels it has just built from live events, and
+  // this one reads a list that has been through `localStorage` and back. A
+  // blank entry there would put a stray "; " in the middle of the one sentence
+  // telling somebody a class is open to the public.
+  const lifted = (sessions ?? []).filter(Boolean);
+  if (lifted.length === 0) return '';
+
+  // Semicolons — a session label carries a comma of its own, so commas here
+  // would read "School Session, 2026-09-01, School Session, 2026-09-08" as four
+  // things. Same rule as the preview's line (#145).
+  const named = lifted.join('; ');
+  const one = lifted.length === 1;
+
+  return `⚠ ${plural(lifted.length, 'session')} ${one ? 'was' : 'were'} run with `
+    + `${one ? 'its' : 'their'} Clubworx booking restriction lifted by hand: ${named}. `
+    + `Put ${one ? 'it' : 'them'} back on in Clubworx — nothing here does that, and until `
+    + `${one ? 'it is' : 'they are'} back on ${one ? 'the session is' : 'those sessions are'} `
+    + 'open to public booking.';
+}
+
+/**
  * The record staff keep — D10.
  *
  * JSON rather than prose, because the thing being defended against is a page
@@ -533,6 +574,11 @@ export function runRecordText(records, meta = {}) {
       sessions: meta.sessions ?? [],
       summary: resultLine(records),
       stranded: strandedWarning(records),
+      // #146. The obligation travels with the record: this is what staff paste
+      // into a ticket, and a restriction left off outlives the page that
+      // reported it. `meta.lifted` is the acknowledged session labels, taken
+      // from the selection at Apply — never rebuilt from `records`.
+      lifted: liftedRestrictionsReminder(meta.lifted),
       students: (records ?? []).map((row) => ({
         name: row.name,
         dob: row.dob,
