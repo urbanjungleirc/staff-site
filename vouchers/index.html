@@ -807,14 +807,14 @@
           <span class="nav-icon"><svg viewBox="0 0 24 24"><path d="M3.5 8.5a2 2 0 0 1 2-2h13a2 2 0 0 1 2 2v2.1a2.4 2.4 0 0 0 0 4.8v2.1a2 2 0 0 1-2 2h-13a2 2 0 0 1-2-2v-2.1a2.4 2.4 0 0 0 0-4.8V8.5z"/><path d="M12 9.25v5.5M9.25 12h5.5"/></svg></span>
           Create
         </button>
-        <button disabled
-          class="px-4 py-2 rounded-xl border border-white/15 bg-white/5 transition-all flex items-center gap-1.5 text-[0.9rem] font-semibold text-white/40 cursor-not-allowed" title="Scan coming later">
-          <svg width="15" height="15" fill="none" stroke="currentColor" stroke-width="1.9" viewBox="0 0 24 24">
-            <path stroke-linecap="round" stroke-linejoin="round"
-              d="M12 4v1m6 11h2m-6 0h-2v4m0-11v3m0 0h.01M12 12h4.01M16 20h4M4 12h4m12 0h.01M5 8h2a1 1 0 001-1V5a1 1 0 00-1-1H5a1 1 0 00-1 1v2a1 1 0 001 1zm12 0h2a1 1 0 001-1V5a1 1 0 00-1-1h-2a1 1 0 00-1 1v2a1 1 0 001 1zM5 20h2a1 1 0 001-1v-2a1 1 0 00-1-1H5a1 1 0 00-1 1v2a1 1 0 001 1z"/>
-          </svg>
-          Scan
-        </button>
+        <!-- There is deliberately no Scan button. Scanning is ambient — it works
+             on every screen in the hub, so there is nothing to navigate to and
+             nothing to switch on. A button would imply the opposite: that you
+             have to press something first.
+
+             What stood here until #136 was a permanently disabled placeholder
+             reading "Scan coming later". Scanning has arrived; the placeholder
+             has not become a control. -->
         </div>
         <div class="flex items-center gap-1.5 flex-wrap sm:justify-end">
         <button @click="goReports()"

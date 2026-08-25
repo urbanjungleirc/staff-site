@@ -34,6 +34,18 @@ describe('the camera scanner is gone', () => {
     expect(page).not.toContain('unpkg.com');
   });
 
+  // Scanning is ambient — every screen, no navigation, nothing to switch on. A
+  // button would imply you have to press something first, which is exactly what
+  // the old disabled "Scan coming later" placeholder trained staff to think.
+  test('there is no Scan control in the header', () => {
+    const nav = between('<nav class="flex flex-col gap-1.5 sm:items-end">', '</nav>');
+    expect(nav).not.toMatch(/>\s*Scan\s*</);
+    // The attribute, not the phrase — the comment that replaced the button
+    // quotes the old tooltip, and pinning the words would fail on the
+    // explanation rather than on the control.
+    expect(page).not.toContain('title="Scan coming later"');
+  });
+
   test('there is no scan view, and nothing left to route to it', () => {
     expect(page).not.toContain("view==='scan'");
     expect(page).not.toContain('qr-reader');

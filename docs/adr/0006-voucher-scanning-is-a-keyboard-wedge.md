@@ -10,9 +10,17 @@
 The hub already contained a scanning surface: a `view === 'scan'` screen driving
 the device camera through `html5-qrcode`, loaded from unpkg, with a manual
 `UJ-XXXX-XXXX` box beside it. **It was unreachable.** `goScan()` had no caller
-anywhere in the repo — no nav entry, no button. So the camera scanner was never
-a working alternative that we chose against; it was dead code that happened to
-describe an approach.
+anywhere in the repo. The header did carry a Scan button, but it was
+`<button disabled>` with no click handler and the tooltip "Scan coming later" —
+a placeholder for the feature, not a route to the view behind it. So the camera
+scanner was never a working alternative that we chose against; it was dead code
+that happened to describe an approach.
+
+That placeholder is deleted too, and **not replaced**. Scanning is ambient: it
+works on every screen, so there is nothing to navigate to and nothing to switch
+on. A button would imply the opposite — that you have to press something first.
+The cost is discoverability, which now rests on the setup runbook and on telling
+staff once; the alternative was a control that lies about how the feature works.
 
 The counter needs the opposite of a camera: a customer holds up a phone, and a
 staff member wants the voucher on screen and the redeem form open, without
