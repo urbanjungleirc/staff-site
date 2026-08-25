@@ -2120,6 +2120,28 @@
         </div>
       </div>
 
+      <!-- Who and what is being redeemed. Until #136 this modal could assume
+           staff had read the detail page on the way in, and showed a title and
+           a balance and nothing else. A scan — or a code typed into the search
+           box — skips that reading entirely, so the modal has to identify the
+           voucher itself.
+
+           The realistic counter error is the right-LOOKING voucher belonging to
+           the wrong person: same type, same value, wrong customer. The balance
+           does not catch it and the code does not catch it. The name does. -->
+      <div class="bg-neutral-50 border border-neutral-200 rounded-xl px-3.5 py-3 mb-4">
+        <div class="font-mono text-sm font-semibold text-neutral-800" x-text="voucher?.voucher_id"></div>
+        <div class="text-sm text-neutral-700 mt-0.5" x-text="voucher?.customer_name || 'No name on file'"></div>
+        <div class="text-xs text-neutral-500 mt-1">
+          <span x-text="voucher?._type_name || voucher?.voucher_type_id || '—'"></span>
+          <!-- Item only when the type has one, exactly as the detail view does
+               it. A dangling separator reads as a missing value. -->
+          <template x-if="voucher?._item_name || voucher?.voucher_item_id">
+            <span> · <span x-text="voucher?._item_name || voucher?.voucher_item_id"></span></span>
+          </template>
+        </div>
+      </div>
+
       <div x-show="redeemError"
         class="bg-rose-50 border border-rose-200 text-rose-700 rounded-xl p-3 text-sm mb-4"
         x-text="redeemError"></div>

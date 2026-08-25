@@ -203,6 +203,38 @@ describe('where a scan lands', () => {
   });
 });
 
+// Not scanning as such, but it exists BECAUSE of scanning: a scan reaches this
+// modal without staff having read the detail page, so the modal has to say what
+// it is about to take money off.
+describe('the redeem modal identifies the voucher', () => {
+  const modal = () => between('<div x-show="redeemOpen"', 'x-text="redeemError"');
+
+  test('it shows the code, the customer and the type', () => {
+    const html = modal();
+    expect(html).toContain('x-text="voucher?.voucher_id"');
+    expect(html).toContain("voucher?.customer_name || 'No name on file'");
+    expect(html).toContain('voucher?._type_name || voucher?.voucher_type_id');
+  });
+
+  // The balance was already there and is the one thing that does NOT identify
+  // the voucher — two vouchers of the same type carry the same balance.
+  test('the balance is still there, and is not the identity', () => {
+    expect(modal()).toContain('fmtMoney(voucher?.balance)');
+  });
+
+  test('the item shows only when the type has one', () => {
+    const html = modal();
+    expect(html).toContain('<template x-if="voucher?._item_name || voucher?.voucher_item_id">');
+  });
+
+  // The name is the assertion that matters. A voucher of the right type and
+  // value belonging to the wrong person is what this catches, and nothing else
+  // in the modal would.
+  test('a nameless voucher says so rather than rendering blank', () => {
+    expect(modal()).toContain("'No name on file'");
+  });
+});
+
 describe('the refusal banner', () => {
   const banner = () => between('<template x-if="scanBlock && !detailLoading && voucher">', '</template>');
 
