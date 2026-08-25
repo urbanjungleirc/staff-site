@@ -26,6 +26,16 @@ export function isUnsent(voucher) {
   // would just compete.
   if (!voucher.customer_email) return false;
 
+  // Suppressed is a DECISION, not a failure: the member opted out, or
+  // Clubworx's own unsubscribe flag is set, so the send was deliberately never
+  // attempted. Migration 021 is explicit that the voucher is still valid.
+  //
+  // This exclusion is the load-bearing one. Flagging a suppressed voucher does
+  // not merely mislabel it — it puts "Not sent" in front of a staff member
+  // beside a Resend button, and emailing someone who has unsubscribed is the
+  // one outcome this whole feature must not cause.
+  if (voucher.send_state === 'suppressed') return false;
+
   return !voucher.email_sent;
 }
 
