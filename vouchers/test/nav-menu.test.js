@@ -84,7 +84,10 @@ describe('the header row collapses', () => {
   });
 
   it('keeps the primary actions in the header, out of the menu', () => {
-    for (const label of ['Search & Redeem', 'Create', 'Scan']) {
+    // 'Scan' was here as a permanently disabled "Scan coming later" placeholder.
+    // #136 shipped scanning as an ambient keystroke listener that works on every
+    // screen, so there is no Scan view to navigate to and no button to press.
+    for (const label of ['Search & Redeem', 'Create']) {
       expect(navOutsideMenu()).toMatch(label);
       expect(menuPanel()).not.toMatch(label);
     }

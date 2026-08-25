@@ -252,6 +252,55 @@ plain checkout has no `version.json` at all, so anything reading it must treat
 missing and `dev` alike as "no version" — that is the normal state during local
 development, not a fault.
 
+## Voucher scanning
+
+Terms for the front-desk scanner (Zebra DS2208) and the codes it feeds into the
+voucher hub. See [ADR 0006](docs/adr/0006-voucher-scanning-is-a-keyboard-wedge.md).
+
+### Scan
+
+A voucher code arriving at the hub as **keystrokes with nothing focused** —
+what the counter scanner produces. The scanner is a USB keyboard as far as the
+browser is concerned; it types the code and presses Enter. There is no device,
+no permission prompt and no camera anywhere in this.
+
+A scan is therefore a *shape*, not an event: the hub cannot ask whether a
+scanner exists, only whether what just arrived looks like a voucher code.
+
+*Avoid*: "scanning the QR" as a description of the mechanism — the QR is what
+the customer holds up, not what the hub sees. *Avoid*: "camera scan", which
+described an earlier unreachable screen, now deleted.
+
+### Scannable code
+
+A code the hub will accept from a scan: **`UJ-XXXX-XXXX` only**, uppercased and
+trimmed first.
+
+Legacy UUID vouchers migrated from the GAS system are deliberately **not**
+scannable. Their emails never carried a QR, so there is nothing to point a
+scanner at; they are found through the search box like any other text.
+
+The format itself is decided in the **vouchers** repo — see its
+[ADR 0004](https://github.com/urbanjungleirc/vouchers/blob/main/docs/adr/0004-human-readable-voucher-codes.md).
+`scan-input.js` restates it as a regex on purpose, so that a stray scan is
+rejected on the page rather than by a round-trip.
+
+### Redeemable
+
+Status `active`. Nothing more — one test, not two.
+
+The word earns a definition because **a partially redeemed voucher is still
+redeemable**: it keeps status `active` for as long as it has balance, and the
+"Partially redeemed" badge is a separate, purely informational thing. Staff read
+that badge as a terminal state and it is not one.
+
+A scan of a redeemable voucher opens the redeem form. Anything else — expired,
+cancelled, no balance left — lands on the detail view under a banner naming the
+reason, coloured amber, rose and sky respectively.
+
+*Avoid*: "unused". An unsent voucher is unused and fully redeemable; a partially
+redeemed one is used and still redeemable.
+
 ## Clubworx pacing
 
 Terms for talking to the Clubworx API without being cut off. Measured in
