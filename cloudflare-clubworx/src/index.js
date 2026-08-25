@@ -200,9 +200,9 @@ const readStatus = reason => (reason === 'throttled' ? 429 : REFUSALS.has(reason
  *     page needs that where it cannot be missed. Once the call HAS written or
  *     cancelled something there is a row, so it leaves as a 200 still carrying
  *     `reason: "throttled"` — the field the page actually pauses on.
- *   - **400** — a refusal before anything was attempted: a lead-time session, a
- *     pass that will not cover the term, a set spanning two students, a
- *     malformed request.
+ *   - **400** — a refusal before anything was attempted: an *unacknowledged*
+ *     lead-time session (ADR 0007), a pass that will not cover the term, a set
+ *     spanning two students, a malformed request.
  *
  * `changed` is what "nothing happened yet" means on each route, and it is the
  * only part that differs between them: on `/student` a permanent record was
@@ -460,6 +460,15 @@ export function createHandler({
         membershipPlanId: payload.membership_plan_id,
         membershipDuration: payload.membership_duration,
         events: payload.events,
+        // ADR 0007. The route hands this through and forms no opinion about
+        // it: D14 keeps the Worker from re-validating the event list, and an
+        // id here naming a session the run did not select is inert in the
+        // gate. Defaulted to an empty list rather than passed as `undefined`,
+        // so a body without the field means "nobody acknowledged anything"
+        // everywhere it is read.
+        leadTimeAcknowledgedEventIds: Array.isArray(payload.lead_time_acknowledged_event_ids)
+          ? payload.lead_time_acknowledged_event_ids
+          : [],
       });
 
       // A result is not an error, even when the student was abandoned — the
