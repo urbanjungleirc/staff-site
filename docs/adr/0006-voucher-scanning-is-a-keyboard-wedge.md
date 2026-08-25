@@ -135,6 +135,14 @@ that limitation from also costing them the fast path.
 **Nothing scans outside the hub.** `stats.html` and `unsubscribes.html` have no
 listener. They have no voucher to redeem.
 
+**A scan into the search box still works, by a different road.** Suppression
+means the listener ignores it, but the characters land in the field and the
+Enter submits the form — where rule 4 recognises the code and sends it to the
+same place. So the common counter accident, scanning while the search box still
+has focus from the last lookup, behaves identically. That is a consequence of
+the two rules meeting, not a third rule, and the setup runbook says so because
+it otherwise looks like luck.
+
 ## Alternatives considered
 
 - **Keep the camera view and unify the two paths.** Rejected once it turned out
