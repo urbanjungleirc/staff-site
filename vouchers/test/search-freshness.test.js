@@ -76,10 +76,13 @@ describe('every route into the search view goes through goSearch()', () => {
     expect(direct).toEqual([]);
   });
 
-  test('the header nav and the scanner both call it', () => {
+  // The scan view used to be the second route in here. It was deleted in #136:
+  // it had no caller anywhere in the repo, so it was unreachable dead code, and
+  // scanning is now a global keystroke listener with no screen of its own (ADR
+  // 0006). The nav button is the only route left.
+  test('the header nav calls it', () => {
     const navButton = between('<nav class="flex flex-col gap-1.5 sm:items-end">', 'goCreate()');
     expect(navButton).toMatch(/@click="goSearch\(\)/);
-    expect(between("<div x-show=\"view==='scan'\">", '</button>')).toMatch(/goSearch\(\)/);
   });
 
   test('leaving the detail view returns through one shared path', () => {

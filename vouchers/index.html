@@ -72,7 +72,6 @@
   </script>
   <script defer src="https://cdn.jsdelivr.net/npm/alpinejs@3.x.x/dist/cdn.min.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/qrcode@1.5.3/build/qrcode.min.js"></script>
-  <script src="https://unpkg.com/html5-qrcode@2.3.8/html5-qrcode.min.js"></script>
   <style>
     [x-cloak] { display: none !important; }
     :root {
@@ -1816,37 +1815,6 @@
             class="text-sm text-neutral-400 text-center py-4">No redemptions in this period.</div>
         </div>
       </template>
-    </div>
-
-    <!-- ── QR scan ────────────────────────────────────────────────────────── -->
-    <div x-show="view==='scan'">
-      <div class="flex items-center gap-3 mb-5">
-        <button @click="goSearch()"
-          class="flex items-center gap-1.5 text-sm text-neutral-500 hover:text-neutral-800 transition-colors">
-          <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.75" d="M15 19l-7-7 7-7"/>
-          </svg>
-          Back
-        </button>
-        <h2 class="text-base font-semibold text-neutral-800">Scan Voucher</h2>
-      </div>
-
-      <div class="max-w-sm mx-auto space-y-3">
-        <div class="bg-white rounded-card hub-card border border-neutral-100 p-4">
-          <div id="qr-reader" class="rounded-xl overflow-hidden w-full"></div>
-          <p class="text-xs text-neutral-400 mt-2 text-center">Point camera at the voucher QR code</p>
-        </div>
-
-        <div class="bg-white rounded-card hub-card border border-neutral-100 p-4">
-          <label class="block text-[0.67rem] font-semibold text-neutral-400 uppercase tracking-wider mb-2">Or enter code manually</label>
-          <form @submit.prevent="lookupManual()" class="flex gap-2">
-            <input type="text" x-model="manualCode" placeholder="UJ-XXXX-XXXX"
-              class="flex-1 border border-neutral-200 rounded-xl px-3 py-2 text-sm font-mono uppercase focus:outline-none focus:ring-2 focus:ring-uj/20 focus:border-uj" />
-            <button type="submit"
-              class="bg-uj hover:bg-uj-dark text-white px-4 py-2 rounded-xl text-sm font-semibold transition-colors">Go</button>
-          </form>
-        </div>
-      </div>
     </div>
 
       <!-- ── Voucher Types (admin) ──────────────────────────────────────── -->
@@ -3705,10 +3673,6 @@
       reportRedeemedSort: { col: 'last_redeemed_date', dir: 'desc' },
       reportRedeemedPage: 1,
 
-      // Scanner
-      scanner: null,
-      manualCode: '',
-
       // Toast
       toast: null,
       _toastTimer: null,
@@ -3776,7 +3740,6 @@
       },
 
       logout() {
-        this.stopScannerIfActive();
         localStorage.removeItem('uj_staff_secret');
         this.secret = '';
         this.results = [];
@@ -3854,7 +3817,6 @@
       // ── Export ───────────────────────────────────────────────────────────
       goExport() {
         this.view = 'export';
-        this.stopScannerIfActive();
         this.applyExportPeriod();
         if (!this.exportRegistry) this.loadExportFields();
       },
@@ -4162,7 +4124,6 @@
         // Only set origin on a fresh open; refresh calls (after redeem/undo/resend)
         // omit it so the "Back to …" target is preserved.
         if (origin) this.detailOrigin = origin;
-        this.stopScannerIfActive();
         this.view = 'detail';
         this.voucher = null;
         this.detailError = '';
@@ -4537,7 +4498,6 @@
 
       // ── Create physical ──────────────────────────────────────────────────
       async goCreate() {
-        this.stopScannerIfActive();
         this.view = 'create';
         this.createdVoucher = null;
         this.createError = '';
@@ -4777,7 +4737,6 @@
       // rather than search(): it sends the filters that are in the bar and
       // leaves the current page alone, where search() resets both.
       goSearch() {
-        this.stopScannerIfActive();
         this.view = 'search';
         this.refreshData({ force: this._searchStale });
       },
@@ -4800,7 +4759,6 @@
 
       // ── Reports ──────────────────────────────────────────────────────────
       async goReports() {
-        this.stopScannerIfActive();
         this.view = 'reports';
         await this.loadReport();
       },
@@ -5050,39 +5008,6 @@
         return Math.max(1, Math.ceil((this.report?.redeemed?.length || 0) / this.PAGE_SIZE));
       },
 
-      // ── QR scanner ───────────────────────────────────────────────────────
-      goScan() {
-        this.view = 'scan';
-        this.manualCode = '';
-        this.$nextTick(() => this.startScanner());
-      },
-
-      startScanner() {
-        if (typeof Html5Qrcode === 'undefined') return;
-        this.stopScannerIfActive();
-        this.scanner = new Html5Qrcode('qr-reader');
-        this.scanner.start(
-          { facingMode: 'environment' },
-          { fps: 10, qrbox: { width: 250, height: 250 } },
-          (text) => { this.openVoucher(text.trim()); },
-          () => {}
-        ).catch(() => {});
-      },
-
-      stopScannerIfActive() {
-        if (this.scanner) {
-          this.scanner.stop().catch(() => {});
-          this.scanner = null;
-        }
-      },
-
-      lookupManual() {
-        const code = (this.manualCode || '').trim().toUpperCase();
-        if (!code) return;
-        this.stopScannerIfActive();
-        this.openVoucher(code);
-      },
-
       // ── Helpers ──────────────────────────────────────────────────────────
       fmtDate(s) {
         if (!s) return '—';
@@ -5139,7 +5064,6 @@
 
       // ── Voucher Types (admin) ──────────────────────────────────────────
       async goVoucherTypes() {
-        this.stopScannerIfActive();
         this.view = 'voucherTypes';
         await this.loadVoucherTypes();
       },
