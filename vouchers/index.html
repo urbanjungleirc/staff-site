@@ -63,6 +63,12 @@
     // throwing on every render of the detail view.
     import * as expiryFlag from './expiry-flag.js?v=1';
     window.expiryFlag = expiryFlag;
+    // And again here. A stale copy of this one costs the "not sent" flag and
+    // the create screen's email-failure notice; isUnsent() below treats a
+    // missing export as "do not flag", so the page degrades to today's
+    // behaviour rather than throwing on every row of the search list.
+    import * as unsentVoucher from './unsent-voucher.js?v=1';
+    window.unsentVoucher = unsentVoucher;
   </script>
   <script defer src="https://cdn.jsdelivr.net/npm/alpinejs@3.x.x/dist/cdn.min.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/qrcode@1.5.3/build/qrcode.min.js"></script>
@@ -1087,6 +1093,12 @@
                   <span :class="statusClass(v.status)"
                     class="inline-flex items-center px-2 py-0.5 rounded-full text-[0.67rem] font-semibold uppercase tracking-wide ring-1 ring-inset"
                     x-text="v.status"></span>
+                  <!-- The only way to find a voucher nobody resent. email_sent
+                       is already in the list query, so this costs no round
+                       trip. Says nothing about the voucher's validity — an
+                       unsent voucher is active and redeemable. -->
+                  <span x-show="isUnsent(v)" x-cloak
+                    class="inline-flex items-center px-2 py-0.5 rounded-full text-[0.67rem] font-semibold uppercase tracking-wide bg-amber-50 text-amber-700 ring-1 ring-inset ring-amber-600/20 ml-1">Not sent</span>
                 </td>
                 <td class="px-4 py-3 text-neutral-400 text-xs hidden lg:table-cell" x-text="fmtDate(v.issued_date)"></td>
               </tr>
@@ -1306,6 +1318,14 @@
             </div>
             <p x-show="!voucher?.customer_email && !voucher?.is_physical"
               class="text-xs text-neutral-400 mt-3">No email address on file — cannot resend.</p>
+            <!-- Beside Resend Email, so the diagnosis and the fix are one
+                 glance apart. Until now email_sent was rendered nowhere in the
+                 hub, so a failed send left no trace staff could see (#133). -->
+            <p x-show="isUnsent(voucher)" x-cloak class="text-xs text-amber-700 mt-3">
+              <b>Email not sent.</b>
+              <span x-show="unsentReason(voucher)" x-text="unsentReason(voucher)"></span>
+              <span>Use Resend Email above — you can correct the address on the way through.</span>
+            </p>
           </div>
 
           <!-- History -->
@@ -1339,7 +1359,11 @@
 
     <!-- ── Create physical voucher ───────────────────────────────────────── -->
     <div x-show="view==='create'">
-      <h2 class="text-base font-semibold text-neutral-800 mb-5">Create Voucher</h2>
+      <!-- #133. The heading follows the state. A screen whose message is
+           "you are finished" must not still be titled with the thing staff
+           have just done — that wording was part of what invited a re-press. -->
+      <h2 class="text-base font-semibold text-neutral-800 mb-5"
+        x-text="createdVoucher ? 'Voucher created' : 'Create Voucher'"></h2>
 
       <!-- Success banner -->
       <div x-show="createdVoucher" class="bg-emerald-50 border border-emerald-200 rounded-card p-5 mb-4">
@@ -1368,14 +1392,56 @@
           </div>
         </div>
 
+        <!-- The emailed path's counterpart to the write-on-card block: the one
+             thing on screen that says the handover did NOT complete. Same slot,
+             and mutually exclusive with it — a voucher is physical or emailed.
+
+             Inert until the Worker returns 201 on a failed send (vouchers#95).
+             Until then a failure is still a 400, createdVoucher stays null, and
+             this never renders. -->
+        <div x-show="isUnsent(createdVoucher)" x-cloak
+          class="bg-amber-50 border border-amber-300 rounded-card p-4 mb-3 flex items-start gap-3">
+          <svg class="w-5 h-5 text-amber-600 shrink-0 mt-0.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+              d="M12 9v4m0 4h.01M10.29 3.86 1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/>
+          </svg>
+          <div class="min-w-0">
+            <p class="text-sm font-semibold text-amber-900">The voucher exists, but the email did not go out</p>
+            <!-- The provider's reason, not a generic line. Staff can fix a
+                 rejected address and can do nothing with "it failed". -->
+            <p class="text-sm text-amber-800 mt-1" x-show="unsentReason(createdVoucher)"
+              x-text="unsentReason(createdVoucher)"></p>
+            <p class="text-xs text-amber-700 mt-1.5">Nothing needs creating again. Open the details page and use <b>Resend Email</b> — you can correct the address on the way through.</p>
+          </div>
+        </div>
+
         <div class="text-sm text-emerald-700 grid grid-cols-2 sm:grid-cols-4 gap-x-6 gap-y-1">
           <div><span class="font-medium">Code:</span> <span class="font-mono ml-1" x-text="createdVoucher?.voucher_id"></span></div>
           <div><span class="font-medium">Customer:</span> <span class="ml-1" x-text="createdVoucher?.customer_name"></span></div>
           <div><span class="font-medium">Value:</span> <span class="ml-1" x-text="fmtMoney(createdVoucher?.value)"></span></div>
           <div><span class="font-medium">Expires:</span> <span class="ml-1" x-text="fmtDate(createdVoucher?.expiry_date)"></span></div>
         </div>
-        <button @click="openVoucher(createdVoucher.voucher_id, 'search')"
-          class="mt-3 text-sm text-emerald-800 underline hover:no-underline">View full details →</button>
+        <!-- The way out of a finished create. `Done` is the primary act
+             because the counter workflow is one and out; creating another is
+             deliberate and quieter, since a solid button in this position that
+             creates a voucher is exactly what staff re-pressed.
+
+             `goSearch()` rather than setting the view directly — it is what
+             refreshes the list `_searchStale` has just marked, so the voucher
+             just created is actually in the list Done lands on. Asserted by
+             test/search-freshness.test.js. -->
+        <div class="mt-4 flex flex-wrap items-center gap-2.5">
+          <button @click="goSearch()"
+            class="bg-uj hover:bg-uj-dark text-white font-semibold rounded-xl px-8 py-2.5 text-sm transition-colors">Done</button>
+          <!-- goCreate(), so the next voucher starts where one from the nav
+               starts. Nothing carries over: an inherited value quietly
+               attaching to the next customer's voucher is a money error, and
+               re-picking a type is two clicks. -->
+          <button @click="goCreate()"
+            class="bg-white hover:bg-neutral-50 text-neutral-700 px-4 py-2.5 rounded-xl text-sm font-medium border border-neutral-200 hover:border-neutral-300 transition-colors">Create another voucher</button>
+          <button @click="openVoucher(createdVoucher.voucher_id, 'search')"
+            class="text-sm text-emerald-800 underline hover:no-underline">View full details →</button>
+        </div>
       </div>
 
       <!-- Error banner -->
@@ -1383,178 +1449,193 @@
         class="bg-rose-50 border border-rose-200 text-rose-700 rounded-xl p-3 text-sm mb-4"
         x-text="createError"></div>
 
-      <!-- 3-column form grid -->
-      <div class="grid grid-cols-1 md:grid-cols-3 gap-4 items-start">
+      <!-- #133. Everything that can start a new voucher lives inside this
+           gate, and leaves the page the moment one is created.
 
-        <!-- ① Voucher details -->
-        <div class="bg-white rounded-card hub-card section-card border border-neutral-100 p-5 space-y-4">
-          <div class="flex items-center gap-2.5 pb-3 border-b border-neutral-100">
-            <div class="section-icon"><svg viewBox="0 0 24 24"><path d="M3.5 8.5a2 2 0 0 1 2-2h13a2 2 0 0 1 2 2v2.1a2.4 2.4 0 0 0 0 4.8v2.1a2 2 0 0 1-2 2h-13a2 2 0 0 1-2-2v-2.1a2.4 2.4 0 0 0 0-4.8V8.5z"/><path d="M9 9.25v5.5"/></svg></div>
-            <span class="text-xs font-semibold text-neutral-600 uppercase tracking-wider">Voucher details</span>
-          </div>
+           The confirmation used to render ABOVE a still-live form, while the
+           submit button sat below it and the page did not scroll — so what was
+           in front of staff after a successful create was a filled form and a
+           live button, with the confirmation off-screen above them. It read as
+           "nothing happened, press it again", and they did.
 
-          <div>
-            <label class="block text-[0.67rem] font-semibold text-neutral-400 uppercase tracking-wider mb-1.5">
-              Type <span class="text-rose-400 normal-case tracking-normal font-normal">*</span>
-            </label>
-            <div class="combo" @click.outside="createTypeOpen = false" @keydown.escape.window="createTypeOpen = false">
-              <button type="button" @click="createTypeOpen = !createTypeOpen" :aria-expanded="createTypeOpen.toString()"
-                class="combo-trigger">
-                <span x-text="voucherTypes.find(t => t.type_id === createType)?.display_name || 'Select type…'"></span>
-                <svg class="combo-chevron" viewBox="0 0 24 24"><path d="m6 9 6 6 6-6"/></svg>
-              </button>
-              <div x-show="createTypeOpen" x-transition.origin.top x-cloak class="combo-menu">
-                <button type="button" @click="createType = ''; onCreateTypeChange(); createTypeOpen = false"
-                  :class="createType === '' ? 'active' : ''"
-                  class="combo-option">Select type…</button>
-                <template x-for="t in createTypeOptions()" :key="t.type_id">
-                  <button type="button" @click="createType = t.type_id; onCreateTypeChange(); createTypeOpen = false"
-                    :class="createType === t.type_id ? 'active' : ''"
-                    class="combo-option">
-                    <span x-text="t.display_name"></span>
-                  </button>
-                </template>
+           One wrapper rather than a gate per panel, so a block added here later
+           cannot reintroduce the fault by being forgotten. -->
+      <div x-show="!createdVoucher">
+
+        <!-- 3-column form grid -->
+        <div class="grid grid-cols-1 md:grid-cols-3 gap-4 items-start">
+
+          <!-- ① Voucher details -->
+          <div class="bg-white rounded-card hub-card section-card border border-neutral-100 p-5 space-y-4">
+            <div class="flex items-center gap-2.5 pb-3 border-b border-neutral-100">
+              <div class="section-icon"><svg viewBox="0 0 24 24"><path d="M3.5 8.5a2 2 0 0 1 2-2h13a2 2 0 0 1 2 2v2.1a2.4 2.4 0 0 0 0 4.8v2.1a2 2 0 0 1-2 2h-13a2 2 0 0 1-2-2v-2.1a2.4 2.4 0 0 0 0-4.8V8.5z"/><path d="M9 9.25v5.5"/></svg></div>
+              <span class="text-xs font-semibold text-neutral-600 uppercase tracking-wider">Voucher details</span>
+            </div>
+
+            <div>
+              <label class="block text-[0.67rem] font-semibold text-neutral-400 uppercase tracking-wider mb-1.5">
+                Type <span class="text-rose-400 normal-case tracking-normal font-normal">*</span>
+              </label>
+              <div class="combo" @click.outside="createTypeOpen = false" @keydown.escape.window="createTypeOpen = false">
+                <button type="button" @click="createTypeOpen = !createTypeOpen" :aria-expanded="createTypeOpen.toString()"
+                  class="combo-trigger">
+                  <span x-text="voucherTypes.find(t => t.type_id === createType)?.display_name || 'Select type…'"></span>
+                  <svg class="combo-chevron" viewBox="0 0 24 24"><path d="m6 9 6 6 6-6"/></svg>
+                </button>
+                <div x-show="createTypeOpen" x-transition.origin.top x-cloak class="combo-menu">
+                  <button type="button" @click="createType = ''; onCreateTypeChange(); createTypeOpen = false"
+                    :class="createType === '' ? 'active' : ''"
+                    class="combo-option">Select type…</button>
+                  <template x-for="t in createTypeOptions()" :key="t.type_id">
+                    <button type="button" @click="createType = t.type_id; onCreateTypeChange(); createTypeOpen = false"
+                      :class="createType === t.type_id ? 'active' : ''"
+                      class="combo-option">
+                      <span x-text="t.display_name"></span>
+                    </button>
+                  </template>
+                </div>
               </div>
+            </div>
+
+            <div x-show="voucherItems.length > 0">
+              <label class="block text-[0.67rem] font-semibold text-neutral-400 uppercase tracking-wider mb-1.5">Item</label>
+              <div class="combo" @click.outside="createItemOpen = false" @keydown.escape.window="createItemOpen = false">
+                <button type="button" @click="createItemOpen = !createItemOpen" :aria-expanded="createItemOpen.toString()"
+                  class="combo-trigger">
+                  <span x-text="voucherItems.find(i => String(i.id) === String(createItem)) ? voucherItems.find(i => String(i.id) === String(createItem)).name + ' — $' + Number(voucherItems.find(i => String(i.id) === String(createItem)).value).toFixed(2) : 'Custom amount…'"></span>
+                  <svg class="combo-chevron" viewBox="0 0 24 24"><path d="m6 9 6 6 6-6"/></svg>
+                </button>
+                <div x-show="createItemOpen" x-transition.origin.top x-cloak class="combo-menu">
+                  <button type="button" @click="createItem = ''; onCreateItemChange(); createItemOpen = false"
+                    :class="createItem === '' ? 'active' : ''"
+                    class="combo-option">Custom amount…</button>
+                  <template x-for="i in voucherItems" :key="i.id">
+                    <button type="button" @click="createItem = i.id; onCreateItemChange(); createItemOpen = false"
+                      :class="String(createItem) === String(i.id) ? 'active' : ''"
+                      class="combo-option">
+                      <span x-text="i.name + ' — $' + Number(i.value).toFixed(2)"></span>
+                    </button>
+                  </template>
+                </div>
+              </div>
+            </div>
+
+            <div>
+              <label class="block text-[0.67rem] font-semibold text-neutral-400 uppercase tracking-wider mb-1.5">
+                Value ($) <span class="text-rose-400 normal-case tracking-normal font-normal">*</span>
+              </label>
+              <!-- Locked while an item is selected — the worker takes the value from the item, not this field. -->
+              <input type="number" step="0.01" min="0.01" x-model="createValue" placeholder="0.00"
+                :disabled="!!createItem" :title="createItem ? 'Value comes from the selected item. Choose Custom amount… to enter your own.' : ''"
+                class="w-full border border-neutral-200 rounded-xl px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-uj/20 focus:border-uj disabled:bg-neutral-100 disabled:text-neutral-500 disabled:cursor-not-allowed" />
+            </div>
+
+            <div>
+              <label class="block text-[0.67rem] font-semibold text-neutral-400 uppercase tracking-wider mb-1.5">
+                Reason <span class="normal-case tracking-normal font-normal text-neutral-400">(internal)</span>
+              </label>
+              <input type="text" x-model="createReason" placeholder="e.g. Refund — cancelled booking, Comp — prize"
+                class="w-full border border-neutral-200 rounded-xl px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-uj/20 focus:border-uj" />
+            </div>
+
+            <div>
+              <label class="block text-[0.67rem] font-semibold text-neutral-400 uppercase tracking-wider mb-1.5">
+                Created by <span class="text-rose-400 normal-case tracking-normal font-normal">*</span>
+              </label>
+              <input type="text" x-model="createIssuer" placeholder="Your name" autocomplete="off"
+                class="w-full border border-neutral-200 rounded-xl px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-uj/20 focus:border-uj" />
             </div>
           </div>
 
-          <div x-show="voucherItems.length > 0">
-            <label class="block text-[0.67rem] font-semibold text-neutral-400 uppercase tracking-wider mb-1.5">Item</label>
-            <div class="combo" @click.outside="createItemOpen = false" @keydown.escape.window="createItemOpen = false">
-              <button type="button" @click="createItemOpen = !createItemOpen" :aria-expanded="createItemOpen.toString()"
-                class="combo-trigger">
-                <span x-text="voucherItems.find(i => String(i.id) === String(createItem)) ? voucherItems.find(i => String(i.id) === String(createItem)).name + ' — $' + Number(voucherItems.find(i => String(i.id) === String(createItem)).value).toFixed(2) : 'Custom amount…'"></span>
-                <svg class="combo-chevron" viewBox="0 0 24 24"><path d="m6 9 6 6 6-6"/></svg>
-              </button>
-              <div x-show="createItemOpen" x-transition.origin.top x-cloak class="combo-menu">
-                <button type="button" @click="createItem = ''; onCreateItemChange(); createItemOpen = false"
-                  :class="createItem === '' ? 'active' : ''"
-                  class="combo-option">Custom amount…</button>
-                <template x-for="i in voucherItems" :key="i.id">
-                  <button type="button" @click="createItem = i.id; onCreateItemChange(); createItemOpen = false"
-                    :class="String(createItem) === String(i.id) ? 'active' : ''"
-                    class="combo-option">
-                    <span x-text="i.name + ' — $' + Number(i.value).toFixed(2)"></span>
-                  </button>
-                </template>
-              </div>
+          <!-- ② Customer info -->
+          <div class="bg-white rounded-card hub-card section-card border border-neutral-100 p-5 space-y-4">
+            <div class="flex items-center gap-2.5 pb-3 border-b border-neutral-100">
+              <div class="section-icon"><svg viewBox="0 0 24 24"><path d="M12 12a4 4 0 1 0 0-8 4 4 0 0 0 0 8z"/><path d="M4.5 20a7.5 7.5 0 0 1 15 0"/></svg></div>
+              <span class="text-xs font-semibold text-neutral-600 uppercase tracking-wider">Customer</span>
+            </div>
+
+            <div>
+              <label class="block text-[0.67rem] font-semibold text-neutral-400 uppercase tracking-wider mb-1.5">
+                Name <span class="text-rose-400 normal-case tracking-normal font-normal">*</span>
+              </label>
+              <input type="text" x-model="createName" placeholder="Full name"
+                class="w-full border border-neutral-200 rounded-xl px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-uj/20 focus:border-uj" />
+            </div>
+
+            <div>
+              <label class="block text-[0.67rem] font-semibold text-neutral-400 uppercase tracking-wider mb-1.5">Phone</label>
+              <input type="tel" x-model="createPhone" placeholder="Optional"
+                class="w-full border border-neutral-200 rounded-xl px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-uj/20 focus:border-uj" />
+            </div>
+
+            <div>
+              <label class="block text-[0.67rem] font-semibold text-neutral-400 uppercase tracking-wider mb-1.5">
+                Email
+                <span x-show="createType && !voucherTypes.find(t => t.type_id === createType)?.is_physical"
+                  class="text-rose-400 normal-case tracking-normal font-normal">*</span>
+              </label>
+              <input type="email" x-model="createEmail"
+                :placeholder="createType && !voucherTypes.find(t => t.type_id === createType)?.is_physical ? 'Required' : 'Optional'"
+                class="w-full border border-neutral-200 rounded-xl px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-uj/20 focus:border-uj" />
             </div>
           </div>
 
-          <div>
-            <label class="block text-[0.67rem] font-semibold text-neutral-400 uppercase tracking-wider mb-1.5">
-              Value ($) <span class="text-rose-400 normal-case tracking-normal font-normal">*</span>
-            </label>
-            <!-- Locked while an item is selected — the worker takes the value from the item, not this field. -->
-            <input type="number" step="0.01" min="0.01" x-model="createValue" placeholder="0.00"
-              :disabled="!!createItem" :title="createItem ? 'Value comes from the selected item. Choose Custom amount… to enter your own.' : ''"
-              class="w-full border border-neutral-200 rounded-xl px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-uj/20 focus:border-uj disabled:bg-neutral-100 disabled:text-neutral-500 disabled:cursor-not-allowed" />
+          <!-- ③ Gift information -->
+          <div class="bg-white rounded-card hub-card section-card border border-neutral-100 p-5 space-y-4">
+            <div class="flex items-center gap-2.5 pb-3 border-b border-neutral-100">
+              <div class="section-icon"><svg viewBox="0 0 24 24"><path d="M20 12v7H4v-7"/><path d="M3 8h18v4H3z"/><path d="M12 8v11"/><path d="M12 8H8.5a2 2 0 1 1 2-2c0 1.5 1.5 2 1.5 2z"/><path d="M12 8h3.5a2 2 0 1 0-2-2c0 1.5-1.5 2-1.5 2z"/></svg></div>
+              <span class="text-xs font-semibold text-neutral-600 uppercase tracking-wider">Gift details</span>
+              <span class="text-[0.62rem] text-neutral-400 normal-case tracking-normal ml-auto">optional</span>
+            </div>
+
+            <div>
+              <label class="block text-[0.67rem] font-semibold text-neutral-400 uppercase tracking-wider mb-1.5">From</label>
+              <input type="text" x-model="createGiftFrom" placeholder="Sender name"
+                class="w-full border border-neutral-200 rounded-xl px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-uj/20 focus:border-uj" />
+            </div>
+
+            <div>
+              <label class="block text-[0.67rem] font-semibold text-neutral-400 uppercase tracking-wider mb-1.5">To</label>
+              <input type="text" x-model="createGiftTo" placeholder="Recipient name"
+                class="w-full border border-neutral-200 rounded-xl px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-uj/20 focus:border-uj" />
+            </div>
+
+            <div>
+              <label class="block text-[0.67rem] font-semibold text-neutral-400 uppercase tracking-wider mb-1.5">Message</label>
+              <textarea x-model="createGiftMessage" placeholder="Personal message for the recipient" rows="3"
+                class="w-full border border-neutral-200 rounded-xl px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-uj/20 focus:border-uj resize-none"></textarea>
+            </div>
           </div>
 
-          <div>
-            <label class="block text-[0.67rem] font-semibold text-neutral-400 uppercase tracking-wider mb-1.5">
-              Reason <span class="normal-case tracking-normal font-normal text-neutral-400">(internal)</span>
-            </label>
-            <input type="text" x-model="createReason" placeholder="e.g. Refund — cancelled booking, Comp — prize"
-              class="w-full border border-neutral-200 rounded-xl px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-uj/20 focus:border-uj" />
-          </div>
+        </div>
 
-          <div>
-            <label class="block text-[0.67rem] font-semibold text-neutral-400 uppercase tracking-wider mb-1.5">
-              Created by <span class="text-rose-400 normal-case tracking-normal font-normal">*</span>
-            </label>
-            <input type="text" x-model="createIssuer" placeholder="Your name" autocomplete="off"
-              class="w-full border border-neutral-200 rounded-xl px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-uj/20 focus:border-uj" />
+        <!-- Conditions & expiry info for staff — driven by the selected type. -->
+        <div x-show="createType && (createTypeExpiryNote() || selectedCreateType()?.redemption_warning)"
+          class="bg-neutral-50 border border-neutral-200 text-neutral-600 rounded-xl px-3.5 py-3 text-sm mt-4 flex items-start gap-2.5">
+          <svg class="w-4 h-4 shrink-0 text-neutral-400 mt-0.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 8v4m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"/>
+          </svg>
+          <div class="min-w-0">
+            <span class="font-semibold text-neutral-700">Conditions &amp; expiry</span>
+            <div x-show="createTypeExpiryNote()" class="mt-2" x-text="createTypeExpiryNote()"></div>
+            <div x-show="selectedCreateType()?.redemption_warning" class="mt-2 md-body" x-html="renderMarkdown(selectedCreateType()?.redemption_warning)"></div>
           </div>
         </div>
 
-        <!-- ② Customer info -->
-        <div class="bg-white rounded-card hub-card section-card border border-neutral-100 p-5 space-y-4">
-          <div class="flex items-center gap-2.5 pb-3 border-b border-neutral-100">
-            <div class="section-icon"><svg viewBox="0 0 24 24"><path d="M12 12a4 4 0 1 0 0-8 4 4 0 0 0 0 8z"/><path d="M4.5 20a7.5 7.5 0 0 1 15 0"/></svg></div>
-            <span class="text-xs font-semibold text-neutral-600 uppercase tracking-wider">Customer</span>
-          </div>
-
-          <div>
-            <label class="block text-[0.67rem] font-semibold text-neutral-400 uppercase tracking-wider mb-1.5">
-              Name <span class="text-rose-400 normal-case tracking-normal font-normal">*</span>
-            </label>
-            <input type="text" x-model="createName" placeholder="Full name"
-              class="w-full border border-neutral-200 rounded-xl px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-uj/20 focus:border-uj" />
-          </div>
-
-          <div>
-            <label class="block text-[0.67rem] font-semibold text-neutral-400 uppercase tracking-wider mb-1.5">Phone</label>
-            <input type="tel" x-model="createPhone" placeholder="Optional"
-              class="w-full border border-neutral-200 rounded-xl px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-uj/20 focus:border-uj" />
-          </div>
-
-          <div>
-            <label class="block text-[0.67rem] font-semibold text-neutral-400 uppercase tracking-wider mb-1.5">
-              Email
-              <span x-show="createType && !voucherTypes.find(t => t.type_id === createType)?.is_physical"
-                class="text-rose-400 normal-case tracking-normal font-normal">*</span>
-            </label>
-            <input type="email" x-model="createEmail"
-              :placeholder="createType && !voucherTypes.find(t => t.type_id === createType)?.is_physical ? 'Required' : 'Optional'"
-              class="w-full border border-neutral-200 rounded-xl px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-uj/20 focus:border-uj" />
-          </div>
+        <!-- Submit -->
+        <div class="mt-4 flex flex-wrap items-center gap-2.5">
+          <button @click="submitCreate()" :disabled="createLoading"
+            class="bg-uj hover:bg-uj-dark disabled:opacity-50 text-white font-semibold rounded-xl px-8 py-2.5 text-sm transition-colors">
+            <span x-text="createLoading ? (willEmailVoucher() ? 'Creating &amp; sending…' : 'Creating…') : (willEmailVoucher() ? 'Create &amp; send voucher' : 'Create voucher')"></span>
+          </button>
+          <!-- Preview only matters when an email will actually go out. -->
+          <button x-show="willEmailVoucher()" @click="openCreatePreview()"
+            class="bg-white hover:bg-neutral-50 text-neutral-700 px-4 py-2.5 rounded-xl text-sm font-medium border border-neutral-200 hover:border-neutral-300 transition-colors inline-flex items-center gap-1.5">
+            <svg class="w-4 h-4" fill="none" stroke="currentColor" stroke-width="1.8" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M2.5 12s3.5-6.5 9.5-6.5S21.5 12 21.5 12s-3.5 6.5-9.5 6.5S2.5 12 2.5 12z"/><circle cx="12" cy="12" r="2.5"/></svg>
+            Preview email
+          </button>
         </div>
 
-        <!-- ③ Gift information -->
-        <div class="bg-white rounded-card hub-card section-card border border-neutral-100 p-5 space-y-4">
-          <div class="flex items-center gap-2.5 pb-3 border-b border-neutral-100">
-            <div class="section-icon"><svg viewBox="0 0 24 24"><path d="M20 12v7H4v-7"/><path d="M3 8h18v4H3z"/><path d="M12 8v11"/><path d="M12 8H8.5a2 2 0 1 1 2-2c0 1.5 1.5 2 1.5 2z"/><path d="M12 8h3.5a2 2 0 1 0-2-2c0 1.5-1.5 2-1.5 2z"/></svg></div>
-            <span class="text-xs font-semibold text-neutral-600 uppercase tracking-wider">Gift details</span>
-            <span class="text-[0.62rem] text-neutral-400 normal-case tracking-normal ml-auto">optional</span>
-          </div>
-
-          <div>
-            <label class="block text-[0.67rem] font-semibold text-neutral-400 uppercase tracking-wider mb-1.5">From</label>
-            <input type="text" x-model="createGiftFrom" placeholder="Sender name"
-              class="w-full border border-neutral-200 rounded-xl px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-uj/20 focus:border-uj" />
-          </div>
-
-          <div>
-            <label class="block text-[0.67rem] font-semibold text-neutral-400 uppercase tracking-wider mb-1.5">To</label>
-            <input type="text" x-model="createGiftTo" placeholder="Recipient name"
-              class="w-full border border-neutral-200 rounded-xl px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-uj/20 focus:border-uj" />
-          </div>
-
-          <div>
-            <label class="block text-[0.67rem] font-semibold text-neutral-400 uppercase tracking-wider mb-1.5">Message</label>
-            <textarea x-model="createGiftMessage" placeholder="Personal message for the recipient" rows="3"
-              class="w-full border border-neutral-200 rounded-xl px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-uj/20 focus:border-uj resize-none"></textarea>
-          </div>
-        </div>
-
-      </div>
-
-      <!-- Conditions & expiry info for staff — driven by the selected type. -->
-      <div x-show="createType && (createTypeExpiryNote() || selectedCreateType()?.redemption_warning)"
-        class="bg-neutral-50 border border-neutral-200 text-neutral-600 rounded-xl px-3.5 py-3 text-sm mt-4 flex items-start gap-2.5">
-        <svg class="w-4 h-4 shrink-0 text-neutral-400 mt-0.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-          <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 8v4m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"/>
-        </svg>
-        <div class="min-w-0">
-          <span class="font-semibold text-neutral-700">Conditions &amp; expiry</span>
-          <div x-show="createTypeExpiryNote()" class="mt-2" x-text="createTypeExpiryNote()"></div>
-          <div x-show="selectedCreateType()?.redemption_warning" class="mt-2 md-body" x-html="renderMarkdown(selectedCreateType()?.redemption_warning)"></div>
-        </div>
-      </div>
-
-      <!-- Submit -->
-      <div class="mt-4 flex flex-wrap items-center gap-2.5">
-        <button @click="submitCreate()" :disabled="createLoading"
-          class="bg-uj hover:bg-uj-dark disabled:opacity-50 text-white font-semibold rounded-xl px-8 py-2.5 text-sm transition-colors">
-          <span x-text="createLoading ? (willEmailVoucher() ? 'Creating &amp; sending…' : 'Creating…') : (willEmailVoucher() ? 'Create &amp; send voucher' : 'Create voucher')"></span>
-        </button>
-        <!-- Preview only matters when an email will actually go out. -->
-        <button x-show="willEmailVoucher()" @click="openCreatePreview()"
-          class="bg-white hover:bg-neutral-50 text-neutral-700 px-4 py-2.5 rounded-xl text-sm font-medium border border-neutral-200 hover:border-neutral-300 transition-colors inline-flex items-center gap-1.5">
-          <svg class="w-4 h-4" fill="none" stroke="currentColor" stroke-width="1.8" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M2.5 12s3.5-6.5 9.5-6.5S21.5 12 21.5 12s-3.5 6.5-9.5 6.5S2.5 12 2.5 12z"/><circle cx="12" cy="12" r="2.5"/></svg>
-          Preview email
-        </button>
       </div>
       
     </div>
@@ -4500,6 +4581,18 @@
         return this.voucherTypes.find(t => t.type_id === this.createType) || null;
       },
 
+      // ── Unsent voucher ───────────────────────────────────────────────────
+      // The rule lives in unsent-voucher.js so the create screen, the detail
+      // view and the search list cannot drift apart on it, and so it can be
+      // tested without a browser. A missing export means "do not flag".
+      isUnsent(v) {
+        return !!window.unsentVoucher?.isUnsent?.(v);
+      },
+
+      unsentReason(v) {
+        return window.unsentVoucher?.unsentReason?.(v) || '';
+      },
+
       // A voucher gets emailed when its type isn't physical and an address is given.
       willEmailVoucher() {
         const t = this.selectedCreateType();
@@ -4646,22 +4739,30 @@
               issued_by: this.createIssuer.trim(),
             }),
           });
-          this.showToast(this.createdVoucher.voucher_id + ' created');
+          // No toast. The whole screen is the confirmation now, and a
+          // transient "created" line next to it was the signal that taught
+          // staff to read a success as "something happened, but the form is
+          // still here" (#133).
+          //
+          // The page is scrolled to wherever the submit button was, so scroll
+          // back up explicitly: the result panel renders at the top, and
+          // leaving it above the viewport is the original fault in a shorter
+          // page.
+          window.scrollTo({ top: 0, behavior: 'smooth' });
           // The list behind us no longer has everything in it. Set here rather
-          // than refreshing now: the create form stays open for the next
-          // voucher, and refreshData() declines to run while it is.
+          // than refreshing now: refreshData() declines to run while the create
+          // view is up, and Done goes through goSearch(), which does refresh.
           this._searchStale = true;
-          // Cleared with the customer fields, not kept for the next voucher: the
-          // form stays open and usable after a create, so whoever steps up next
-          // would otherwise inherit this name without it ever leaving the box.
+          // The customer fields are no longer cleared here: the form has left
+          // the page, and every route back to it — the nav, and "Create another
+          // voucher" — goes through goCreate(), which resets all of them.
+          //
+          // "Created by" is the exception, and stays cleared in both places on
+          // purpose. The front desk machine is shared, and a name left in state
+          // is the one field that could be attributed to the wrong person
+          // without ever being on screen to be corrected. Belt and braces is
+          // cheap here; see created-by-attribution.test.js.
           this.createIssuer = '';
-          this.createName = '';
-          this.createPhone = '';
-          this.createEmail = '';
-          this.createReason = '';
-          this.createGiftFrom = '';
-          this.createGiftTo = '';
-          this.createGiftMessage = '';
         } catch (e) {
           this.createError = e.message;
         } finally {

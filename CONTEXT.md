@@ -123,6 +123,20 @@ conditional — on an emailed voucher it is noise.
 *Avoid*: "printed voucher", "card voucher". The staff badge, the type editor
 checkbox and the column all read *physical*.
 
+### Unsent voucher
+
+A voucher that was due to reach someone by email and hasn't — the counterpart
+to a physical one, which is never unsent because no email was ever due.
+
+Defined canonically in the **vouchers** repo, `docs/CONTEXT.md`, because it is a
+state of the voucher record rather than of this page. The hub renders it in
+three places (the create result, the detail view, the search list) and asks
+`unsent-voucher.js` in all three rather than restating the rule.
+
+*Avoid*: "undelivered" — the email provider owns that word and means something
+we do not track. *Avoid*: "pending" — nothing retries it on its own; a staff
+member has to resend.
+
 ### Hero backdrop / hero artwork
 
 Two different public-page images, with **different blank behaviour**, which is
