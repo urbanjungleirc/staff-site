@@ -734,10 +734,30 @@ keep.
 
 The **one-day minimum** between booking and a School Session starting,
 server-enforced and knowable client-side from the event start. A selected event
-inside it hard-stops the run before any write.
+inside it stops the run before any write — **unless the operator overrides it for
+that session**.
+
+The minimum is a *lift-able* Clubworx booking restriction, not a property of
+time: a manager can remove it on the specific conflicted class, run the bookings,
+and put it back. So a too-soon session can be kept by an operator who confirms
+they have done that. The override is **per session**, never for a whole run; the
+session stays visible as overridden rather than disappearing; and it applies only
+to the lead time — an unreadable start time or an already-started session is
+still a hard-stop. See [ADR 0007](docs/adr/0007-lead-time-is-an-operator-override.md).
+
+The rule is enforced **twice, independently** — the picker blocks, and the write
+chain re-checks per student as a backstop. An override therefore travels to the
+Worker as the **explicit list of acknowledged event ids**, so everything nobody
+acknowledged is still refused. Never a run-wide flag: a session that crosses into
+the lead time between selection and the write must still be caught.
 
 Staff must never meet Clubworx's own message here — *"Sorry! This class is now
 closed for bookings."* — which names no cause and reads like a capacity problem.
+
+*Avoid*: treating a lifted restriction as spent once the run ends. The lasting
+damage in this whole area is a **class left open to public booking** because
+nobody put the restriction back, which is why the run reminds and why the
+reminder is in the run record.
 
 ### Unknown refusal
 
