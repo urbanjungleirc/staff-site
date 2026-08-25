@@ -160,6 +160,19 @@ school-booking.html     - the school booking page, steps 1-6 (#71, #72, #73, #10
                           confirmation. Both are cleared by the reset: a
                           statement about the last import's sessions is not a
                           statement about this one's.
+                          afterSelectionChange() rebuilds the selection AND
+                          the preview, and EVERY change to the selection goes
+                          through it — the acknowledgement handlers, togglePick,
+                          pickSeries and loadEvents. That is the whole of #145's
+                          "reflected without a reload", and it also fixed a
+                          preview left describing the old run after a tick
+                          changed (step 5's blocker list offers "Remove this
+                          session", so this was reachable from the preview
+                          itself). Rebuilt, never discarded: discardPreview() is
+                          for a step-3 edit, where the STUDENTS changed and the
+                          Clubworx check is genuinely void. A tick change costs
+                          nothing to rebuild and must not re-spend the
+                          allowance.
                           askLeadTimeOverride() only OPENS that confirmation;
                           confirmLeadTimeOverride() is the only thing that
                           writes to the log. keepAcknowledgementsForPicked() is
@@ -229,6 +242,17 @@ school-booking/preview.js - step 5: the STUDENT/DOB/READ/CLUBWORX/OUTCOME table,
                           Apply" rather than "pass already active". An absent
                           answer is `pending`, never `new` — `new` writes a
                           contact Clubworx cannot delete.
+                          liftedRestrictionsLine() is #145's second run-level
+                          fact, beside the permanence line and never inside it:
+                          the sessions this run will book with their Clubworx
+                          restriction lifted by hand (ADR 0007), named with
+                          events.js's sessionLabel() — the same label the picker
+                          and the blocker use, which is the only reason this
+                          module imports events.js. It is SILENT when nothing
+                          was acknowledged; a line that is always present is one
+                          that stops being read. It does not replace the
+                          session's own warning, which arrives here from
+                          selection carried verbatim, actions included.
                           runFingerprint() is #111's already-run gate, and it
                           SUPERSEDES §12 D13, which decided the opposite — read
                           the note there before touching it. Its own header says

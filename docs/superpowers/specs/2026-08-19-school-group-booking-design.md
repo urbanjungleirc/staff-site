@@ -935,7 +935,7 @@ staleness. Nothing else is re-validated.
 | Condition | Ruling |
 |---|---|
 | School Pass plan unresolved, or the name ambiguous | **Hard-stop the run** |
-| Any selected event starts inside the 24-hour lead time | **Hard-stop**, with the reason on screen and a one-click *"remove this session"* — **to become overridable per session; decided 2026-08-25, not yet built ([ADR 0007](../../adr/0007-lead-time-is-an-operator-override.md))** |
+| Any selected event starts inside the 24-hour lead time | **Hard-stop**, with the reason on screen and a one-click *"remove this session"* — **overridable per session since 2026-08-25: an operator who states they have lifted the class's Clubworx booking restriction keeps it, and it drops to a warning ([ADR 0007](../../adr/0007-lead-time-is-an-operator-override.md), [#143](https://github.com/urbanjungleirc/staff-site/issues/143)–[#145](https://github.com/urbanjungleirc/staff-site/issues/145))** |
 | No events selected, or zero parseable rows | **Hard-stop** |
 | Any unresolved gate — unparseable row, count mismatch, unconfirmed age | **Hard-stop** (§9) |
 | The last selected session falls outside `today + membership_duration` | **Hard-stop the run** (§3, ADR 0005) |
@@ -947,9 +947,10 @@ adjustment. Staff must never meet Clubworx's own message here — *"Sorry! This
 class is now closed for bookings."* — which names no cause and reads like a
 capacity problem.
 
-> **Amended 2026-08-25, after the spec was written — decided, not yet built**
-> ([#143](https://github.com/urbanjungleirc/staff-site/issues/143)–[#146](https://github.com/urbanjungleirc/staff-site/issues/146) are open;
-> the table row above still describes what the tool does today). The hard-stop
+> **Amended 2026-08-25, after the spec was written — built except the reminder**
+> ([#143](https://github.com/urbanjungleirc/staff-site/issues/143)–[#145](https://github.com/urbanjungleirc/staff-site/issues/145)
+> shipped; [#146](https://github.com/urbanjungleirc/staff-site/issues/146), the post-run
+> reminder, is still open). The hard-stop
 > half of D9 is reversed: a too-soon session becomes **keepable, per session**, by
 > an operator who confirms they have lifted that class's Clubworx booking
 > restriction — it is a lift-able restriction, not a property of time, and
