@@ -46,7 +46,7 @@
 // that picked it and in the blocker that named it — #145 says "the same session
 // label used elsewhere", and a second spelling of a date is how two screens
 // come to disagree about which Tuesday they mean.
-import { sessionLabel } from './events.js?v=7';
+import { sessionLabel } from './events.js?v=8';
 
 const plural = (n, noun) => `${n} ${noun}${n === 1 ? '' : 's'}`;
 // "School Pass" does not take a bare -s, and it is the noun this line is most

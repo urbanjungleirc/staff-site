@@ -68,14 +68,14 @@
      or missing module into a visible refusal rather than a page whose gates
      quietly do nothing. -->
 <script type="module">
-  import * as parser from './school-booking/parse.js?v=7';
-  import * as steps from './school-booking/steps.js?v=7';
-  import * as identity from './school-booking/identity.js?v=7';
-  import * as events from './school-booking/events.js?v=7';
-  import * as preview from './school-booking/preview.js?v=7';
-  import * as calendar from './school-booking/calendar.js?v=7';
-  import * as outcome from './school-booking/outcome.js?v=7';
-  import * as run from './school-booking/run.js?v=7';
+  import * as parser from './school-booking/parse.js?v=8';
+  import * as steps from './school-booking/steps.js?v=8';
+  import * as identity from './school-booking/identity.js?v=8';
+  import * as events from './school-booking/events.js?v=8';
+  import * as preview from './school-booking/preview.js?v=8';
+  import * as calendar from './school-booking/calendar.js?v=8';
+  import * as outcome from './school-booking/outcome.js?v=8';
+  import * as run from './school-booking/run.js?v=8';
   window.schoolListParser = parser;
   window.schoolBookingSteps = steps;
   window.schoolBookingIdentity = identity;
@@ -1480,6 +1480,26 @@
           </div>
         </div>
 
+        <!-- #146. Directly beneath the summary, beside the stranded-student
+             warning it sits under: both say *this run left something for a
+             human to finish in Clubworx*.
+             Its own block, deliberately, and not a line inside that banner.
+             Two reasons, and the first is the ticket's:
+               - The banner is shown on `resultLine()`, which is empty when a
+                 run produced no records. Nesting this inside it would put the
+                 reminder behind the run's RESULTS after taking such care to
+                 source it from the selection — the exact coupling #146 refuses,
+                 latent rather than live, but one refactor away from being real.
+               - Tone. On a clean run that banner is emerald, and a restriction
+                 left off is the one obligation that must never be rendered as
+                 part of a confirmation.
+             It is not `x-cloak`-hidden behind the table either: this outlives
+             the run it reports on, and is the last thing anybody reads before
+             closing the tab. -->
+        <div class="rounded-xl bg-amber-50 border border-amber-300 text-amber-900 px-3.5 py-2.5 text-sm mb-3"
+             x-show="liftedRestrictionsReminder()" x-cloak
+             x-text="liftedRestrictionsReminder()"></div>
+
         <div class="rounded-card border border-neutral-200 overflow-hidden bg-white"
              x-show="runRecords.length > 0" x-cloak>
           <div class="overflow-x-auto">
@@ -1785,6 +1805,12 @@ function schoolBooking() {
     runRemaining: 0,
     runAt: null,
     runSessionStarts: [],
+    // #146: the sessions this run was told had had their Clubworx restriction
+    // lifted, as labels, snapshotted from the selection at Apply. Held rather
+    // than re-derived because the reminder has to outlive the selection, the
+    // preview and the tab — the whole point is that it is still true after the
+    // page has moved on.
+    runLiftedSessions: [],
     // #111: what the last finished run covered, as `{ state, fingerprint }`.
     // Only a `complete` one closes Apply, and only against an identical
     // fingerprint — the rules are preview.js's, not this page's.
@@ -2917,6 +2943,11 @@ function schoolBooking() {
       this.cancelMessage = '';
       this.runAt = new Date().toISOString();
       this.runSessionStarts = (this.preview.sessions ?? []).map((e) => e.event_start_at);
+      // #146. Taken here, from the selection's own reading of what was
+      // acknowledged, and never rebuilt from the run afterwards: a run halted
+      // on its third refusal has no record for the acknowledged session at all,
+      // and that is the run whose restriction is most likely still off.
+      this.runLiftedSessions = this.preview.liftedSessionLabels ?? [];
       const fingerprint = this.preview.fingerprint;
       this.expandedResult = null;
       this.runRemaining = 0;
@@ -2992,6 +3023,13 @@ function schoolBooking() {
         at: this.runAt,
         school: this.tag,
         sessions: this.runSessionStarts,
+        // #146. Stored with the run, because a reminder that dies with the tab
+        // is no reminder: the restriction is off in Clubworx either way, and
+        // the operator who reopens this page is the one who has to put it back.
+        // `liftedSessions`, not `lifted`: this is the LIST of labels, where
+        // D10's record carries a key called `lifted` holding the sentence built
+        // from it. Two artifacts, two shapes — so two names.
+        liftedSessions: this.runLiftedSessions,
         state: this.runState,
         records: this.runRecords,
         // #111. Without these the gate dies with the tab, and reopening a
@@ -3039,6 +3077,17 @@ function schoolBooking() {
 
     strandedWarning() {
       return window.schoolBookingOutcome.strandedWarning(this.runRecords);
+    },
+
+    /**
+     * #146 — the restrictions this run left lifted, and nothing else.
+     *
+     * Reads the snapshot, never the records. Sourcing it from the run's results
+     * would look identical on a clean run and go silent on a halted one, which
+     * is the run that most needs it.
+     */
+    liftedRestrictionsReminder() {
+      return window.schoolBookingOutcome.liftedRestrictionsReminder(this.runLiftedSessions);
     },
 
     resultTone(record) {
@@ -3142,6 +3191,8 @@ function schoolBooking() {
         school: this.tag,
         at: this.runAt,
         sessions: this.runSessionStarts,
+        // #146 — the obligation goes into the ticket with the booking ids.
+        lifted: this.runLiftedSessions,
       });
     },
 
@@ -3171,6 +3222,10 @@ function schoolBooking() {
       this.runRecords = this.restored.records ?? [];
       this.runAt = this.restored.at ?? null;
       this.runSessionStarts = this.restored.sessions ?? [];
+      // #146. A run stored before this field carries no lifted sessions, and
+      // guessing one would name a session nobody acknowledged. Silence is the
+      // honest answer; the ticket the operator already has is the other record.
+      this.runLiftedSessions = this.restored.liftedSessions ?? [];
       // #112. The store is written per student (D10), so a tab closed on
       // student 19 leaves `running` behind — and a restored `running` is the
       // one state that cannot be true, because nothing is calling anything.
@@ -3337,6 +3392,7 @@ function schoolBooking() {
       this.runRemaining = 0;
       this.runAt = null;
       this.runSessionStarts = [];
+      this.runLiftedSessions = [];
       this.expandedResult = null;
       this.cancelState = 'idle';
       this.cancelMessage = '';

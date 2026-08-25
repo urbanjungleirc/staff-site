@@ -2846,3 +2846,151 @@ describe('the reset leaves nothing of the last import behind (#113)', () => {
     expect(app.schools).toEqual(fresh.schools);
   });
 });
+
+// ---------------------------------------------------------------------------
+// #146 — the reminder that outlives the run
+// ---------------------------------------------------------------------------
+// The lasting damage this feature can do is not a failed booking — that is loud
+// and self-correcting. It is a Clubworx restriction left off: a class open to
+// public booking for as long as nobody notices. So the reminder is sourced from
+// the *selection*, and the two tests that matter most below are the halted run
+// and the reload.
+
+describe('the restrictions left lifted are named after the run (#146)', () => {
+  const SOON_LABEL = 'School Session — Newman, 2026-08-22';
+
+  const ranWithOverride = async (opts = {}) => {
+    const app = await withSoon(opts);
+    app.askLeadTimeOverride('e0');
+    app.confirmLeadTimeOverride();
+    await app.toPreview();
+    app.askApply();
+    await app.apply();
+    return app;
+  };
+
+  test('a finished run still names the session whose restriction was lifted', async () => {
+    // A clean run is exactly the case an operator would call finished and walk
+    // away from — and it left the restriction off just the same.
+    const app = await ranWithOverride();
+    expect(app.runState).toBe('complete');
+
+    const reminder = app.liftedRestrictionsReminder();
+    expect(reminder).toContain(SOON_LABEL);
+    expect(reminder).toMatch(/restriction/i);
+    expect(reminder).toMatch(/put it back/i);
+  });
+
+  test('a run that halted before reaching the session still names it', async () => {
+    // The criterion this ticket turns on. Three refusals in a row halt the run
+    // (D7), so there is no result row for the acknowledged session at all — and
+    // a reminder read off the results would vanish here, on the run most likely
+    // to have left a restriction open.
+    const app = await ranWithOverride({
+      student: () => ({
+        status: 200,
+        body: { outcome: 'refused', reason: 'lead-time', written: false, message: 'too soon' },
+      }),
+    });
+
+    expect(app.runState).toBe('halted');
+    expect(app.runRecords.some((r) => r.state === 'booked')).toBe(false);
+    expect(app.liftedRestrictionsReminder()).toContain(SOON_LABEL);
+  });
+
+  test('a run nobody overrode shows no reminder', async () => {
+    const app = await upToApply(component());
+    expect(app.runRecords).toHaveLength(6);
+    expect(app.liftedRestrictionsReminder()).toBe('');
+  });
+
+  test('the summary and the stranded warning are untouched beside it', async () => {
+    // Both surfaces say "a human has something left to do in Clubworx", and
+    // both have to be able to say it at once.
+    const app = await ranWithOverride({
+      student: (body, n) => (n === 1
+        ? {
+          status: 200,
+          body: {
+            outcome: 'abandoned',
+            reason: 'booking-refused',
+            written: true,
+            contact: { contact_key: 'c-new', state: 'created' },
+            pass: { state: 'created-with-contact' },
+            bookings: [],
+            stranded: true,
+            strandedDetail: 'contact and pass, no bookings',
+            message: 'refused',
+          },
+        }
+        : { status: 200, body: STUDENT_OK }),
+    });
+
+    expect(app.strandedWarning()).toContain('contact and a pass but no bookings');
+    expect(app.resultLine()).toContain('created (permanent)');
+    expect(app.liftedRestrictionsReminder()).toContain(SOON_LABEL);
+  });
+
+  test('the record staff copy out carries it too', async () => {
+    const app = await ranWithOverride();
+    const parsed = JSON.parse(app.recordText());
+    expect(parsed.lifted).toContain(SOON_LABEL);
+    // D10's record is otherwise what it was.
+    expect(parsed.students).toHaveLength(6);
+    expect(parsed.school).toBe('newman');
+  });
+
+  test('it survives the tab: a restored run still names the lifted session', async () => {
+    const first = await ranWithOverride();
+    expect(first.__stored.get('uj-school-booking-run')).toBeTruthy();
+
+    const second = await upToPreview(component({
+      restored: JSON.parse(first.__stored.get('uj-school-booking-run')),
+    }));
+    second.openRestored();
+    expect(second.liftedRestrictionsReminder()).toContain(SOON_LABEL);
+    expect(JSON.parse(second.recordText()).lifted).toContain(SOON_LABEL);
+  });
+
+  test('a stored run from before this field says nothing rather than guessing', async () => {
+    const app = await upToPreview(component({
+      restored: {
+        at: '2026-08-24T10:00:00+08:00', school: 'newman', sessions: [], state: 'complete', records: [],
+      },
+    }));
+    app.openRestored();
+    expect(app.liftedRestrictionsReminder()).toBe('');
+  });
+
+  test('nothing about the reminder is gated on the run having results', async () => {
+    // The value is sourced from the selection; this pins the *rendering* to the
+    // same rule. `resultLine()` is empty over no records, and it is what the
+    // summary banner is shown on — so a reminder rendered inside that banner
+    // would be behind the run's results after all the care taken to keep it
+    // out of them. Both halves are asserted: the state, and the markup that
+    // reads it.
+    const app = await ranWithOverride();
+    app.runRecords = [];
+    expect(app.resultLine()).toBe('');
+    expect(app.liftedRestrictionsReminder()).toContain(SOON_LABEL);
+
+    // The reminder's own block, and its only condition is itself.
+    const at = html.indexOf('x-show="liftedRestrictionsReminder()"');
+    expect(at, 'the reminder is rendered on the result surface').toBeGreaterThan(-1);
+    // The reset control is the last thing inside that banner, so a reminder
+    // after it is a reminder outside it.
+    // `lastIndexOf` — step 1 renders the same control, and it is the step 6
+    // copy that closes this banner.
+    const lastInBanner = html.lastIndexOf('@click="startAnotherImport()"');
+    expect(lastInBanner).toBeGreaterThan(html.indexOf('x-show="resultLine()"'));
+    expect(at, 'the reminder sits outside the resultLine() banner').toBeGreaterThan(lastInBanner);
+  });
+
+  test('starting another import clears it', async () => {
+    const app = await ranWithOverride();
+    expect(app.liftedRestrictionsReminder()).toContain(SOON_LABEL);
+    app.askReset();
+    app.startAnotherImport();
+    expect(app.liftedRestrictionsReminder()).toBe('');
+  });
+});

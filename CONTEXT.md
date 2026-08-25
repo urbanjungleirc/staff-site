@@ -745,15 +745,17 @@ blocker, and the write chain re-checks per student as a backstop before any
 write. Neither is the whole rule, and the minimum itself is defined once and
 re-exported to the write chain.
 
-> **An operator override — decided 2026-08-25, built except the reminder**
+> **An operator override — decided and built 2026-08-25**
 > ([ADR 0007](docs/adr/0007-lead-time-is-an-operator-override.md),
 > [#143](https://github.com/urbanjungleirc/staff-site/issues/143)–[#146](https://github.com/urbanjungleirc/staff-site/issues/146)).
 > The **write chain** narrows its backstop to sessions absent from the
 > acknowledged list (#143), the **session picker** offers the override and takes
 > the confirmation (#144), and the **confirmation step** names every session
 > carrying a lifted restriction above the preview table and again where the run
-> is started (#145). Still open: #146, the post-run reminder to put the
-> restriction back.
+> is started (#145). After the run, the **result surface** and the JSON run
+> record both name every session whose restriction was lifted, so it gets put
+> back (#146) — sourced from the selection, never from the run's results, so a
+> run halted before it reached those sessions still says so.
 >
 > The minimum is a *lift-able* Clubworx booking restriction, not a property of
 > time: a manager can remove it on the specific conflicted class, run the
@@ -770,8 +772,12 @@ re-exported to the write chain.
 >
 > *Avoid*: treating a lifted restriction as spent when the run ends. The lasting
 > damage in this whole area is a **class left open to public booking** because
-> nobody put the restriction back, which is why the run must remind (#146) and
-> why the reminder belongs in the run record.
+> nobody put the restriction back — which is why the reminder is sourced from the
+> selection rather than the results (a halted run has no result row for the
+> session it never reached, and that is the run most likely to have left the
+> restriction off), and why it is written into the run record staff paste into a
+> ticket. The tool never restores a restriction itself; it reminds, and a person
+> acts.
 
 ### Unknown refusal
 

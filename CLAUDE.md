@@ -153,6 +153,11 @@ school-booking.html     - the school booking page, steps 1-6 (#71, #72, #73, #10
                           equals a fresh one field by field — the reset restates
                           the component literal's initial values and nothing in
                           the language links the two copies.
+                          `runLiftedSessions` is #146's snapshot, taken from
+                          the selection at Apply and stored with the run, so the
+                          reminder outlives the selection, the preview and the
+                          tab. A stored run from before that field names
+                          nothing rather than guessing.
                           ADR 0007 (#144) added `leadTimeAcknowledgements` — the
                           per-session log of too-soon sessions an operator has
                           stated they lifted the Clubworx restriction for — and
@@ -314,6 +319,16 @@ school-booking/outcome.js - what one `POST /student` answer means, and what a
                           settled. The two answer different questions — "is
                           there anything worth doing again?" and "did this
                           work?" — and a cancel since takes the second back.
+                          liftedRestrictionsReminder() is #146's post-run
+                          obligation: the sessions whose Clubworx restriction an
+                          operator lifted by hand, named on the result surface
+                          beside strandedWarning() and carried in D10's record.
+                          Its argument is the acknowledged session LABELS, not
+                          the records, and that signature is the ticket: a run
+                          halted by D7 has no result row for the acknowledged
+                          session, so a reminder derived from results would go
+                          silent on the run most likely to have left a class
+                          open to public booking.
 school-booking/parse.js - turns a pasted school student list into rows plus the
                           list-level inferences (layout, column mapping, date
                           orientation). Pure and unit tested; §7 of the design
