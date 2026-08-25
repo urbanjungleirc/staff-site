@@ -739,6 +739,34 @@ inside it hard-stops the run before any write.
 Staff must never meet Clubworx's own message here — *"Sorry! This class is now
 closed for bookings."* — which names no cause and reads like a capacity problem.
 
+The rule is enforced **twice, independently**: session selection raises the
+blocker, and the write chain re-checks per student as a backstop before any
+write. Neither is the whole rule, and the minimum itself is defined once and
+re-exported to the write chain.
+
+> **Becoming an operator override — decided 2026-08-25, not yet built**
+> ([ADR 0007](docs/adr/0007-lead-time-is-an-operator-override.md),
+> [#143](https://github.com/urbanjungleirc/staff-site/issues/143)–[#146](https://github.com/urbanjungleirc/staff-site/issues/146)).
+> Until those land, the hard-stop above is the whole truth of what the tool does.
+>
+> The minimum is a *lift-able* Clubworx booking restriction, not a property of
+> time: a manager can remove it on the specific conflicted class, run the
+> bookings, and put it back. So a too-soon session will be keepable by an
+> operator who confirms they have done that — **per session**, never for a whole
+> run, with the session staying visible as overridden rather than disappearing,
+> and only for the lead time. An unreadable start time or an already-started
+> session stays a hard-stop either way.
+>
+> Because the rule is enforced twice, an override travels to the Worker as the
+> **explicit list of acknowledged event ids**, so everything nobody acknowledged
+> is still refused. Never a run-wide flag: a session that crosses into the lead
+> time between selection and the write must still be caught.
+>
+> *Avoid*, once it is built: treating a lifted restriction as spent when the run
+> ends. The lasting damage in this whole area is a **class left open to public
+> booking** because nobody put the restriction back, which is why the run will
+> remind and why the reminder belongs in the run record.
+
 ### Unknown refusal
 
 A `400` whose message matches none of the three known strings — prospect
