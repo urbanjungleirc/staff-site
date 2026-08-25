@@ -79,7 +79,6 @@
     window.scanInput = scanInput;
   </script>
   <script defer src="https://cdn.jsdelivr.net/npm/alpinejs@3.x.x/dist/cdn.min.js"></script>
-  <script src="https://cdn.jsdelivr.net/npm/qrcode@1.5.3/build/qrcode.min.js"></script>
   <style>
     [x-cloak] { display: none !important; }
     :root {
@@ -3559,7 +3558,6 @@
       notesLoading: false,
       notesError: '',
 
-      qrDataUrl: '',
 
       // Resend email modal
       resendOpen: false,
@@ -4245,14 +4243,6 @@
         } finally {
           this.detailLoading = false;
         }
-        if (this.voucher) this.$nextTick(() => this.renderQr());
-      },
-
-      renderQr() {
-        if (!this.voucher || typeof QRCode === 'undefined') return;
-        QRCode.toDataURL(this.voucher.voucher_id, { width: 164, margin: 1 }, (err, url) => {
-          if (!err) this.qrDataUrl = url;
-        });
       },
 
       // After a redeem/undo, keep the search results list (which the staff member
