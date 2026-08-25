@@ -392,7 +392,8 @@ POST /api/clubworx/student
   "contact_key": null,              // null means "new" — this call creates them
   "membership_plan_id": 64189,      // from GET /plan
   "membership_duration": "26 weeks",// the plan's own string, raw
-  "events": [{ "event_id": 101, "starts_at": "2026-09-03T10:00:00+08:00" }]
+  "events": [{ "event_id": 101, "starts_at": "2026-09-03T10:00:00+08:00" }],
+  "lead_time_acknowledged_event_ids": []   // ADR 0007 — see below. Optional
 }
 ```
 
@@ -400,6 +401,43 @@ POST /api/clubworx/student
 matched → re-read membership → ensure School Pass → book ×N → verify
 new     → create contact WITH the pass ───────────→ book ×N → verify
 ```
+
+### The lead-time gate is narrowed, never switched off
+
+The chain re-checks the 24-hour lead time per student as a backstop before any
+write, and refuses a too-soon session with `reason: "lead-time"` naming the
+offending event ids. **`lead_time_acknowledged_event_ids` narrows who that
+refusal applies to** — the event ids an operator stated they have lifted the
+Clubworx booking restriction for ([ADR 0007](../docs/adr/0007-lead-time-is-an-operator-override.md)).
+Everything absent from the list is still refused, with the same reason and the
+same ids as before.
+
+It is a list and **never a flag**, and that is the whole safety property. A flag
+would also cover a session that crossed into the lead time between selection and
+this call — real on a sixty-student list started at 23:40 — and a session the
+operator never saw. Both book silently under a flag; under ids both are still
+refused, because nobody took responsibility for them.
+
+Three things it deliberately is not:
+
+- **Not an opinion.** D14 still holds: the route hands the list through and the
+  chain does not re-validate the event list. An id naming a session this run did
+  not select is **inert**.
+- **Not a way past an unreadable start.** A session whose `starts_at` will not
+  parse is refused as `bad-request` whether it was acknowledged or not — "we
+  cannot check this" must never become "you may override this".
+- **Not a way past a session that has already started.** Only the lead time is
+  a restriction the gym can lift. There is no separate past-session gate here —
+  a started session reaches the lead-time comparison as a *negative* delta — so
+  the narrowing excludes it explicitly. Its refusal is unchanged: still
+  `lead-time`, because nothing about a request carrying no acknowledgements may
+  move.
+- **Not a change to the minimum.** `MIN_LEAD_HOURS` stays defined once, in
+  `src/events.js`, and is imported here. This narrows *who the rule is applied
+  to*; it never re-derives what the rule is.
+
+Ids are compared as strings on both sides, so an id that made the round trip as
+`"101"` still matches one the picker read as `101`.
 
 ### The unit is one student, and it is all-or-nothing
 
@@ -484,8 +522,9 @@ Only two things are not a `200`, and in both there is nothing to record:
 
 - **`429`** — a throttle **that wrote nothing**. §11 pauses the *whole run* on a
   throttle, because the allowance is gym-wide.
-- **`400`** — a refusal that happened before any write: a session inside the
-  24-hour lead time, a pass that will not cover the term, a malformed request.
+- **`400`** — a refusal that happened before any write: an **unacknowledged**
+  session inside the 24-hour lead time, a pass that will not cover the term, a
+  malformed request.
 
 Everything else — including an abandoned, rolled-back student, and including a
 throttle that struck *after* something permanent was written — is a `200`

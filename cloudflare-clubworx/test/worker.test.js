@@ -562,6 +562,41 @@ describe('POST /student', () => {
     expect(await res.json()).toMatchObject({ outcome: 'complete', requests: 4 });
   });
 
+  it('hands the acknowledged event ids to the write chain (ADR 0007)', async () => {
+    // A page-only override refuses every student and halts the run on the
+    // third, so the ids reaching the chain is the whole feature, not plumbing.
+    let seen = null;
+    const h = handlerWith(accepts(OPERATOR), {
+      runStudent: async args => {
+        seen = args;
+        return await completes()();
+      },
+    });
+
+    await h.call(
+      '/api/clubworx/student',
+      post({ ...BODY, lead_time_acknowledged_event_ids: [101, 102] }),
+    );
+
+    expect(seen.leadTimeAcknowledgedEventIds).toEqual([101, 102]);
+  });
+
+  it('sends an empty acknowledgement list when the body carries none', async () => {
+    // Today's body has no such field, and it must keep meaning "nobody
+    // acknowledged anything" rather than arriving as undefined.
+    let seen = null;
+    const h = handlerWith(accepts(OPERATOR), {
+      runStudent: async args => {
+        seen = args;
+        return await completes()();
+      },
+    });
+
+    await h.call('/api/clubworx/student', post());
+
+    expect(seen.leadTimeAcknowledgedEventIds).toEqual([]);
+  });
+
   it('passes the page a 400 for a refusal that happened before any write', async () => {
     const h = handlerWith(accepts(OPERATOR), {
       runStudent: completes({ ok: false, outcome: 'refused', reason: 'lead-time', written: false }),

@@ -101,6 +101,125 @@ describe('refusals before any permanent write', () => {
     expect(client.calls).toHaveLength(0);
   });
 
+  // -------------------------------------------------------------------------
+  // ADR 0007 — the lead time is an operator override, not a law. The gate is
+  // NARROWED to sessions nobody acknowledged; it is never switched off. Every
+  // test below has to stay able to tell those two apart.
+  // -------------------------------------------------------------------------
+
+  it('books a too-soon session the operator acknowledged', async () => {
+    const client = makeClient({
+      'POST members': ok({ contact_key: 'ck-new' }),
+      'GET members': ok([contactRow()]),
+      'POST bookings': ok({ booking_id: 'b1' }),
+      'GET bookings': ok([{ booking_id: 'b1', event_id: 101 }]),
+    });
+    const out = await run(client, {
+      events: [{ event_id: 101, starts_at: '2026-08-20T12:00:00Z' }],
+      leadTimeAcknowledgedEventIds: [101],
+    });
+
+    expect(out.outcome).toBe('complete');
+  });
+
+  it('names only the unacknowledged session when two are too soon and one is acknowledged', async () => {
+    // The whole point of ids over a flag: acknowledging Tuesday must not
+    // acknowledge Thursday.
+    const client = makeClient({});
+    const out = await run(client, {
+      events: [
+        { event_id: 101, starts_at: '2026-08-20T12:00:00Z' },
+        { event_id: 102, starts_at: '2026-08-20T14:00:00Z' },
+      ],
+      leadTimeAcknowledgedEventIds: [101],
+    });
+
+    expect(out).toMatchObject({ outcome: 'refused', reason: 'lead-time', written: false });
+    expect(out.leadTimeEventIds).toEqual([102]);
+    expect(out.message).toContain('1 selected session(s)');
+    expect(client.calls).toHaveLength(0);
+  });
+
+  it('ignores an acknowledgement naming a session this run did not select', async () => {
+    const client = makeClient({});
+    const out = await run(client, {
+      events: [{ event_id: 101, starts_at: '2026-08-20T12:00:00Z' }],
+      leadTimeAcknowledgedEventIds: [999],
+    });
+
+    expect(out).toMatchObject({ outcome: 'refused', reason: 'lead-time' });
+    expect(out.leadTimeEventIds).toEqual([101]);
+  });
+
+  it('matches an acknowledged id whatever it was carried as, so a string id from JSON still counts', async () => {
+    const client = makeClient({
+      'POST members': ok({ contact_key: 'ck-new' }),
+      'GET members': ok([contactRow()]),
+      'POST bookings': ok({ booking_id: 'b1' }),
+      'GET bookings': ok([{ booking_id: 'b1', event_id: 101 }]),
+    });
+    const out = await run(client, {
+      events: [{ event_id: 101, starts_at: '2026-08-20T12:00:00Z' }],
+      leadTimeAcknowledgedEventIds: ['101'],
+    });
+
+    expect(out.outcome).toBe('complete');
+  });
+
+  it('still refuses a session that has already started, acknowledged or not', async () => {
+    // ADR 0007: only the lead-time refusal is overridable. An already-started
+    // session is not a restriction the gym can lift, so no confirmation can
+    // buy it. The Worker has no separate past-session gate — a started session
+    // reaches the lead-time filter as a NEGATIVE delta — so the narrowing has
+    // to exclude it explicitly or acknowledging one books it.
+    const client = makeClient({});
+    const out = await run(client, {
+      events: [{ event_id: 101, starts_at: '2026-08-19T02:00:00Z' }], // a day ago
+      leadTimeAcknowledgedEventIds: [101],
+    });
+
+    expect(out).toMatchObject({ outcome: 'refused', reason: 'lead-time', written: false });
+    expect(out.leadTimeEventIds).toEqual([101]);
+    expect(client.calls).toHaveLength(0);
+  });
+
+  it('treats a session starting exactly now as started, not as overridable', async () => {
+    // The boundary belongs on the refusing side: at the instant it starts there
+    // is nothing left to book.
+    const client = makeClient({});
+    const out = await run(client, {
+      events: [{ event_id: 101, starts_at: NOW }],
+      leadTimeAcknowledgedEventIds: [101],
+    });
+
+    expect(out).toMatchObject({ outcome: 'refused', reason: 'lead-time' });
+    expect(out.leadTimeEventIds).toEqual([101]);
+  });
+
+  it('still refuses a session whose start cannot be read, acknowledged or not', async () => {
+    // "We cannot check this" must never become "you may override this".
+    const client = makeClient({});
+    const out = await run(client, {
+      events: [{ event_id: 101, starts_at: 'not a date' }],
+      leadTimeAcknowledgedEventIds: [101],
+    });
+
+    expect(out).toMatchObject({ outcome: 'refused', reason: 'bad-request', written: false });
+    expect(client.calls).toHaveLength(0);
+  });
+
+  it('refuses an unacknowledged too-soon session exactly as before when acknowledgements are absent', async () => {
+    // The no-acknowledgement path is today's path, and it must not have moved.
+    const client = makeClient({});
+    const events = [{ event_id: 101, starts_at: '2026-08-20T12:00:00Z' }];
+    const before = await run(client, { events });
+    const after = await run(client, { events, leadTimeAcknowledgedEventIds: [] });
+
+    expect(after).toEqual(before);
+    expect(before.leadTimeEventIds).toEqual([101]);
+    expect(client.calls).toHaveLength(0);
+  });
+
   it('stops when the last session falls outside the plan duration', async () => {
     // A 26-week pass granted 2026-08-20 covers to 2027-02-17. A session in March
     // is past that, and every booking would still be written on a day the pass

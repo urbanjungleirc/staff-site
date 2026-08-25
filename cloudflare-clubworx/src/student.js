@@ -68,7 +68,9 @@
  * **It does not re-validate the event list.** D14 is explicit that only the
  * membership is re-read. The lead-time and pass-coverage gates below run
  * against the dates the page sends; they are a backstop at the point of writing,
- * not a second source of truth.
+ * not a second source of truth. ADR 0007 gives the lead-time gate one more
+ * input — the event ids an operator acknowledged — and no more authority: it
+ * narrows who the refusal applies to, and decides nothing about them.
  *
  * **It does not run the circuit breaker.** D7 halts a *run* after 3 consecutive
  * failures, and a run is many students across many calls — the page's job. This
@@ -99,6 +101,10 @@ import { isRetryable, upstreamMessage, upstreamReason } from './upstream.js';
  * (D9). Two copies would drift, and the drift shows up as a run refused at its
  * last step for a session the page had shown as selectable — with nothing on
  * either screen to say why the two disagreed.
+ *
+ * ADR 0007 makes that sharing load-bearing twice over: the two halves now share
+ * one list of exceptions as well as one definition of the rule, and they must
+ * not be able to disagree about either.
  */
 export { MIN_LEAD_HOURS };
 
@@ -360,6 +366,34 @@ const startOf = event => {
 };
 
 /**
+ * The acknowledged event ids, as a set that can be asked about an event id.
+ *
+ * Compared as strings on both sides. A Clubworx event id arrives as a number
+ * from the picker's read and as whatever JSON carried it on the way back in,
+ * and an acknowledgement that silently stops matching because one side is
+ * `101` and the other `"101"` fails in the direction that books nothing and
+ * explains nothing — the operator is told the session they just vouched for is
+ * refused.
+ *
+ * Anything that is not a list becomes an empty one rather than throwing. The
+ * route already coerces a malformed body field, so this is the second guard
+ * on a value that decides whether a permanent write happens — and the chain is
+ * exported and called directly, by the tests here and by anything later. The
+ * failure it forecloses is the one this file's header warns about: a value
+ * guessed past is the one that writes. Empty is the fail-closed answer, since
+ * an empty set excuses nothing.
+ *
+ * @param {unknown} ids
+ * @returns {Set<string>}
+ */
+const acknowledgedSet = ids =>
+  new Set(
+    (Array.isArray(ids) ? ids : [])
+      .filter(id => id !== null && id !== undefined)
+      .map(id => String(id)),
+  );
+
+/**
  * Run the whole chain for one student.
  *
  * @param {object} opts
@@ -369,6 +403,9 @@ const startOf = event => {
  * @param {string|number} opts.membershipPlanId The School Pass plan, resolved by `GET /plan`.
  * @param {string} opts.membershipDuration The plan's `membership_duration`, raw.
  * @param {Array<{event_id: any, starts_at: string, spaces_available?: number}>} opts.events
+ * @param {Array<any>} [opts.leadTimeAcknowledgedEventIds] The event ids the operator
+ *   has stated they lifted the Clubworx booking restriction for (ADR 0007). A list,
+ *   never a flag: everything absent from it is still refused by the gate below.
  * @param {string} [opts.now] The instant of the run. Injected so tests are not clock-dependent.
  * @param {(ms: number) => Promise<void>} [opts.sleep]
  */
@@ -379,6 +416,7 @@ export async function runStudentChain({
   membershipPlanId,
   membershipDuration,
   events = [],
+  leadTimeAcknowledgedEventIds = [],
   now = new Date().toISOString(),
   sleep = ms => new Promise(resolve => setTimeout(resolve, ms)),
 }) {
@@ -443,7 +481,31 @@ export async function runStudentChain({
     });
   }
 
-  const tooSoon = events.filter((_, i) => starts[i] - startedAt < MIN_LEAD_HOURS * MS_PER_HOUR);
+  // ADR 0007 — the gate is NARROWED to the sessions nobody acknowledged, never
+  // switched off. A single "allow too-soon" flag was rejected because it would
+  // also cover a session that crossed into the lead time between selection and
+  // this call, and a session the operator never saw. Both are real on a
+  // sixty-student list started late in the evening, and under a flag both book
+  // silently. The acknowledgement is read here and nowhere else: the rule
+  // itself still lives once, in `events.js`, and is imported above.
+  //
+  // **Only a session that has not started yet can be excused.** ADR 0007 keeps
+  // an already-started session a hard-stop — it is not a restriction the gym
+  // can lift, so no confirmation can buy it. This gate has no separate
+  // past-session check (the page's `sessionRefusal()` does): a started session
+  // arrives here as a NEGATIVE delta and is caught by the same comparison. So
+  // the exclusion has to be written down here, or the same late-evening list
+  // the ids exist to protect books a session that is already under way.
+  //
+  // Note what this deliberately does NOT do: it does not give a started
+  // session its own reason. Nothing about a request carrying no
+  // acknowledgements may move, and today such a session refuses as
+  // `lead-time`.
+  const acknowledged = acknowledgedSet(leadTimeAcknowledgedEventIds);
+  const excused = (event, at) => at > startedAt && acknowledged.has(String(event.event_id));
+  const tooSoon = events.filter(
+    (e, i) => starts[i] - startedAt < MIN_LEAD_HOURS * MS_PER_HOUR && !excused(e, starts[i]),
+  );
   if (tooSoon.length > 0) {
     // D9 — dropping the event automatically was rejected as a silent
     // adjustment. Staff must never meet Clubworx's own message here.
