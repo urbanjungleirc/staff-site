@@ -69,6 +69,14 @@
     // behaviour rather than throwing on every row of the search list.
     import * as unsentVoucher from './unsent-voucher.js?v=1';
     window.unsentVoucher = unsentVoucher;
+    // And once more here. A stale cached copy of this one costs scanning
+    // entirely: staffApp() takes its buffer from this module at construction,
+    // and a missing export leaves that null, so onScanKey() returns on the
+    // first line and every keystroke falls through untouched. That is the
+    // right failure — the alternative is throwing on every keypress in the
+    // hub, which would break typing as well as scanning.
+    import * as scanInput from './scan-input.js?v=1';
+    window.scanInput = scanInput;
   </script>
   <script defer src="https://cdn.jsdelivr.net/npm/alpinejs@3.x.x/dist/cdn.min.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/qrcode@1.5.3/build/qrcode.min.js"></script>
@@ -757,7 +765,8 @@
   </style>
 </head>
 <body class="bg-neutral-100 text-neutral-900 min-h-screen antialiased font-sans"
-  x-data="staffApp()" x-init="init()" x-cloak>
+  x-data="staffApp()" x-init="init()" x-cloak
+  @keydown.window="onScanKey($event)">
 
   <!-- ── Header ──────────────────────────────────────────────────────────── -->
   <header class="hub-header text-white">
@@ -1137,6 +1146,36 @@
       </div>
       <div x-show="detailError && !detailLoading"
         class="bg-rose-50 border border-rose-200 text-rose-700 rounded-xl p-4 text-sm" x-text="detailError"></div>
+
+      <!-- Why a scan landed here instead of on the redeem form. A staff member
+           who scanned expecting to take payment needs the reason in front of
+           them while they explain it, so this is a banner and not a toast that
+           vanishes just as the customer asks "why?".
+
+           Three literal-class variants rather than one with a computed class:
+           the hub runs on the Tailwind Play CDN, which only generates classes
+           it can see in the markup, so a class name assembled in JavaScript
+           renders as no styling at all. The status badge below carries the
+           voucher's state; this carries the refusal. -->
+      <template x-if="scanBlock && !detailLoading && voucher">
+        <div class="mb-5">
+          <div x-show="scanBlock.reason === 'expired'"
+            class="bg-amber-50 border border-amber-200 text-amber-800 rounded-xl p-4 text-sm font-medium"
+            x-text="scanBlock.message"></div>
+          <div x-show="scanBlock.reason === 'cancelled'"
+            class="bg-rose-50 border border-rose-200 text-rose-700 rounded-xl p-4 text-sm font-medium"
+            x-text="scanBlock.message"></div>
+          <div x-show="scanBlock.reason === 'no-balance'"
+            class="bg-sky-50 border border-sky-200 text-sky-800 rounded-xl p-4 text-sm font-medium"
+            x-text="scanBlock.message"></div>
+          <!-- A status voucher_derived_status() grew that this page has not
+               learned. Amber rather than neutral: it is a refusal, and a
+               refusal in grey reads as a caption. -->
+          <div x-show="scanBlock.reason === 'unknown'"
+            class="bg-amber-50 border border-amber-200 text-amber-800 rounded-xl p-4 text-sm font-medium"
+            x-text="scanBlock.message"></div>
+        </div>
+      </template>
 
       <div x-show="voucher && !detailLoading" class="grid md:grid-cols-3 gap-4">
 
@@ -2111,7 +2150,9 @@
           <label class="block text-[0.67rem] font-semibold text-neutral-400 uppercase tracking-wider mb-1.5">
             Amount ($) <span class="text-rose-400 normal-case tracking-normal font-normal">*</span>
           </label>
-          <input type="number" step="0.01" min="0.01" :max="voucher?.balance"
+          <!-- id is how a scan puts the cursor here. The field stays blank on
+               purpose; see openScannedCode(). -->
+          <input type="number" step="0.01" min="0.01" :max="voucher?.balance" id="redeem-amount"
             x-model="redeemAmount" placeholder="0.00"
             class="w-full border border-neutral-200 rounded-xl px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-uj/20 focus:border-uj" />
           <button @click="redeemAmount = String(voucher?.balance)"
@@ -3366,6 +3407,19 @@
 
   <script>
   function staffApp() {
+    // The scan buffer and the double-trigger guard live HERE, in the closure,
+    // and deliberately not on the object below. Alpine wraps its data in a
+    // reactive Proxy; a stateful helper does not want one around it, and
+    // nothing on screen renders a half-read buffer, so making it reactive
+    // would buy nothing and cost a re-render per keystroke.
+    //
+    // Built once at construction. If scan-input.js failed to load this is
+    // null, and onScanKey() returns on its first line — no scanning, no
+    // throwing.
+    const scanBuffer = window.scanInput?.createScanBuffer?.() ?? null;
+    let lastScannedCode = '';
+    let lastScannedAt = 0;
+
     // Production talks to the payments Worker through the same-origin proxy, so
     // Cloudflare Access authenticates every call and no secret is needed.
     // Localhost has no Access in front of it, so it keeps the shared-secret path.
@@ -3465,6 +3519,9 @@
       detailLoading: false,
       detailError: '',
       detailOrigin: 'search', // where the detail view was opened from: 'search' | 'reports'
+      // Why a scan did NOT open the redeem form: { reason, message } from
+      // scanOutcome(), or null. Cleared by every route into the detail view.
+      scanBlock: null,
 
       // Redeem modal
       redeemOpen: false,
@@ -4120,16 +4177,24 @@
       },
 
       // ── Detail ───────────────────────────────────────────────────────────
-      async openVoucher(code, origin) {
+      async openVoucher(code, origin, preloaded) {
         // Only set origin on a fresh open; refresh calls (after redeem/undo/resend)
         // omit it so the "Back to …" target is preserved.
         if (origin) this.detailOrigin = origin;
         this.view = 'detail';
         this.voucher = null;
         this.detailError = '';
+        // Every route into the detail view clears the scan banner, which is why
+        // openScannedCode() sets it after calling this and never before. A
+        // banner surviving into a voucher opened by hand would explain a
+        // refusal that has nothing to do with what is on screen.
+        this.scanBlock = null;
         this.detailLoading = true;
         try {
-          this.voucher = await this.api('/v1/vouchers/' + encodeURIComponent(code));
+          // A scan has already fetched the voucher to decide where to send
+          // staff. Passing it in keeps that to one request rather than two
+          // identical ones on the way to the same screen.
+          this.voucher = preloaded || await this.api('/v1/vouchers/' + encodeURIComponent(code));
         } catch (e) {
           this.detailError = e.message;
         } finally {
@@ -5006,6 +5071,109 @@
       },
       reportRedeemedTotalPages() {
         return Math.max(1, Math.ceil((this.report?.redeemed?.length || 0) / this.PAGE_SIZE));
+      },
+
+      // ── Scanning ─────────────────────────────────────────────────────────
+      // The front-desk scanner is a USB keyboard: it types the code and presses
+      // Enter. There is no device to talk to and no event saying "a scan
+      // happened" — only characters arriving with nothing focused. The rules
+      // are in scan-input.js; this is the wiring. See
+      // docs/adr/0006-voucher-scanning-is-a-keyboard-wedge.md.
+      onScanKey(e) {
+        if (!scanBuffer) return;                       // module missing — no scanning, no throwing
+        if (this.typingSomewhere(e) || this.committedTaskOpen()) {
+          // Not our keystrokes. Drop anything half-collected too, so a code
+          // begun outside a field and finished inside one cannot be stitched
+          // together into a scan nobody made.
+          scanBuffer.reset();
+          return;
+        }
+
+        const result = scanBuffer.push(e.key);
+        if (!result) return;
+
+        if (result.type === 'code') {
+          // The scanner's Enter would otherwise reach whatever is behind it.
+          e.preventDefault();
+          this.openScannedCode(result.code);
+          return;
+        }
+
+        // Enough characters to have been a real attempt, but not a voucher
+        // code. Saying nothing here is worse than saying this: a staff member
+        // who shot the wrong side of a card would see nothing happen and
+        // conclude the scanner is broken.
+        this.showToast('That isn’t a voucher code', 'error');
+      },
+
+      typingSomewhere(e) {
+        const el = e.target || document.activeElement;
+        if (!el) return false;
+        return el.tagName === 'INPUT' || el.tagName === 'TEXTAREA'
+          || el.tagName === 'SELECT' || el.isContentEditable === true;
+      },
+
+      // Is a modal open — a task someone has committed to? A scan must not blow
+      // past one: the type editor guards unsaved changes behind a discard
+      // prompt, and jumping to another voucher would reintroduce exactly the
+      // loss that guard exists to prevent.
+      //
+      // NOT the same question as _anyModalOpen() above, which asks "is the user
+      // busy, so do not re-fetch under them" and therefore counts the combo
+      // popovers too. A popover is not a committed task and must not block a
+      // scan — that difference is half the reason this is a separate test.
+      //
+      // The other half: this one is structural, so a modal added later is
+      // covered without anyone remembering to come back here. A flag list rots
+      // silently, and the failure mode is a scan running straight through an
+      // open dialog.
+      //
+      // getClientRects(), not offsetParent: offsetParent is null for a
+      // position:fixed element whether it is shown or hidden, so it would
+      // report every modal closed.
+      committedTaskOpen() {
+        return Array.from(document.querySelectorAll('.fixed.inset-0'))
+          .some((el) => el.getClientRects().length > 0);
+      },
+
+      // Where a scanned or typed voucher code lands. One lookup: the answer
+      // decides the destination AND is what the detail view renders.
+      async openScannedCode(code) {
+        // A scanner can double-trigger on one pull. The same code twice within
+        // a moment is that, not a second customer.
+        const now = Date.now();
+        if (code === lastScannedCode && now - lastScannedAt < 1500) return;
+        lastScannedCode = code;
+        lastScannedAt = now;
+
+        let voucher;
+        try {
+          voucher = await this.api('/v1/vouchers/' + encodeURIComponent(code));
+        } catch (err) {
+          // Stay where we are. Yanking someone onto an error screen for a
+          // mis-scan costs them whatever they were doing, and the toast says
+          // everything there is to say.
+          this.showToast(
+            err?.status === 404 ? 'No voucher ' + code : (err?.message || 'Lookup failed'),
+            'error',
+          );
+          return;
+        }
+
+        const outcome = window.scanInput.scanOutcome(voucher);
+        // openVoucher clears scanBlock, so the banner is set after it, never
+        // before. Passing the voucher we already have keeps this to one request.
+        await this.openVoucher(code, 'search', voucher);
+
+        if (outcome.action === 'redeem') {
+          this.openRedeem();
+          // Focus the amount, which is deliberately left blank: a redeem cannot
+          // be undone without a manager, so the amount stays a deliberate act
+          // rather than something a staff member confirms by momentum.
+          this.$nextTick(() => document.getElementById('redeem-amount')?.focus());
+          return;
+        }
+        this.scanBlock = outcome;
       },
 
       // ── Helpers ──────────────────────────────────────────────────────────

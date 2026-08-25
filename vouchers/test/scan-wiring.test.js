@@ -10,6 +10,17 @@ import { readFileSync } from 'node:fs';
 
 const page = readFileSync(new URL('../index.html', import.meta.url), 'utf8');
 
+function between(start, end) {
+  const from = page.indexOf(start);
+  if (from < 0) throw new Error(`could not find ${start} in index.html`);
+  const to = page.indexOf(end, from + start.length);
+  if (to < 0) throw new Error(`could not find ${end} after ${start}`);
+  return page.slice(from, to);
+}
+
+const onScanKey = () => between('onScanKey(e) {', '\n      },');
+const openScannedCode = () => between('async openScannedCode(code) {', '\n      },');
+
 describe('the camera scanner is gone', () => {
   // It was unreachable dead code — goScan() had no caller anywhere in the repo
   // — and it loaded a third-party script from unpkg onto a page behind Access.
@@ -29,5 +40,198 @@ describe('the camera scanner is gone', () => {
     for (const gone of ['goScan', 'startScanner', 'stopScannerIfActive', 'lookupManual', 'manualCode']) {
       expect(page).not.toContain(gone);
     }
+  });
+});
+
+describe('the listener is wired', () => {
+  test('the module is imported and published for the component to read', () => {
+    expect(page).toMatch(/import \* as scanInput from '\.\/scan-input\.js\?v=\d+'/);
+    expect(page).toContain('window.scanInput = scanInput;');
+  });
+
+  // Bound in the markup rather than added in init(). The page carries
+  // x-data + x-init="init()", which Alpine runs TWICE — once itself and once
+  // for the directive — so a listener attached there would double-handle every
+  // keystroke. A directive binds once per element whatever init does.
+  test('keydown is bound on the root, at window scope', () => {
+    expect(page).toContain('@keydown.window="onScanKey($event)"');
+    expect(between('x-data="staffApp()"', '>')).toContain('@keydown.window');
+  });
+
+  test('a missing module disables scanning instead of throwing', () => {
+    // Every keystroke in the hub goes through this. Throwing here would break
+    // typing, not just scanning.
+    expect(page).toMatch(/const scanBuffer = window\.scanInput\?\.createScanBuffer\?\.\(\)/);
+    expect(onScanKey()).toMatch(/^\s*if \(!scanBuffer\) return;/m);
+  });
+
+  // Alpine wraps its data in a reactive Proxy. The buffer is stateful and
+  // nothing renders it, so it lives in the closure — see the comment there.
+  test('the buffer is a closure variable, not component data', () => {
+    const data = between('function staffApp() {', 'onScanKey(e) {');
+    expect(data).toMatch(/^\s*const scanBuffer =/m);
+    expect(page).not.toMatch(/scanBuffer:/);
+    expect(page).not.toMatch(/this\.scanBuffer/);
+  });
+});
+
+describe('when a scan is ignored', () => {
+  test('typing in a field and an open modal both suppress it', () => {
+    expect(onScanKey()).toContain('if (this.typingSomewhere(e) || this.committedTaskOpen())');
+  });
+
+  // A code begun outside a field and finished inside one must not be stitched
+  // together into a scan nobody made.
+  test('a suppressed keystroke also clears what was half-collected', () => {
+    const guard = between('if (this.typingSomewhere(e) || this.committedTaskOpen())', 'return;');
+    expect(guard).toContain('scanBuffer.reset()');
+  });
+
+  // The page already had _anyModalOpen(), a flag list that asks a DIFFERENT
+  // question — "is the user busy, so do not re-fetch under them" — and counts
+  // the combo popovers. A popover must not block a scan. If these two ever
+  // collapse into one, a scan starts being swallowed by an open dropdown.
+  test('the scan guard is not the background-refresh guard', () => {
+    expect(page).toContain('_anyModalOpen()');
+    expect(onScanKey()).not.toContain('_anyModalOpen');
+    expect(between('committedTaskOpen() {', '\n      },')).not.toContain('statusOpen');
+  });
+
+  test('typing is any editable target, not just INPUT', () => {
+    const fn = between('typingSomewhere(e) {', '\n      },');
+    for (const tag of ['INPUT', 'TEXTAREA', 'SELECT']) expect(fn).toContain(tag);
+    expect(fn).toContain('isContentEditable');
+  });
+
+  // Structural detection, so a modal added later is covered without anyone
+  // remembering to come back. A list of *Open flags would silently rot — and
+  // would have to exclude the combo popovers, which are not modals.
+  test('modals are found structurally, not by listing flags', () => {
+    const fn = between('committedTaskOpen() {', '\n      },');
+    expect(fn).toContain(".querySelectorAll('.fixed.inset-0')");
+    expect(fn).not.toMatch(/Open\b.*\|\|/);
+  });
+
+  // offsetParent is null for a position:fixed element whether it is shown or
+  // hidden, so it would report every modal closed and defeat the whole guard.
+  test('visibility is tested with getClientRects, not offsetParent', () => {
+    const fn = between('committedTaskOpen() {', '\n      },');
+    expect(fn).toContain('getClientRects().length > 0');
+    expect(fn).not.toContain('offsetParent');
+  });
+
+  // The guard is only as good as its assumption that every modal is built this
+  // way. If one is ever built differently, a scan runs straight through it.
+  test('the modals the guard must catch are all .fixed.inset-0', () => {
+    for (const flag of [
+      'redeemOpen', 'notesOpen', 'resendOpen', 'undoOpen', 'cancelOpen',
+      'restoreOpen', 'deleteOpen', 'discardOpen', 'typeEditorOpen',
+    ]) {
+      const at = page.indexOf(`x-show="${flag}"`);
+      expect(at, `${flag} is not in the page`).toBeGreaterThan(-1);
+      expect(page.slice(at, at + 260), `${flag} is not a .fixed.inset-0 modal`)
+        .toContain('fixed inset-0');
+    }
+  });
+
+  test('the page has not grown a modal style the guard cannot see', () => {
+    // A rough census. It fails loudly if the modal count moves a long way from
+    // the shape this guard was written against.
+    const containers = (page.match(/class="fixed inset-0/g) || []).length;
+    expect(containers).toBeGreaterThanOrEqual(15);
+  });
+});
+
+describe('where a scan lands', () => {
+  test('a repeat of the same code within a moment is one pull, not two customers', () => {
+    const fn = openScannedCode();
+    expect(fn).toContain('lastScannedCode');
+    expect(fn).toMatch(/now - lastScannedAt < \d+/);
+  });
+
+  test('one lookup decides the destination and feeds the detail view', () => {
+    const fn = openScannedCode();
+    expect((fn.match(/this\.api\(/g) || [])).toHaveLength(1);
+    expect(fn).toContain("await this.openVoucher(code, 'search', voucher)");
+  });
+
+  // Yanking someone onto an error screen for a mis-scan costs them whatever
+  // they were doing.
+  test('a lookup that fails stays put and says so', () => {
+    const fn = openScannedCode();
+    const failure = fn.slice(fn.indexOf('} catch (err) {'), fn.indexOf('const outcome'));
+    expect(failure).toContain("'No voucher '");
+    expect(failure).toContain("'error'");
+    expect(failure).toContain('return;');
+    expect(failure).not.toContain('openVoucher');
+  });
+
+  test('404 is told apart from a real failure', () => {
+    expect(openScannedCode()).toContain('err?.status === 404');
+  });
+
+  test('an active voucher opens the redeem form with the cursor in the amount', () => {
+    const fn = openScannedCode();
+    expect(fn).toContain("if (outcome.action === 'redeem')");
+    expect(fn).toContain('this.openRedeem();');
+    expect(fn).toContain("getElementById('redeem-amount')?.focus()");
+  });
+
+  // Pre-filling the balance would make a partial redeem the path you have to
+  // notice. A redeem cannot be undone without a manager.
+  test('the scan never pre-fills the amount', () => {
+    expect(openScannedCode()).not.toContain('redeemAmount');
+    expect(between('openRedeem() {', '\n      },')).toContain("this.redeemAmount = '';");
+    expect(page).toContain('id="redeem-amount"');
+  });
+
+  test('anything else sets the banner instead', () => {
+    expect(openScannedCode()).toContain('this.scanBlock = outcome;');
+  });
+
+  // The banner must not survive into a voucher opened by hand, where it would
+  // explain a refusal that has nothing to do with what is on screen.
+  test('every route into the detail view clears the banner first', () => {
+    const fn = between('async openVoucher(code, origin, preloaded) {', '\n      },');
+    expect(fn).toContain('this.scanBlock = null;');
+    expect(fn.indexOf('this.scanBlock = null;')).toBeLessThan(fn.indexOf('this.detailLoading = true;'));
+  });
+
+  test('the preloaded voucher is used rather than fetched again', () => {
+    const fn = between('async openVoucher(code, origin, preloaded) {', '\n      },');
+    expect(fn).toContain('preloaded || await this.api(');
+  });
+});
+
+describe('the refusal banner', () => {
+  const banner = () => between('<template x-if="scanBlock && !detailLoading && voucher">', '</template>');
+
+  test('each reason has its own colour', () => {
+    const html = banner();
+    for (const [reason, tone] of [
+      ['expired', 'amber'],
+      ['cancelled', 'rose'],
+      ['no-balance', 'sky'],
+      ['unknown', 'amber'],
+    ]) {
+      expect(html).toContain(`scanBlock.reason === '${reason}'`);
+      expect(html).toMatch(new RegExp(`scanBlock\\.reason === '${reason}'[^]*?bg-${tone}-50`));
+    }
+  });
+
+  // Never grey. A refusal in neutral tones reads as a caption rather than an
+  // answer, and this is the thing a staff member reads out to a customer.
+  test('no variant is neutral', () => {
+    expect(banner()).not.toMatch(/bg-neutral-|text-neutral-/);
+  });
+
+  // The Tailwind Play CDN only generates classes it can see in the markup, so
+  // a class name assembled in JavaScript renders as no styling at all.
+  test('the colours are literal, not computed', () => {
+    expect(banner()).not.toContain(':class');
+  });
+
+  test('it renders the reason in words, from the module', () => {
+    expect(banner()).toContain('x-text="scanBlock.message"');
   });
 });
