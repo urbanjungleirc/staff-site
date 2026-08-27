@@ -763,8 +763,14 @@
     ::-webkit-scrollbar-thumb { background: rgba(139, 28, 35, 0.2); border-radius: 3px; }
   </style>
 </head>
+<!-- No x-init calling init(). Alpine calls a component's own init() for us, so
+     naming it here as well ran the whole bootstrap twice: the identity fetch,
+     the opening search(), loadDashStats() and loadStaffMe() all doubled, and
+     the focus listeners and the 5-minute refresh tick installed twice over.
+     Nothing on this page showed it, which is the reason it stood for so long.
+     See vouchers#70; test/single-bootstrap.test.js pins it site-wide. -->
 <body class="bg-neutral-100 text-neutral-900 min-h-screen antialiased font-sans"
-  x-data="staffApp()" x-init="init()" x-cloak
+  x-data="staffApp()" x-cloak
   @keydown.window="onScanKey($event)">
 
   <!-- ── Header ──────────────────────────────────────────────────────────── -->

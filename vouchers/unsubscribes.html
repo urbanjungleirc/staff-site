@@ -233,8 +233,11 @@
     }
   </style>
 </head>
+<!-- No x-init calling init(). Alpine calls a component's own init() for us, so
+     naming it here as well ran the bootstrap twice and loaded the suppression
+     list twice on every open. See vouchers#70. -->
 <body class="bg-neutral-100 text-neutral-900 min-h-screen antialiased font-sans"
-  x-data="unsubscribes()" x-init="init()" x-cloak>
+  x-data="unsubscribes()" x-cloak>
 
   <!-- ── Header ──────────────────────────────────────────────────────────── -->
   <header class="hub-header text-white">

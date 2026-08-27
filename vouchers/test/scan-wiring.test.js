@@ -61,10 +61,11 @@ describe('the listener is wired', () => {
     expect(page).toContain('window.scanInput = scanInput;');
   });
 
-  // Bound in the markup rather than added in init(). The page carries
-  // x-data + x-init="init()", which Alpine runs TWICE — once itself and once
-  // for the directive — so a listener attached there would double-handle every
-  // keystroke. A directive binds once per element whatever init does.
+  // Bound in the markup rather than added in init(). A directive binds once per
+  // element however often init() runs, which a bare addEventListener does not:
+  // while the page carried x-data + x-init="init()" together, Alpine ran init()
+  // twice (vouchers#70) and a listener attached there would have double-handled
+  // every keystroke. The pairing is gone, but the reason to bind here stands.
   test('keydown is bound on the root, at window scope', () => {
     expect(page).toContain('@keydown.window="onScanKey($event)"');
     expect(between('x-data="staffApp()"', '>')).toContain('@keydown.window');

@@ -369,6 +369,17 @@ vouchers/delete-logic.js - pure confirmation rules behind the hard-delete action
 vouchers/type-surfaces.js - which voucher-type fields feed which output surface (unit tested)
 vouchers/nav-menu.js    - what the header hamburger holds, and which section it is hiding (unit tested)
 vouchers/expiry-flag.js - whether a voucher counts as "expiring soon" (unit tested)
+vouchers/test/single-bootstrap.test.js - guards EVERY .html on the site, not just
+                          the voucher pages: an Alpine component whose x-data is
+                          paired with an x-init calling init() bootstraps twice,
+                          because Alpine already calls init() itself. It lives in
+                          this suite because there is no test runner at the repo
+                          root, and it is site-wide because the defect is
+                          invisible unless the page happens to hold something
+                          that running twice disturbs — on stats.html four charts
+                          died mid-animation (#69), while the hub and the
+                          unsubscribes list just quietly issued two of every
+                          opening request for months (#70).
 vouchers/scripts/version.mjs - derives the hub's build version from git at deploy time (unit tested)
 vouchers/version-display.js - formats that version for the footer, in Perth time (unit tested)
 .github/workflows/pages.yml - publishes the site to Pages; the repo's only build step
