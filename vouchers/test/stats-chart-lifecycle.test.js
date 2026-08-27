@@ -9,22 +9,9 @@ import { readFileSync } from 'node:fs';
 
 const page = readFileSync(new URL('../stats.html', import.meta.url), 'utf8');
 
-describe('the page bootstraps exactly once', () => {
-  test('x-init does not call init() as well as Alpine', () => {
-    // Alpine calls a component's own init() for us. Naming it in x-init too ran
-    // the whole bootstrap twice — two fetches, and a second draw() that
-    // destroyed four charts mid-animation.
-    const body = page.slice(page.indexOf('<body'), page.indexOf('>', page.indexOf('<body')));
-    expect(body).toMatch(/x-data="voucherStats\(\)"/);
-    expect(body).not.toMatch(/x-init/);
-  });
-
-  test('the component still defines the init() Alpine calls', () => {
-    // The other half of the pair: if init() were renamed, removing x-init would
-    // stop the page bootstrapping at all.
-    expect(page).toMatch(/\n\s+async init\(\) \{/);
-  });
-});
+// The bootstrap-once half of vouchers#69 lives in single-bootstrap.test.js now:
+// it is the same defect on every page of the site, so it is pinned once there
+// rather than repeated per file.
 
 describe('a redraw never releases a canvas', () => {
   test('nothing destroys a chart', () => {
