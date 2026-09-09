@@ -789,6 +789,48 @@
           </p>
         </section>
 
+        <!-- 5b ── Email delivery. Account-wide and a fixed window: the one
+             section on the page the filter row does NOT scope, and it says so. -->
+        <section>
+          <h2 class="text-sm font-semibold text-neutral-800 mb-3">Voucher email delivery, last 30 days</h2>
+          <p x-show="emailMetricsError" x-cloak class="text-[0.8rem] text-rose-700 mb-2"
+             x-text="'Delivery figures are unavailable right now: ' + emailMetricsError"></p>
+          <div class="grid grid-cols-2 lg:grid-cols-4 gap-3">
+            <div class="stat-card">
+              <div class="text-[0.66rem] font-semibold uppercase tracking-[0.08em] text-neutral-500 mb-1.5">Sent</div>
+              <div class="stat-value" :class="emailMetrics ? '' : 'is-empty'"
+                   x-text="emailMetrics ? emailMetrics.sent : '—'"></div>
+              <div class="text-[0.7rem] text-neutral-500 mt-1">Accepted by Resend for sending</div>
+            </div>
+            <div class="stat-card">
+              <div class="text-[0.66rem] font-semibold uppercase tracking-[0.08em] text-neutral-500 mb-1.5">Delivered</div>
+              <div class="stat-value" :class="isNil(emailMetrics?.delivery_rate) ? 'is-empty' : ''"
+                   x-text="pctOrDash(emailMetrics?.delivery_rate)"></div>
+              <div class="text-[0.7rem] text-neutral-500 mt-1"
+                   x-text="emailMetrics ? emailMetrics.delivered + ' of ' + emailMetrics.sent + ' accepted by the recipient’s server' : 'Accepted by the recipient’s server'"></div>
+            </div>
+            <div class="stat-card">
+              <div class="text-[0.66rem] font-semibold uppercase tracking-[0.08em] text-neutral-500 mb-1.5">Bounced</div>
+              <div class="stat-value" :class="emailMetrics ? '' : 'is-empty'"
+                   x-text="emailMetrics ? emailMetrics.bounced : '—'"></div>
+              <div class="text-[0.7rem] text-neutral-500 mt-1"
+                   x-text="emailMetrics ? emailMetrics.bounced_permanent + ' permanent · ' + emailMetrics.bounced_transient + ' temporary' : 'Permanent and temporary'"></div>
+            </div>
+            <div class="stat-card">
+              <div class="text-[0.66rem] font-semibold uppercase tracking-[0.08em] text-neutral-500 mb-1.5">Spam &amp; suppressed</div>
+              <div class="stat-value" :class="emailMetrics ? '' : 'is-empty'"
+                   x-text="emailMetrics ? (emailMetrics.complained + emailMetrics.suppressed) : '—'"></div>
+              <div class="text-[0.7rem] text-neutral-500 mt-1"
+                   x-text="emailMetrics ? emailMetrics.complained + ' marked as spam · ' + emailMetrics.suppressed + ' skipped as known-bad' : 'Marked as spam, or skipped as a known-bad address'"></div>
+            </div>
+          </div>
+          <p class="text-[0.7rem] text-neutral-400 mt-2">
+            Account-wide figures from Resend, which sends nothing but voucher email. A fixed trailing window —
+            the filters above do not apply here. A voucher whose email bounced shows as <em>Not sent</em> in the
+            hub, with the reason, and the dashboard counts them.
+          </p>
+        </section>
+
         <!-- 6 ── Item mix -->
         <section>
           <h2 class="text-sm font-semibold text-neutral-800 mb-1">What sold</h2>
@@ -924,6 +966,10 @@
       rangeError: '',
       types: [],
       data: null,
+      // Delivery totals from Resend. Loaded once, outside the filter row's
+      // scope — see loadEmailMetrics().
+      emailMetrics: null,
+      emailMetricsError: '',
       warnedClasses: new Set(),
       moneyMode: 'dollars',
       filters: { from: '', to: '', type: '', class: '' },
@@ -989,7 +1035,24 @@
           // offers "All types" until it loads.
           this.types = [];
         }
+        // Not awaited: the delivery tiles are independent of the charts and
+        // of each other's failures, so neither waits for the other.
+        this.loadEmailMetrics();
         await this.load();
+      },
+
+      // A fixed trailing 30 days from Resend, account-wide — Resend cannot
+      // slice by voucher type or revenue class, so tying these to the filter
+      // row would only make them look scoped. Hence loaded once here and never
+      // from apply(), and the section says so in its own note.
+      async loadEmailMetrics() {
+        this.emailMetricsError = '';
+        try {
+          this.emailMetrics = await this.api('/v1/vouchers/email-metrics');
+        } catch (e) {
+          this.emailMetrics = null;
+          this.emailMetricsError = e.message;
+        }
       },
 
       // "Now" in Perth, regardless of the machine's own clock. The front-desk

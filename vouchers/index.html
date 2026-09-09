@@ -931,6 +931,24 @@
               </span>
               <span x-show="(dashStats?.expiring_soon_count ?? 0) === 0">No vouchers expiring in the next 30 days</span>
             </div>
+
+            <div class="border-t border-[rgba(139,28,35,0.10)] mx-4"></div>
+
+            <!-- Vouchers someone still needs to be sent: the email failed, or
+                 went out and bounced. Each one is a customer who paid and has
+                 nothing to show for it. A click target, unlike the expiring
+                 line — there IS a filter for this (status=unsent). -->
+            <button type="button" @click="showUnsentVouchers()"
+              class="stat-action px-4 py-3 rounded-b-[16px] text-[0.8rem] flex items-center gap-2 text-left w-full"
+              :class="(dashStats?.unsent_count ?? 0) > 0 ? 'text-rose-700' : 'text-neutral-400'">
+              <svg class="stat-inline-icon" viewBox="0 0 24 24"><rect x="3.5" y="5.5" width="17" height="13" rx="2"/><path d="m4 8 8 5.5L20 8"/></svg>
+              <span x-show="(dashStats?.unsent_count ?? 0) > 0">
+                <strong class="font-semibold tabular-nums" x-text="dashStats?.unsent_count ?? 0"></strong><span
+                  x-text="(dashStats?.unsent_count ?? 0) === 1 ? ' active voucher not sent — its email failed or bounced' : ' active vouchers not sent — their email failed or bounced'"></span>
+              </span>
+              <span x-show="(dashStats?.unsent_count ?? 0) === 0">Every active voucher's email has gone out</span>
+              <svg class="stat-chevron ml-auto" viewBox="0 0 24 24"><path d="m9 6 6 6-6 6"/></svg>
+            </button>
           </div>
 
           <!-- Today: what happened on the counter -->
@@ -3535,6 +3553,10 @@
         { value: 'redeemed', label: 'Redeemed' },
         { value: 'expired', label: 'Expired' },
         { value: 'cancelled', label: 'Cancelled' },
+        // Live vouchers someone still needs to be sent — the dashboard's "not
+        // sent" count as a list. A status in the Worker's eyes (status=unsent),
+        // so it sits in this menu rather than as a second control.
+        { value: 'unsent', label: 'Not sent' },
       ],
       results: [],
       searchLoading: false,
@@ -4890,6 +4912,12 @@
         this.q = '';
         this.statusFilter = 'active';
         await this.search();   // search() switches to the Search view itself
+      },
+
+      async showUnsentVouchers() {
+        this.q = '';
+        this.statusFilter = 'unsent';
+        await this.search();
       },
 
       async showTodayReport() {

@@ -131,6 +131,12 @@ to a physical one, which is never unsent because no email was ever due.
 A **suppressed** voucher is not unsent either. Nobody is waiting for it: the
 member opted out, so the send was a decision not to email, not a failure to.
 
+A voucher whose email went out and then **bounced** is unsent again: the Worker
+hears about bounces from Resend and reopens the send, with the reason on the
+detail page beside Resend. The dashboard's Outstanding card counts live unsent
+vouchers, and the search offers **Not sent** as a status — the same count as a
+list. (vouchers repo, ADR 0010.)
+
 Defined canonically in the **vouchers** repo, `docs/CONTEXT.md`, because it is a
 state of the voucher record rather than of this page. The hub renders it in
 three places (the create result, the detail view, the search list) and asks

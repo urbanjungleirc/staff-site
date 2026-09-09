@@ -362,7 +362,7 @@ school-booking/identity.js - the matching rule: surname + DOB narrows, first nam
                           parse.js rather than restating them — the header there
                           says what a second copy costs. Fetches nothing.
 vouchers/               - voucher management portal (auth = Cloudflare Access)
-vouchers/stats.html     - voucher analytics: revenue, liability, redemption, product mix
+vouchers/stats.html     - voucher analytics: revenue, liability, redemption, product mix, email delivery
 vouchers/unsubscribes.html - who is not receiving automatic voucher emails, and why
 vouchers/unsubscribes-logic.js - pure suppression rules behind that page (unit tested)
 vouchers/delete-logic.js - pure confirmation rules behind the hard-delete action (unit tested)
