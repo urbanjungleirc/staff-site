@@ -180,7 +180,7 @@
         <div>
           <div class="text-[0.7rem] font-semibold uppercase tracking-[0.12em] text-white/65 leading-none mb-2">Staff Portal</div>
           <h1 class="text-3xl sm:text-4xl font-bold tracking-tight text-white leading-none">Group booking deposits</h1>
-          <p class="text-sm text-white/75 mt-2">Every deposit paid online, this weekend's groups first.</p>
+          <p class="text-sm text-white/75 mt-2">Every deposit paid online — upcoming bookings above past, newest paid first.</p>
         </div>
       </div>
 
@@ -238,8 +238,8 @@
                       <td><span class="cell-label">Event</span><span x-text="row.event"></span></td>
                       <td class="money"><span class="cell-label">Amount</span><span x-text="row.amount"></span></td>
                       <td class="money"><span class="cell-label">Fee</span><span x-text="row.fee"></span></td>
-                      <td><span class="cell-label">Staff email</span><span :class="stateClass(row.staffEmail)" x-text="row.staffEmail"></span></td>
-                      <td><span class="cell-label">Customer email</span><span :class="stateClass(row.customerEmail)" x-text="row.customerEmail"></span></td>
+                      <td><span class="cell-label">Staff email</span><span :class="`state-${row.staffEmail.tone}`" x-text="row.staffEmail.text"></span></td>
+                      <td><span class="cell-label">Customer email</span><span :class="`state-${row.customerEmail.tone}`" x-text="row.customerEmail.text"></span></td>
                       <td class="session">
                         <span class="cell-label">Payment</span>
                         <span>
@@ -323,14 +323,6 @@
           } finally {
             this.loading = false;
           }
-        },
-
-        // Tone for an email-state cell. The text itself comes from the logic
-        // module; this only picks a colour from its first word.
-        stateClass(text) {
-          if (text.startsWith('Not sent')) return 'state-unsent';
-          if (text.startsWith('Not applicable')) return 'state-na';
-          return '';
         },
 
         async api(path) {

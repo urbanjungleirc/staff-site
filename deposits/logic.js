@@ -45,7 +45,7 @@ export function perthToday(now = new Date()) {
 //
 // Both groups are newest PAID first (created_at), which is the API's order too;
 // sorting here means the page does not depend on the transport preserving it.
-export function groupDeposits(rows = [], today) {
+export function groupDeposits(rows, today) {
   const byPaidDesc = (a, b) =>
     String(b.created_at || '').localeCompare(String(a.created_at || '')) || String(b.id).localeCompare(String(a.id));
 
@@ -58,12 +58,17 @@ export function groupDeposits(rows = [], today) {
   };
 }
 
-// One line per email, in staff vocabulary. `which` is 'staff' or 'customer'.
-export function emailState(row, which) {
-  if (row.source === 'import') return 'Not applicable — imported from the Sheet';
-  if (row.status !== 'fulfilled') return 'Not sent — deposit not recorded';
-  if (row[`${which}_email_sent_at`]) return 'Sent';
+// One line per email, in staff vocabulary, and the tone the page paints it
+// in. `which` is 'staff' or 'customer'. The tone is decided here rather than
+// re-read off the text by the page, so a wording change cannot silently drop
+// the colour.
+function emailStatus(row, which) {
+  if (row.source === 'import') return { text: 'Not applicable — imported from the Sheet', tone: 'na' };
+  if (row.status !== 'fulfilled') return { text: 'Not sent — deposit not recorded', tone: 'unsent' };
+  if (row[`${which}_email_sent_at`]) return { text: 'Sent', tone: 'sent' };
 
+  // last_error is one column shared by fulfilment and both emails, so the
+  // reason shown here can be the other email's. The row has nothing finer.
   const reason = row.last_error || 'no reason recorded';
   const parts = [`Not sent — ${reason}`];
   if (row[`${which}_email_send_state`] === 'permanent') {
@@ -74,7 +79,11 @@ export function emailState(row, which) {
     // null or transient: the 08:00 Perth job will try again.
     parts.push('retrying tomorrow');
   }
-  return parts.join(' · ');
+  return { text: parts.join(' · '), tone: 'unsent' };
+}
+
+export function emailState(row, which) {
+  return emailStatus(row, which).text;
 }
 
 // A Stripe Checkout Session id opens the payment in the dashboard; the
@@ -116,7 +125,8 @@ function fmtMoney(value) {
   return Number.isNaN(n) ? '' : MONEY.format(n);
 }
 
-// Everything the table shows for one row, already formatted. Blank strings
+// Everything the table shows for one row, already formatted; each email cell
+// is `{ text, tone }` with tone one of 'sent', 'unsent', 'na'. Blank strings
 // rather than placeholders for fields a failed claim never wrote — the
 // `problem` line says why they are blank.
 export function shapeRow(row) {
@@ -133,8 +143,8 @@ export function shapeRow(row) {
     event: fmtEvent(row.event_date, row.event_time_label),
     amount: fmtMoney(row.amount_paid),
     fee: fmtMoney(row.fee),
-    staffEmail: emailState(row, 'staff'),
-    customerEmail: emailState(row, 'customer'),
+    staffEmail: emailStatus(row, 'staff'),
+    customerEmail: emailStatus(row, 'customer'),
     payment: paymentLink(row),
     recorded,
     problem,

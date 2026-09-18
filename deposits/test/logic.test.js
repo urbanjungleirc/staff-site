@@ -91,12 +91,12 @@ describe('groupDeposits', () => {
 
   test('puts an event today or later in upcoming, and earlier in past', () => {
     const { upcoming, past } = groupDeposits([
-      { ...WEBHOOK_ROW, id: 'later', event_date: '2026-09-21' },
-      { ...WEBHOOK_ROW, id: 'today', event_date: '2026-09-18' },
-      { ...WEBHOOK_ROW, id: 'yesterday', event_date: '2026-09-17' },
+      { ...WEBHOOK_ROW, id: 'today', event_date: '2026-09-18', created_at: '2026-09-01T00:00:00Z' },
+      { ...WEBHOOK_ROW, id: 'later', event_date: '2026-09-21', created_at: '2026-09-02T00:00:00Z' },
+      { ...WEBHOOK_ROW, id: 'yesterday', event_date: '2026-09-17', created_at: '2026-09-03T00:00:00Z' },
     ], today);
 
-    expect(upcoming.map((r) => r.id).sort()).toEqual(['later', 'today']);
+    expect(upcoming.map((r) => r.id)).toEqual(['later', 'today']);
     expect(past.map((r) => r.id)).toEqual(['yesterday']);
   });
 
@@ -234,8 +234,8 @@ describe('shapeRow', () => {
       event: 'Mon 21 Sep 2026, 10.30am',
       amount: '$100.00',
       fee: '$2.30',
-      staffEmail: 'Sent',
-      customerEmail: 'Sent',
+      staffEmail: { text: 'Sent', tone: 'sent' },
+      customerEmail: { text: 'Sent', tone: 'sent' },
       payment: { label: 'cs_live_byford', href: 'https://dashboard.stripe.com/search?query=cs_live_byford' },
       recorded: true,
       problem: '',
@@ -255,13 +255,14 @@ describe('shapeRow', () => {
     const shaped = shapeRow(IMPORTED_ROW);
     expect(shaped.fee).toBe('$0.00');
     expect(shaped.payment).toEqual({ label: '8XY12345AB678901C', href: null });
-    expect(shaped.staffEmail).toBe('Not applicable — imported from the Sheet');
+    expect(shaped.staffEmail).toEqual({ text: 'Not applicable — imported from the Sheet', tone: 'na' });
   });
 
   test('a paid-but-unrecorded deposit is marked and carries the reason', () => {
     const shaped = shapeRow(FAILED_CLAIM_ROW);
     expect(shaped.recorded).toBe(false);
     expect(shaped.problem).toBe('Paid but not recorded — Supabase PATCH failed (500): upstream timeout');
+    expect(shaped.staffEmail).toEqual({ text: 'Not sent — deposit not recorded', tone: 'unsent' });
     // Nothing invented for the fields that were never written.
     expect(shaped.organiser).toBe('');
     expect(shaped.event).toBe('');
