@@ -18,6 +18,15 @@
       "path": "school-booking.html",
       "category": "Operations"
     },
+    {
+      "type": "tool",
+      "id": "deposits",
+      "name": "Group Booking Deposits",
+      "description": "Every deposit paid online — organiser, event, amount, and whether the confirmation emails went out.",
+      "shortName": "💳",
+      "path": "deposits.html",
+      "category": "Operations"
+    },
      {
       "type": "tool",
       "id": "slideshow",

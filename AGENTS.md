@@ -35,6 +35,10 @@ cloudflare-clubworx/    - uj-clubworx-api, the Worker for the school-group booki
                           any failure rolls that student's bookings back. Read
                           §10/§12 of the design spec before touching it.
                           The full per-file roster is in CLAUDE.md.
+deposits.html           - group-booking deposits (#154): every row from
+                          GET /v1/staff/deposits via the payments proxy, upcoming
+                          above past. Read-only. Its rules are in deposits/logic.js
+                          (unit tested); details in CLAUDE.md.
 hvt/                    - High-volume Training tool copy
 slideshow/              - Google Drive TV slideshow tool
 sls_tv.html             - Summer Lead Series TV display

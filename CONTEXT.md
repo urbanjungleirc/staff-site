@@ -858,3 +858,42 @@ lives inside the [expanded row](#inline-row-resolution), not in a column.
 *Avoid*: folding it into a success count. The three permanence classes are the
 whole point — collapsing "created" and "booked" into "done" hides which half can
 be taken back.
+
+## Group booking deposits
+
+Terms used by `deposits.html` and `deposits/logic.js` (#154). The record itself
+is the payments Worker's `deposits` table; the hub repo's `CONTEXT.md` and
+ADR 0011 there define *deposit*, *webhook row* and *imported row*. These are the
+words the page adds on top.
+
+### Upcoming / past
+
+The two groups on the page, split by **event date against today in Perth**: an
+event today or later is upcoming, anything earlier is past. Within each group
+rows are **newest paid first** — paid date, not event date, so a booking for
+December paid yesterday sits above a booking for Saturday paid last month.
+That is the spec's order (vouchers#100), and the subtitle says so.
+
+### Paid but not recorded
+
+A row whose `status` is not `fulfilled`: Stripe took the money and the Worker
+claimed the session, but fulfilment did not finish. Such a row has **no event
+date**, so it cannot be split by date; it goes to the **top of upcoming**,
+because burying the one row that needs a human under past would be the wrong
+kind of quiet. The organiser cell carries the reason from `last_error`.
+
+*Avoid*: "failed deposit" — the payment did not fail, the recording did.
+
+### Email state
+
+One line per confirmation email (staff copy, customer copy): **Sent**,
+**Not sent — *reason***, or **Not applicable — imported from the Sheet**. An
+imported row's null timestamps mean the Sheet never recorded them, not that the
+email did not go; reading them as *not sent* would flag every historical
+deposit. *Retrying tomorrow* means the 08:00 Perth job will try again;
+*frontdesk notified* means the customer copy was given up on and staff were
+told, once.
+
+The reason is `last_error`, which is **one column shared** by fulfilment and
+both emails, so the staff cell can show the customer email's failure. The row
+has nothing finer.
