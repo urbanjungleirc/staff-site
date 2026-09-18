@@ -203,24 +203,32 @@ describe('emailState', () => {
 });
 
 describe('paymentLink', () => {
-  test('a Stripe session id links to that payment in the Stripe dashboard', () => {
+  test('a Stripe row links to a dashboard search for the organiser email', () => {
+    // The dashboard has no route for a cs_ id and its search does not match
+    // one (checked live); the organiser's email does find the payment.
     expect(paymentLink(WEBHOOK_ROW)).toEqual({
-      label: 'cs_live_byford',
-      href: 'https://dashboard.stripe.com/search?query=cs_live_byford',
+      platform: 'stripe',
+      reference: 'cs_live_byford',
+      href: 'https://dashboard.stripe.com/search?query=leader%40example.com',
     });
   });
 
   test('an imported PayPal reference is shown but not linked', () => {
-    expect(paymentLink(IMPORTED_ROW)).toEqual({ label: '8XY12345AB678901C', href: null });
+    expect(paymentLink(IMPORTED_ROW)).toEqual({ platform: 'paypal', reference: '8XY12345AB678901C', href: null });
   });
 
   test('an imported Stripe row with a session id still links', () => {
     const row = { ...IMPORTED_ROW, payment_platform: 'stripe', stripe_session_id: 'cs_live_old', payment_reference: null };
-    expect(paymentLink(row).href).toBe('https://dashboard.stripe.com/search?query=cs_live_old');
+    expect(paymentLink(row)).toEqual({
+      platform: 'stripe',
+      reference: 'cs_live_old',
+      href: 'https://dashboard.stripe.com/search?query=scouts%40example.com',
+    });
   });
 
-  test('a row with neither renders an empty label', () => {
-    expect(paymentLink({ ...IMPORTED_ROW, payment_reference: null })).toEqual({ label: '', href: null });
+  test('a Stripe row with no organiser email has nothing to search for', () => {
+    expect(paymentLink({ ...FAILED_CLAIM_ROW }).href).toBeNull();
+    expect(paymentLink({ ...FAILED_CLAIM_ROW }).reference).toBe('cs_live_stalled');
   });
 });
 
@@ -231,12 +239,13 @@ describe('shapeRow', () => {
       paid: '15 Sep 2026, 7:26 pm',
       organiser: 'Byford Scout Group',
       email: 'leader@example.com',
-      event: 'Mon 21 Sep 2026, 10.30am',
+      eventDate: 'Mon 21 Sep 2026',
+      eventTime: '10.30am',
       amount: '$100.00',
       fee: '$2.30',
       staffEmail: { text: 'Sent', tone: 'sent' },
       customerEmail: { text: 'Sent', tone: 'sent' },
-      payment: { label: 'cs_live_byford', href: 'https://dashboard.stripe.com/search?query=cs_live_byford' },
+      payment: { platform: 'stripe', reference: 'cs_live_byford', href: 'https://dashboard.stripe.com/search?query=leader%40example.com' },
       recorded: true,
       problem: '',
     });
@@ -247,14 +256,16 @@ describe('shapeRow', () => {
     expect(shapeRow({ ...WEBHOOK_ROW, created_at: '2026-09-15T23:30:00Z' }).paid).toBe('16 Sep 2026, 7:30 am');
   });
 
-  test('an event with no time label shows the date alone', () => {
-    expect(shapeRow({ ...WEBHOOK_ROW, event_time_label: null }).event).toBe('Mon 21 Sep 2026');
+  test('an event with no time label leaves the time blank', () => {
+    const shaped = shapeRow({ ...WEBHOOK_ROW, event_time_label: null });
+    expect(shaped.eventDate).toBe('Mon 21 Sep 2026');
+    expect(shaped.eventTime).toBe('');
   });
 
   test('an imported row keeps its zero fee and PayPal reference', () => {
     const shaped = shapeRow(IMPORTED_ROW);
     expect(shaped.fee).toBe('$0.00');
-    expect(shaped.payment).toEqual({ label: '8XY12345AB678901C', href: null });
+    expect(shaped.payment).toEqual({ platform: 'paypal', reference: '8XY12345AB678901C', href: null });
     expect(shaped.staffEmail).toEqual({ text: 'Not applicable — imported from the Sheet', tone: 'na' });
   });
 
@@ -265,7 +276,8 @@ describe('shapeRow', () => {
     expect(shaped.staffEmail).toEqual({ text: 'Not sent — deposit not recorded', tone: 'unsent' });
     // Nothing invented for the fields that were never written.
     expect(shaped.organiser).toBe('');
-    expect(shaped.event).toBe('');
+    expect(shaped.eventDate).toBe('');
+    expect(shaped.eventTime).toBe('');
     expect(shaped.amount).toBe('');
     expect(shaped.fee).toBe('');
   });

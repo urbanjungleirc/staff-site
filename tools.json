@@ -11,24 +11,6 @@
     },
     {
       "type": "tool",
-      "id": "school-booking",
-      "name": "School Group Booking",
-      "description": "Paste a school's student list, match it against Clubworx, and book the whole group into sessions.",
-      "shortName": "🎒",
-      "path": "school-booking.html",
-      "category": "Operations"
-    },
-    {
-      "type": "tool",
-      "id": "deposits",
-      "name": "Group Booking Deposits",
-      "description": "Every deposit paid online — organiser, event, amount, and whether the confirmation emails went out.",
-      "shortName": "💳",
-      "path": "deposits.html",
-      "category": "Operations"
-    },
-     {
-      "type": "tool",
       "id": "slideshow",
       "name": "TV slideshow",
       "description": "Chromecasting content of Google Drive folder.",
@@ -44,6 +26,27 @@
       "shortName": "HVT",
       "path": "hvt/",
       "category": "Classes"
+    },
+    {
+      "type": "group",
+      "id": "group-bookings",
+      "name": "Group Bookings",
+      "shortName": "<svg xmlns=\"http://www.w3.org/2000/svg\" viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"1.8\" stroke-linecap=\"round\" stroke-linejoin=\"round\"><path d=\"M16 11a3 3 0 100-6 3 3 0 000 6zM8 11a3 3 0 100-6 3 3 0 000 6z\"/><path d=\"M2 20a6 6 0 0112 0M10 20a6 6 0 0112 0\"/></svg>",
+      "description": "School groups, scouts and other group visits — book them in, and see who has paid a deposit.",
+      "items": [
+        {
+          "id": "school-booking",
+          "description": "Paste a school's student list, match it against Clubworx, and book the whole group into sessions.",
+          "path": "school-booking.html",
+          "buttonText": "School Group Booking"
+        },
+        {
+          "id": "deposits",
+          "description": "Every deposit paid online — organiser, event, amount, and whether the confirmation emails went out.",
+          "path": "deposits.html",
+          "buttonText": "Group Booking Deposits"
+        }
+      ]
     },
     {
       "type": "group",
@@ -66,7 +69,7 @@
         }
       ]
     },
-        {
+    {
       "type": "group",
       "id": "sls-dashboards",
       "name": "Summer Lead Series",
@@ -88,19 +91,19 @@
         {
           "id": "sls-public-scores",
           "description": "Public webpage of live scores",
-          "path": "https://tools.urbanjungleirc.com/sls.html", 
+          "path": "https://tools.urbanjungleirc.com/sls.html",
           "buttonText": "Live score"
         },
         {
           "id": "sls-public-ticks",
           "description": "Public webpage of individual ticks and sends",
-          "path": "https://tools.urbanjungleirc.com/sls_ticks.html", 
+          "path": "https://tools.urbanjungleirc.com/sls_ticks.html",
           "buttonText": "Ticks"
         },
         {
           "id": "sls-stats",
           "description": "Public webpage of stats and analysis",
-          "path": "https://tools.urbanjungleirc.com/sls_stats.html", 
+          "path": "https://tools.urbanjungleirc.com/sls_stats.html",
           "buttonText": "Statistics"
         },
         {
@@ -141,13 +144,13 @@
           "description": "SSP Results",
           "path": "livescore_ssp_results.html",
           "buttonText": "Open Results Feed"
-        }, 
+        },
         {
           "id": "ssp-data",
           "buttonText": "Backend data",
           "description": "Google Spreadsheet with competitors, categories, and all comp setting",
           "path": "https://docs.google.com/spreadsheets/d/1rO8T0HvaSeg2QhCbpMtT8oLvjLo3wEBD5evGlKl1SDc/edit?gid=1874682729#gid=1874682729"
-        }, 
+        },
         {
           "id": "ssp-app",
           "buttonText": "Score Input App",
@@ -167,7 +170,8 @@
           "id": "qr-code-generator",
           "path": "https://happyk.au/tools/qr_code_generator.html",
           "buttonText": "QR Code Generator"
-        },{
+        },
+        {
           "id": "iframe-booking-calendar",
           "description": "Test the booking calendar snippet available on UJ website.",
           "path": "iFrameTestBookingCalendar.html",

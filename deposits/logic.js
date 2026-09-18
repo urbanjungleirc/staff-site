@@ -86,18 +86,19 @@ export function emailState(row, which) {
   return emailStatus(row, which).text;
 }
 
-// A Stripe Checkout Session id opens the payment in the dashboard; the
-// dashboard's search resolves a `cs_` id to its payment, and there is no
-// stable direct URL for a session. An imported PayPal reference has nowhere
-// to go, so it is shown as text.
+// Where the payment lives. The Stripe dashboard has no route for a Checkout
+// Session id and its search does not match one either (checked live,
+// 2026-09-18), but searching the organiser's email finds the customer and
+// their payments — so the Stripe link is that search, until the row carries a
+// payment_intent for a direct /payments/pi_… link. A PayPal reference has
+// nowhere to go and is shown as text.
 export function paymentLink(row) {
-  if (row.stripe_session_id) {
-    return {
-      label: row.stripe_session_id,
-      href: `https://dashboard.stripe.com/search?query=${encodeURIComponent(row.stripe_session_id)}`,
-    };
-  }
-  return { label: row.payment_reference || '', href: null };
+  const platform = row.stripe_session_id ? 'stripe' : (row.payment_platform || '');
+  const reference = row.stripe_session_id || row.payment_reference || '';
+  const href = platform === 'stripe' && row.customer_email
+    ? `https://dashboard.stripe.com/search?query=${encodeURIComponent(row.customer_email)}`
+    : null;
+  return { platform, reference, href };
 }
 
 // "15 Sep 2026, 7:26 pm", in Perth.
@@ -109,14 +110,13 @@ function fmtPaid(iso) {
   return `${p.day} ${MONTHS[Number(p.month) - 1]} ${p.year}, ${p.hour}:${p.minute} ${p.dayPeriod.toLowerCase()}`;
 }
 
-// "Mon 21 Sep 2026, 10.30am". event_date is a date column with no time, so it
-// is read as UTC midnight — no zone can shift it to the day before.
-function fmtEvent(date, timeLabel) {
+// "Mon 21 Sep 2026". event_date is a date column with no time, so it is read
+// as UTC midnight — no zone can shift it to the day before.
+function fmtEventDate(date) {
   if (!date) return '';
   const d = new Date(`${date}T00:00:00Z`);
   if (Number.isNaN(d.getTime())) return '';
-  const day = `${WEEKDAYS[d.getUTCDay()]} ${d.getUTCDate()} ${MONTHS[d.getUTCMonth()]} ${d.getUTCFullYear()}`;
-  return timeLabel ? `${day}, ${timeLabel}` : day;
+  return `${WEEKDAYS[d.getUTCDay()]} ${d.getUTCDate()} ${MONTHS[d.getUTCMonth()]} ${d.getUTCFullYear()}`;
 }
 
 function fmtMoney(value) {
@@ -140,7 +140,8 @@ export function shapeRow(row) {
     paid: fmtPaid(row.created_at),
     organiser: row.customer_name || '',
     email: row.customer_email || '',
-    event: fmtEvent(row.event_date, row.event_time_label),
+    eventDate: fmtEventDate(row.event_date),
+    eventTime: row.event_time_label || '',
     amount: fmtMoney(row.amount_paid),
     fee: fmtMoney(row.fee),
     staffEmail: emailStatus(row, 'staff'),
