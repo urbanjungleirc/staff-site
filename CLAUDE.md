@@ -361,6 +361,20 @@ school-booking/identity.js - the matching rule: surname + DOB narrows, first nam
                           the design spec. Imports the two name forms from
                           parse.js rather than restating them — the header there
                           says what a second copy costs. Fetches nothing.
+deposits.html           - group-booking deposits (#154, spec vouchers#100): every
+                          row from GET /v1/staff/deposits via the payments proxy,
+                          upcoming above past, each newest paid first. Read-only,
+                          no totals, no search, no actions. Under Operations in
+                          tools.json, not under Vouchers — staff should not need
+                          to know where deposits are stored to find them.
+deposits/logic.js       - the page's decisions, pure and unit tested: Perth
+                          "today", the upcoming/past split (a paid-but-unrecorded
+                          claim has no event date and goes to the TOP of upcoming,
+                          never past), newest-paid-first ordering, the email-state
+                          text (imported rows read "not applicable", never "not
+                          sent"), and the Stripe dashboard link. Month names are
+                          spelled here, not taken from Intl — ICU's en-AU short
+                          month moved from "Sep" to "Sept" between releases.
 vouchers/               - voucher management portal (auth = Cloudflare Access)
 vouchers/stats.html     - voucher analytics: revenue, liability, redemption, product mix, email delivery
 vouchers/unsubscribes.html - who is not receiving automatic voucher emails, and why
