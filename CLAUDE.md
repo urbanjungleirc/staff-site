@@ -364,15 +364,23 @@ school-booking/identity.js - the matching rule: surname + DOB narrows, first nam
 deposits.html           - group-booking deposits (#154, spec vouchers#100): every
                           row from GET /v1/staff/deposits via the payments proxy,
                           upcoming above past, each newest paid first. Read-only,
-                          no totals, no search, no actions. Under Operations in
-                          tools.json, not under Vouchers — staff should not need
-                          to know where deposits are stored to find them.
+                          no totals, no search, no actions. In tools.json it sits
+                          in the Group Bookings card beside School Group Booking,
+                          not under Vouchers — staff should not need to know
+                          where deposits are stored to find them. Six columns
+                          with two-line cells; each email is an icon whose full
+                          sentence is the hover title (and visible on a phone).
 deposits/logic.js       - the page's decisions, pure and unit tested: Perth
                           "today", the upcoming/past split (a paid-but-unrecorded
                           claim has no event date and goes to the TOP of upcoming,
                           never past), newest-paid-first ordering, the email-state
                           text (imported rows read "not applicable", never "not
-                          sent"), and the Stripe dashboard link. Month names are
+                          sent"), and the Stripe link — a dashboard SEARCH for the
+                          organiser's email, because the dashboard has no route
+                          for a Checkout Session id and its search does not match
+                          one either (checked live 2026-09-18); a direct
+                          /payments/pi_… link needs the row to carry the
+                          payment_intent, which is a Worker change. Month names are
                           spelled here, not taken from Intl — ICU's en-AU short
                           month moved from "Sep" to "Sept" between releases.
 vouchers/               - voucher management portal (auth = Cloudflare Access)
