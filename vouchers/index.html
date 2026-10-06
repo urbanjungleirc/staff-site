@@ -77,6 +77,10 @@
     // hub, which would break typing as well as scanning.
     import * as scanInput from './scan-input.js?v=1';
     window.scanInput = scanInput;
+    // Mirrors the Worker's receipt rule for the create form. A stale copy only
+    // loses the early "receipt required" check; the Worker still refuses.
+    import * as purchaseReceipt from './purchase-receipt.js?v=1';
+    window.purchaseReceipt = purchaseReceipt;
   </script>
   <script defer src="https://cdn.jsdelivr.net/npm/alpinejs@3.x.x/dist/cdn.min.js"></script>
   <style>
@@ -1313,10 +1317,11 @@
                 </section>
 
                 <!-- Payment -->
-                <section class="detail-group" x-show="voucher?.clubworx_receipt || voucher?.payment_reference || voucher?.payment_platform || voucher?.purchase_source">
+                <section class="detail-group" x-show="voucher?.purchase_receipt || voucher?.clubworx_receipt || voucher?.payment_reference || voucher?.payment_platform || voucher?.purchase_source">
                   <h4 class="detail-group-title">Payment</h4>
                   <dl class="detail-grid grid grid-cols-2 gap-x-6 gap-y-3.5 text-sm">
-                    <div x-show="voucher?.clubworx_receipt"><dt class="text-[0.62rem] font-semibold text-neutral-400 uppercase tracking-wider mb-1">Clubworx receipt</dt><dd class="text-neutral-700" x-text="voucher?.clubworx_receipt"></dd></div>
+                    <div x-show="voucher?.purchase_receipt"><dt class="text-[0.62rem] font-semibold text-neutral-400 uppercase tracking-wider mb-1">Purchase receipt</dt><dd class="text-neutral-700" x-text="voucher?.purchase_receipt"></dd></div>
+                    <div x-show="voucher?.clubworx_receipt"><dt class="text-[0.62rem] font-semibold text-neutral-400 uppercase tracking-wider mb-1">Redemption receipt</dt><dd class="text-neutral-700" x-text="voucher?.clubworx_receipt"></dd></div>
                     <div x-show="voucher?.payment_platform"><dt class="text-[0.62rem] font-semibold text-neutral-400 uppercase tracking-wider mb-1">Platform</dt><dd class="capitalize text-neutral-700" x-text="voucher?.payment_platform"></dd></div>
                     <div x-show="voucher?.purchase_source"><dt class="text-[0.62rem] font-semibold text-neutral-400 uppercase tracking-wider mb-1">Source</dt><dd class="capitalize text-neutral-700" x-text="voucher?.purchase_source"></dd></div>
                     <div x-show="voucher?.payment_reference"><dt class="text-[0.62rem] font-semibold text-neutral-400 uppercase tracking-wider mb-1">Payment ref</dt><dd class="text-xs break-all text-neutral-500 font-mono" x-text="voucher?.payment_reference"></dd></div>
@@ -1637,6 +1642,19 @@
               </label>
               <input type="email" x-model="createEmail"
                 :placeholder="createType && !voucherTypes.find(t => t.type_id === createType)?.is_physical ? 'Required' : 'Optional'"
+                class="w-full border border-neutral-200 rounded-xl px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-uj/20 focus:border-uj" />
+            </div>
+          </div>
+
+          <!-- Clubworx receipt: required for sales, optional for comps and credits -->
+          <div class="bg-white rounded-card hub-card section-card border border-neutral-100 p-5 space-y-4" x-show="createType">
+            <div>
+              <label class="block text-[0.67rem] font-semibold text-neutral-400 uppercase tracking-wider mb-1.5">
+                Clubworx receipt #
+                <span x-show="createReceiptRequired()" class="text-rose-400 normal-case tracking-normal font-normal">*</span>
+              </label>
+              <input type="text" x-model="createReceipt" autocomplete="off"
+                :placeholder="createReceiptRequired() ? 'Required — ring the sale up in Clubworx first' : 'Optional — no sale to record for this type'"
                 class="w-full border border-neutral-200 rounded-xl px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-uj/20 focus:border-uj" />
             </div>
           </div>
@@ -3667,6 +3685,7 @@
       createName: '',
       createPhone: '',
       createEmail: '',
+      createReceipt: '',
       createValue: '',
       createReason: '',
       createGiftFrom: '',
@@ -4633,6 +4652,7 @@
         this.createName = '';
         this.createPhone = '';
         this.createEmail = '';
+        this.createReceipt = '';
         this.createValue = '';
         this.createReason = '';
         this.createGiftFrom = '';
@@ -4685,6 +4705,10 @@
       willEmailVoucher() {
         const t = this.selectedCreateType();
         return !!(t && !t.is_physical && this.createEmail && this.createEmail.trim());
+      },
+
+      createReceiptRequired() {
+        return !!window.purchaseReceipt?.receiptRequired?.(this.selectedCreateType());
       },
 
       createTypeExpiryNote() {
@@ -4808,6 +4832,9 @@
         if (selectedType && !selectedType.is_physical && this.createEmail.trim() && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(this.createEmail.trim())) {
           this.createError = 'Please enter a valid email address (e.g. name@example.com)'; return;
         }
+        if (window.purchaseReceipt?.receiptRequired(selectedType) && !this.createReceipt.trim()) {
+          this.createError = 'Clubworx receipt # is required — ring the sale up in Clubworx first'; return;
+        }
         this.createLoading = true;
         this.createError = '';
         try {
@@ -4819,6 +4846,7 @@
               customer_name: this.createName.trim(),
               customer_phone: this.createPhone.trim() || null,
               customer_email: this.createEmail.trim() || null,
+              purchase_receipt: this.createReceipt.trim() || null,
               value: this.createValue ? Number(this.createValue) : null,
               reason: this.createReason.trim() || null,
               gift_from: this.createGiftFrom.trim() || null,
