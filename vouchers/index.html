@@ -1614,7 +1614,7 @@
               </div>
             </div>
 
-            <!-- Clubworx receipt: required for sales, optional for comps and credits -->
+            <!-- Clubworx receipt: required for sales, optional for comps, credits and donations -->
             <div class="bg-white rounded-card hub-card section-card border border-neutral-100 p-5 space-y-4" x-show="createType">
               <div>
                 <label class="block text-[0.67rem] font-semibold text-neutral-400 uppercase tracking-wider mb-1.5">
@@ -2412,7 +2412,7 @@
 
           <!-- Revenue class -->
           <div>
-            <label class="block text-[0.67rem] font-semibold text-neutral-400 uppercase tracking-wider mb-1.5">Revenue class<span class="help-tip" tabindex="0" role="note" aria-label="Help">?<span class="help-bubble">What this type is, economically. sale — sold at full price. promo_sale — sold at a promotional price. credit — account credit, no money in. comp — given away. Only sale and promo_sale count as revenue in the stats.</span></span></label>
+            <label class="block text-[0.67rem] font-semibold text-neutral-400 uppercase tracking-wider mb-1.5">Revenue class<span class="help-tip" tabindex="0" role="note" aria-label="Help">?<span class="help-bubble">What this type is, economically. sale — sold at full price. promo_sale — sold at a promotional price. credit — account credit, no money in. comp — given away. donation — money taken, but not a sale: no Clubworx receipt needed. Only sale and promo_sale count as revenue in the stats; donations show as money in.</span></span></label>
             <div class="combo" @click.outside="revenueClassOpen = false" @keydown.escape.window="revenueClassOpen = false">
               <button type="button" @click="revenueClassOpen = !revenueClassOpen" :aria-expanded="revenueClassOpen.toString()" class="combo-trigger">
                 <span x-text="typeForm.revenue_class"></span>
@@ -2423,6 +2423,7 @@
                 <button type="button" @click="typeForm.revenue_class = 'promo_sale'; revenueClassOpen = false" :class="typeForm.revenue_class === 'promo_sale' ? 'active' : ''" class="combo-option">promo_sale</button>
                 <button type="button" @click="typeForm.revenue_class = 'credit'; revenueClassOpen = false" :class="typeForm.revenue_class === 'credit' ? 'active' : ''" class="combo-option">credit</button>
                 <button type="button" @click="typeForm.revenue_class = 'comp'; revenueClassOpen = false" :class="typeForm.revenue_class === 'comp' ? 'active' : ''" class="combo-option">comp</button>
+                <button type="button" @click="typeForm.revenue_class = 'donation'; revenueClassOpen = false" :class="typeForm.revenue_class === 'donation' ? 'active' : ''" class="combo-option">donation</button>
               </div>
             </div>
           </div>

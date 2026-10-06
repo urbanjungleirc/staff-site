@@ -563,7 +563,8 @@
               <div>
                 <h2 class="text-base font-semibold text-neutral-900 leading-tight">Sold each month</h2>
                 <p class="text-xs text-neutral-500 mt-0.5">
-                  Bars are money taken, stacked by revenue class. Credits and comps take no money, so they
+                  Bars are money taken, stacked by revenue class. Donations are money taken but not revenue, so
+                  they stack here and stay out of the revenue total. Credits and comps take no money, so they
                   sit at zero in dollars but still show up in the count.
                 </p>
               </div>
@@ -989,6 +990,9 @@
         { key: 'promo_sale', label: 'Promo sale', colour: C.ochre },
         { key: 'credit',     label: 'Credit',     colour: C.slate },
         { key: 'comp',       label: 'Comp',       colour: C.rose },
+        // Money in, but not revenue (#119): it stacks in the money bars and has its own
+        // table column, yet stays out of "Total revenue" and the face-value line.
+        { key: 'donation',   label: 'Donation',   colour: C.burgundyDark },
       ],
       // An ordered ramp, because the bands are ordered: one hue, light to dark.
       BANDS: [
@@ -1218,8 +1222,8 @@
               // discounting, never a routine account credit landing that month.
               face_value_issued: 0, face_value_issued_revenue: 0, redeemed_value: 0, expired_value: 0,
               liability_close: null, sold_count: 0,
-              revenue: { sale: 0, promo_sale: 0, credit: 0, comp: 0 },
-              count: { sale: 0, promo_sale: 0, credit: 0, comp: 0 },
+              revenue: { sale: 0, promo_sale: 0, credit: 0, comp: 0, donation: 0 },
+              count: { sale: 0, promo_sale: 0, credit: 0, comp: 0, donation: 0 },
             });
           }
           const m = out.get(r.month);
@@ -1231,7 +1235,8 @@
           m.expired_value += Number(r.expired_value) || 0;
           m.sold_count += Number(r.sold_count) || 0;
           if (r.revenue_class in m.revenue) {
-            m.revenue[r.revenue_class] += Number(r.revenue) || 0;
+            // A donation's cash is money_in, not revenue (the SQL keeps revenue at 0 for it).
+            m.revenue[r.revenue_class] += Number(r.revenue_class === 'donation' ? r.money_in : r.revenue) || 0;
             m.count[r.revenue_class] += Number(r.sold_count) || 0;
           } else {
             this.warnUnknownClass(r.revenue_class, r);
