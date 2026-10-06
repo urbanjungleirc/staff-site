@@ -1511,8 +1511,8 @@
       </div>
 
       <!-- Error banner -->
-      <div x-show="createError"
-        class="bg-rose-50 border border-rose-200 text-rose-700 rounded-xl p-3 text-sm mb-4"
+      <div x-show="createError" id="create-error"
+        class="scroll-mt-4 bg-rose-50 border border-rose-200 text-rose-700 rounded-xl p-3 text-sm mb-4"
         x-text="createError"></div>
 
       <!-- #133. Everything that can start a new voucher lives inside this
@@ -1531,85 +1531,100 @@
         <!-- 3-column form grid -->
         <div class="grid grid-cols-1 md:grid-cols-3 gap-4 items-start">
 
-          <!-- ① Voucher details -->
-          <div class="bg-white rounded-card hub-card section-card border border-neutral-100 p-5 space-y-4">
-            <div class="flex items-center gap-2.5 pb-3 border-b border-neutral-100">
-              <div class="section-icon"><svg viewBox="0 0 24 24"><path d="M3.5 8.5a2 2 0 0 1 2-2h13a2 2 0 0 1 2 2v2.1a2.4 2.4 0 0 0 0 4.8v2.1a2 2 0 0 1-2 2h-13a2 2 0 0 1-2-2v-2.1a2.4 2.4 0 0 0 0-4.8V8.5z"/><path d="M9 9.25v5.5"/></svg></div>
-              <span class="text-xs font-semibold text-neutral-600 uppercase tracking-wider">Voucher details</span>
-            </div>
+          <!-- ① Voucher details + Clubworx receipt: one column, so the receipt sits directly under the details it belongs to -->
+          <div class="space-y-4">
+            <div class="bg-white rounded-card hub-card section-card border border-neutral-100 p-5 space-y-4">
+              <div class="flex items-center gap-2.5 pb-3 border-b border-neutral-100">
+                <div class="section-icon"><svg viewBox="0 0 24 24"><path d="M3.5 8.5a2 2 0 0 1 2-2h13a2 2 0 0 1 2 2v2.1a2.4 2.4 0 0 0 0 4.8v2.1a2 2 0 0 1-2 2h-13a2 2 0 0 1-2-2v-2.1a2.4 2.4 0 0 0 0-4.8V8.5z"/><path d="M9 9.25v5.5"/></svg></div>
+                <span class="text-xs font-semibold text-neutral-600 uppercase tracking-wider">Voucher details</span>
+              </div>
 
-            <div>
-              <label class="block text-[0.67rem] font-semibold text-neutral-400 uppercase tracking-wider mb-1.5">
-                Type <span class="text-rose-400 normal-case tracking-normal font-normal">*</span>
-              </label>
-              <div class="combo" @click.outside="createTypeOpen = false" @keydown.escape.window="createTypeOpen = false">
-                <button type="button" @click="createTypeOpen = !createTypeOpen" :aria-expanded="createTypeOpen.toString()"
-                  class="combo-trigger">
-                  <span x-text="voucherTypes.find(t => t.type_id === createType)?.display_name || 'Select type…'"></span>
-                  <svg class="combo-chevron" viewBox="0 0 24 24"><path d="m6 9 6 6 6-6"/></svg>
-                </button>
-                <div x-show="createTypeOpen" x-transition.origin.top x-cloak class="combo-menu">
-                  <button type="button" @click="createType = ''; onCreateTypeChange(); createTypeOpen = false"
-                    :class="createType === '' ? 'active' : ''"
-                    class="combo-option">Select type…</button>
-                  <template x-for="t in createTypeOptions()" :key="t.type_id">
-                    <button type="button" @click="createType = t.type_id; onCreateTypeChange(); createTypeOpen = false"
-                      :class="createType === t.type_id ? 'active' : ''"
-                      class="combo-option">
-                      <span x-text="t.display_name"></span>
-                    </button>
-                  </template>
+              <div>
+                <label class="block text-[0.67rem] font-semibold text-neutral-400 uppercase tracking-wider mb-1.5">
+                  Type <span class="text-rose-400 normal-case tracking-normal font-normal">*</span>
+                </label>
+                <div class="combo" @click.outside="createTypeOpen = false" @keydown.escape.window="createTypeOpen = false">
+                  <button type="button" @click="createTypeOpen = !createTypeOpen" :aria-expanded="createTypeOpen.toString()"
+                    class="combo-trigger">
+                    <span x-text="voucherTypes.find(t => t.type_id === createType)?.display_name || 'Select type…'"></span>
+                    <svg class="combo-chevron" viewBox="0 0 24 24"><path d="m6 9 6 6 6-6"/></svg>
+                  </button>
+                  <div x-show="createTypeOpen" x-transition.origin.top x-cloak class="combo-menu">
+                    <button type="button" @click="createType = ''; onCreateTypeChange(); createTypeOpen = false"
+                      :class="createType === '' ? 'active' : ''"
+                      class="combo-option">Select type…</button>
+                    <template x-for="t in createTypeOptions()" :key="t.type_id">
+                      <button type="button" @click="createType = t.type_id; onCreateTypeChange(); createTypeOpen = false"
+                        :class="createType === t.type_id ? 'active' : ''"
+                        class="combo-option">
+                        <span x-text="t.display_name"></span>
+                      </button>
+                    </template>
+                  </div>
                 </div>
+              </div>
+
+              <div x-show="voucherItems.length > 0">
+                <label class="block text-[0.67rem] font-semibold text-neutral-400 uppercase tracking-wider mb-1.5">Item</label>
+                <div class="combo" @click.outside="createItemOpen = false" @keydown.escape.window="createItemOpen = false">
+                  <button type="button" @click="createItemOpen = !createItemOpen" :aria-expanded="createItemOpen.toString()"
+                    class="combo-trigger">
+                    <span x-text="voucherItems.find(i => String(i.id) === String(createItem)) ? voucherItems.find(i => String(i.id) === String(createItem)).name + ' — $' + Number(voucherItems.find(i => String(i.id) === String(createItem)).value).toFixed(2) : 'Custom amount…'"></span>
+                    <svg class="combo-chevron" viewBox="0 0 24 24"><path d="m6 9 6 6 6-6"/></svg>
+                  </button>
+                  <div x-show="createItemOpen" x-transition.origin.top x-cloak class="combo-menu">
+                    <button type="button" @click="createItem = ''; onCreateItemChange(); createItemOpen = false"
+                      :class="createItem === '' ? 'active' : ''"
+                      class="combo-option">Custom amount…</button>
+                    <template x-for="i in voucherItems" :key="i.id">
+                      <button type="button" @click="createItem = i.id; onCreateItemChange(); createItemOpen = false"
+                        :class="String(createItem) === String(i.id) ? 'active' : ''"
+                        class="combo-option">
+                        <span x-text="i.name + ' — $' + Number(i.value).toFixed(2)"></span>
+                      </button>
+                    </template>
+                  </div>
+                </div>
+              </div>
+
+              <div>
+                <label class="block text-[0.67rem] font-semibold text-neutral-400 uppercase tracking-wider mb-1.5">
+                  Value ($) <span class="text-rose-400 normal-case tracking-normal font-normal">*</span>
+                </label>
+                <!-- Locked while an item is selected — the worker takes the value from the item, not this field. -->
+                <input type="number" step="0.01" min="0.01" x-model="createValue" placeholder="0.00"
+                  :disabled="!!createItem" :title="createItem ? 'Value comes from the selected item. Choose Custom amount… to enter your own.' : ''"
+                  class="w-full border border-neutral-200 rounded-xl px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-uj/20 focus:border-uj disabled:bg-neutral-100 disabled:text-neutral-500 disabled:cursor-not-allowed" />
+              </div>
+
+              <div>
+                <label class="block text-[0.67rem] font-semibold text-neutral-400 uppercase tracking-wider mb-1.5">
+                  Reason <span class="normal-case tracking-normal font-normal text-neutral-400">(internal)</span>
+                </label>
+                <input type="text" x-model="createReason" placeholder="e.g. Refund — cancelled booking, Comp — prize"
+                  class="w-full border border-neutral-200 rounded-xl px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-uj/20 focus:border-uj" />
+              </div>
+
+              <div>
+                <label class="block text-[0.67rem] font-semibold text-neutral-400 uppercase tracking-wider mb-1.5">
+                  Created by <span class="text-rose-400 normal-case tracking-normal font-normal">*</span>
+                </label>
+                <input type="text" x-model="createIssuer" placeholder="Your name" autocomplete="off"
+                  class="w-full border border-neutral-200 rounded-xl px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-uj/20 focus:border-uj" />
               </div>
             </div>
 
-            <div x-show="voucherItems.length > 0">
-              <label class="block text-[0.67rem] font-semibold text-neutral-400 uppercase tracking-wider mb-1.5">Item</label>
-              <div class="combo" @click.outside="createItemOpen = false" @keydown.escape.window="createItemOpen = false">
-                <button type="button" @click="createItemOpen = !createItemOpen" :aria-expanded="createItemOpen.toString()"
-                  class="combo-trigger">
-                  <span x-text="voucherItems.find(i => String(i.id) === String(createItem)) ? voucherItems.find(i => String(i.id) === String(createItem)).name + ' — $' + Number(voucherItems.find(i => String(i.id) === String(createItem)).value).toFixed(2) : 'Custom amount…'"></span>
-                  <svg class="combo-chevron" viewBox="0 0 24 24"><path d="m6 9 6 6 6-6"/></svg>
-                </button>
-                <div x-show="createItemOpen" x-transition.origin.top x-cloak class="combo-menu">
-                  <button type="button" @click="createItem = ''; onCreateItemChange(); createItemOpen = false"
-                    :class="createItem === '' ? 'active' : ''"
-                    class="combo-option">Custom amount…</button>
-                  <template x-for="i in voucherItems" :key="i.id">
-                    <button type="button" @click="createItem = i.id; onCreateItemChange(); createItemOpen = false"
-                      :class="String(createItem) === String(i.id) ? 'active' : ''"
-                      class="combo-option">
-                      <span x-text="i.name + ' — $' + Number(i.value).toFixed(2)"></span>
-                    </button>
-                  </template>
-                </div>
+            <!-- Clubworx receipt: required for sales, optional for comps and credits -->
+            <div class="bg-white rounded-card hub-card section-card border border-neutral-100 p-5 space-y-4" x-show="createType">
+              <div>
+                <label class="block text-[0.67rem] font-semibold text-neutral-400 uppercase tracking-wider mb-1.5">
+                  Clubworx receipt #
+                  <span x-show="createReceiptRequired()" class="text-rose-400 normal-case tracking-normal font-normal">*</span>
+                </label>
+                <input type="text" x-model="createReceipt" autocomplete="off"
+                  :placeholder="createReceiptRequired() ? 'Required — ring the sale up in Clubworx first' : 'Optional — no sale to record for this type'"
+                  class="w-full border border-neutral-200 rounded-xl px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-uj/20 focus:border-uj" />
               </div>
-            </div>
-
-            <div>
-              <label class="block text-[0.67rem] font-semibold text-neutral-400 uppercase tracking-wider mb-1.5">
-                Value ($) <span class="text-rose-400 normal-case tracking-normal font-normal">*</span>
-              </label>
-              <!-- Locked while an item is selected — the worker takes the value from the item, not this field. -->
-              <input type="number" step="0.01" min="0.01" x-model="createValue" placeholder="0.00"
-                :disabled="!!createItem" :title="createItem ? 'Value comes from the selected item. Choose Custom amount… to enter your own.' : ''"
-                class="w-full border border-neutral-200 rounded-xl px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-uj/20 focus:border-uj disabled:bg-neutral-100 disabled:text-neutral-500 disabled:cursor-not-allowed" />
-            </div>
-
-            <div>
-              <label class="block text-[0.67rem] font-semibold text-neutral-400 uppercase tracking-wider mb-1.5">
-                Reason <span class="normal-case tracking-normal font-normal text-neutral-400">(internal)</span>
-              </label>
-              <input type="text" x-model="createReason" placeholder="e.g. Refund — cancelled booking, Comp — prize"
-                class="w-full border border-neutral-200 rounded-xl px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-uj/20 focus:border-uj" />
-            </div>
-
-            <div>
-              <label class="block text-[0.67rem] font-semibold text-neutral-400 uppercase tracking-wider mb-1.5">
-                Created by <span class="text-rose-400 normal-case tracking-normal font-normal">*</span>
-              </label>
-              <input type="text" x-model="createIssuer" placeholder="Your name" autocomplete="off"
-                class="w-full border border-neutral-200 rounded-xl px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-uj/20 focus:border-uj" />
             </div>
           </div>
 
@@ -1642,19 +1657,6 @@
               </label>
               <input type="email" x-model="createEmail"
                 :placeholder="createType && !voucherTypes.find(t => t.type_id === createType)?.is_physical ? 'Required' : 'Optional'"
-                class="w-full border border-neutral-200 rounded-xl px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-uj/20 focus:border-uj" />
-            </div>
-          </div>
-
-          <!-- Clubworx receipt: required for sales, optional for comps and credits -->
-          <div class="bg-white rounded-card hub-card section-card border border-neutral-100 p-5 space-y-4" x-show="createType">
-            <div>
-              <label class="block text-[0.67rem] font-semibold text-neutral-400 uppercase tracking-wider mb-1.5">
-                Clubworx receipt #
-                <span x-show="createReceiptRequired()" class="text-rose-400 normal-case tracking-normal font-normal">*</span>
-              </label>
-              <input type="text" x-model="createReceipt" autocomplete="off"
-                :placeholder="createReceiptRequired() ? 'Required — ring the sale up in Clubworx first' : 'Optional — no sale to record for this type'"
                 class="w-full border border-neutral-200 rounded-xl px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-uj/20 focus:border-uj" />
             </div>
           </div>
@@ -4822,18 +4824,26 @@
         else this.createValue = '';
       },
 
+      // The banner sits above a form that is taller than the screen, and the submit
+      // button is below it, so an error set in place was off-screen when the click
+      // that caused it landed. Bring the banner into view along with the message.
+      failCreate(message) {
+        this.createError = message;
+        this.$nextTick(() => document.getElementById('create-error')?.scrollIntoView({ behavior: 'smooth', block: 'start' }));
+      },
+
       async submitCreate() {
-        if (!this.createIssuer.trim()) { this.createError = 'Created by is required — enter your name'; return; }
-        if (!this.createName.trim()) { this.createError = 'Customer name is required'; return; }
-        if (!this.createType) { this.createError = 'Select a voucher type'; return; }
-        if (!this.createItem && !this.createValue) { this.createError = 'Select an item or enter a value'; return; }
+        if (!this.createIssuer.trim()) { this.failCreate('Created by is required — enter your name'); return; }
+        if (!this.createName.trim()) { this.failCreate('Customer name is required'); return; }
+        if (!this.createType) { this.failCreate('Select a voucher type'); return; }
+        if (!this.createItem && !this.createValue) { this.failCreate('Select an item or enter a value'); return; }
         const selectedType = this.voucherTypes.find(t => t.type_id === this.createType);
-        if (selectedType && !selectedType.is_physical && !this.createEmail.trim()) { this.createError = 'Email is required for non-physical vouchers'; return; }
+        if (selectedType && !selectedType.is_physical && !this.createEmail.trim()) { this.failCreate('Email is required for non-physical vouchers'); return; }
         if (selectedType && !selectedType.is_physical && this.createEmail.trim() && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(this.createEmail.trim())) {
-          this.createError = 'Please enter a valid email address (e.g. name@example.com)'; return;
+          this.failCreate('Please enter a valid email address (e.g. name@example.com)'); return;
         }
         if (window.purchaseReceipt?.receiptRequired(selectedType) && !this.createReceipt.trim()) {
-          this.createError = 'Clubworx receipt # is required — ring the sale up in Clubworx first'; return;
+          this.failCreate('Clubworx receipt # is required — ring the sale up in Clubworx first'); return;
         }
         this.createLoading = true;
         this.createError = '';
@@ -4880,7 +4890,7 @@
           // cheap here; see created-by-attribution.test.js.
           this.createIssuer = '';
         } catch (e) {
-          this.createError = e.message;
+          this.failCreate(e.message);
         } finally {
           this.createLoading = false;
         }
