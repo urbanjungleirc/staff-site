@@ -2447,9 +2447,14 @@
 
           <!-- Promo ID -->
           <div>
-            <label class="block text-[0.67rem] font-semibold text-neutral-400 uppercase tracking-wider mb-1.5">Promo ID<span class="help-tip" tabindex="0" role="note" aria-label="Help">?<span class="help-bubble">Restricts this type to a promo link (…?promo=ID). Blank = shown to everyone. Not shown publicly.</span></span></label>
+            <label class="block text-[0.67rem] font-semibold text-neutral-400 uppercase tracking-wider mb-1.5">Promo ID<span class="help-tip" tabindex="0" role="note" aria-label="Help">?<span class="help-bubble">Restricts this type to a promo link (…?promo_id=ID). Blank = shown to everyone. Not shown publicly.</span></span></label>
             <input type="text" x-model="typeForm.promo_id" placeholder="blank = none"
               class="w-full border border-neutral-200 rounded-xl px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-uj/20 focus:border-uj" />
+            <template x-if="promoLink">
+              <a :href="promoLink" target="_blank" rel="noopener" x-text="promoLink"
+                class="mt-1.5 block text-xs text-uj underline break-all hover:opacity-80"></a>
+            </template>
+            <p x-show="!(typeForm.promo_id || '').trim()" class="mt-1.5 text-xs text-neutral-400">No promo link — shown on the main page.</p>
           </div>
 
           <!-- Sort order -->
@@ -3710,6 +3715,7 @@
       cancelLoading: false,
       cancelError: '',
       accessEmail: '',
+      publicVoucherBase: '',
       // Formatted footer build version, or '' for "do not show a version".
       // Starts empty so the footer never flashes a placeholder before the
       // fetch lands, and stays empty on every failure path.
@@ -3831,6 +3837,7 @@
           .then((d) => { if (d && d.email) this.accessEmail = d.email; })
           .catch(() => {});
         this.loadBuildVersion();
+        this.loadPublicVoucherBase();
         // Position help-tip bubbles on hover/focus so they escape the editor
         // panel's overflow and stay inside the viewport near a form edge.
         const onTip = (e) => { const t = e.target.closest && e.target.closest('.help-tip'); if (t) this.positionTip(t); };
@@ -4506,6 +4513,38 @@
       // second version baked into the HTML to compare against, which is
       // vouchers#66 — until then this answers "what is deployed?", not "am I
       // running it?".
+      // The public purchase page's address lives in the hub's tools.json
+      // (entry "voucher-public"), so a domain change is one edit there and this
+      // link follows. A failed fetch just leaves the link hidden.
+      async loadPublicVoucherBase() {
+        try {
+          const res = await fetch('/tools.json', { cache: 'no-store' });
+          const data = res.ok ? await res.json() : null;
+          const find = (nodes) => {
+            for (const n of nodes || []) {
+              if (n.id === 'voucher-public') return n;
+              const hit = find(n.items);
+              if (hit) return hit;
+            }
+            return null;
+          };
+          const entry = find(data && data.entries);
+          this.publicVoucherBase = (entry && entry.path) || '';
+        } catch {
+          this.publicVoucherBase = '';
+        }
+      },
+
+      // Live link to the public page for the type being edited; '' when there
+      // is no promo ID (such a type shows on the main page) or no base URL.
+      get promoLink() {
+        const id = (this.typeForm.promo_id || '').trim();
+        if (!id || !this.publicVoucherBase) return '';
+        const url = new URL(this.publicVoucherBase, window.location.href);
+        url.searchParams.set('promo_id', id);
+        return url.toString();
+      },
+
       async loadBuildVersion() {
         try {
           const res = await fetch('./version.json', { cache: 'no-store' });
