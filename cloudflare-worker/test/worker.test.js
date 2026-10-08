@@ -38,6 +38,7 @@ const call = (path, env, init) => worker.fetch(new Request(ORIGIN + path, init),
 /** A Deputy parent roster record with the metadata the Worker reads. */
 const shift = (overrides = {}) => ({
   Id: 101,
+  Published: true,
   StartTime: 1770000000,
   EndTime: 1770020000,
   ParentId: null,

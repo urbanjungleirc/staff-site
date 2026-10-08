@@ -969,8 +969,8 @@
         <div class="view-toggle">
           <div class="view-toggle-group">
             <button class="view-btn" id="btn-grouped">Cards</button>
-            <button class="view-btn active" id="btn-timeline">Timeline by Role</button>
-            <button class="view-btn" id="btn-alpha">Timeline by Name</button>
+            <button class="view-btn" id="btn-timeline">Timeline by Role</button>
+            <button class="view-btn active" id="btn-alpha">Timeline by Name</button>
           </div>
           <a class="clock-in-btn" href="https://urbanjungle.au.deputy.com/exec/kiosk/web" target="_blank" rel="noopener">Clock In</a>
         </div>
@@ -1041,7 +1041,7 @@
       const refreshLabel = refreshMins >= 60
         ? `${refreshMins / 60}h`
         : `${refreshMins} min`;
-      let viewMode = 'timeline'; // 'grouped' | 'timeline' | 'alpha'
+      let viewMode = 'alpha'; // 'grouped' | 'timeline' | 'alpha'
 
       // ── Calendar cache ──
       // The Worker sends a per-date map spanning −30/+90 days, so navigating

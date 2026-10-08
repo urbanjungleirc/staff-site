@@ -113,6 +113,11 @@ export default {
         }
 
         const shifts = items.flatMap(s => {
+          // Deputy's QUERY returns draft shifts alongside published ones, and
+          // staff must not see a roster that is still being worked on. The
+          // flag is read on the parent only: micro-schedule children are
+          // published with their parent, not on their own.
+          if (!s.Published) return [];
           const name = s._DPMetaData?.EmployeeInfo?.DisplayName;
           if (!name) return [];
           const children = childrenByParent[s.Id];

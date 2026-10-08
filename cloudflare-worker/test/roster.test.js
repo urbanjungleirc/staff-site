@@ -14,8 +14,9 @@ const call = (extraEnv = {}) =>
   worker.fetch(new Request('https://ujstaff.happyk.au/api/roster'), { ...env, ...extraEnv });
 
 /** A Deputy parent roster record with the metadata shape the Worker reads. */
-const parent = (id, start) => ({
+const parent = (id, start, { published = true } = {}) => ({
   Id: id,
+  Published: published,
   StartTime: start,
   EndTime: start + 3600,
   _DPMetaData: {
@@ -144,5 +145,31 @@ describe('/api/roster pagination past the 500-record cap', () => {
     expect(body.error).toMatch(/incomplete|too many|ceiling/i);
     // 20 pages each for the parent and child queries, then it gives up.
     expect(globalThis.fetch.mock.calls).toHaveLength(40);
+  });
+});
+
+describe('/api/roster published shifts only', () => {
+  it('drops a parent shift Deputy has not published, children included', async () => {
+    const t = NOW / 1000;
+    const parents = [
+      parent(1, t),
+      parent(2, t + 3600, { published: false }),
+      parent(3, t + 7200),
+    ];
+    // A micro-schedule segment under the draft shift must vanish with it.
+    const children = [child(20, 2, t + 3600)];
+    stubDeputy({ parents, children });
+
+    const shifts = await (await call()).json();
+
+    expect(shifts.map(s => s.name)).toEqual(['Staff 1', 'Staff 3']);
+  });
+
+  it('treats a record with no Published flag as unpublished', async () => {
+    const record = parent(1, NOW / 1000);
+    delete record.Published;
+    stubDeputy({ parents: [record] });
+
+    expect(await (await call()).json()).toEqual([]);
   });
 });
