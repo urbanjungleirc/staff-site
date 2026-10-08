@@ -103,7 +103,8 @@ The `CONFIG.icsProxyUrl` auto-detects `localhost` and points to `http://localhos
 
 - **Inactivity reset**: if the page is left on a non-today date for 25 minutes with no interaction, it silently returns to today.
 - **Auto-refresh**: every 5 minutes the ICS is re-fetched in the background without any loading flash.
-- **Default view**: Timeline. Users can switch to Grouped view; the choice persists until the page is reloaded.
+- **Default view**: Timeline by Name. Users can switch to Timeline by Role or Cards; the choice persists until the page is reloaded.
+- **Published shifts only**: the Worker drops Deputy shifts whose `Published` flag is false, so draft rosters never reach the page.
 
 ## Local Preview
 
