@@ -85,7 +85,7 @@ export const DEFAULT_ACCENT = '#ae222a';
 //
 // Named for the artwork, never the bare "hero", because the hero BACKDROP has
 // no composition rule to state (issue #85): it is `cover` against a box whose
-// height is content, so there is no fixed band to name. CONTEXT.md keeps those
+// height is content, so there is no fixed band to name. GLOSSARY.md keeps those
 // two images sharing no word, and this is exactly the pair it protects.
 export const HERO_ARTWORK_COMPOSITION_RULE =
   'Keep faces, logos and any words in the top 57% of your image — phones and '

@@ -498,7 +498,7 @@ the other.
 A **UJ term week** is a whole Mon–Sun week, snapped outward from the official WA
 term dates. This deliberately deviates from education.wa.edu.au — read
 `docs/adr/0002-uj-term-weeks-are-snapped.md` before touching the term table or
-the snapping logic. Definitions are in `CONTEXT.md`.
+the snapping logic. Definitions are in `GLOSSARY.md`.
 
 The term table in `cloudflare-worker/src/calendar.js` is hardcoded through 2031
 and must be extended before then; the UI warns as it approaches expiry.
@@ -700,4 +700,4 @@ Default canonical label vocabulary (needs-triage, needs-info, ready-for-agent, r
 
 ### Domain docs
 
-Single-context layout (`CONTEXT.md` + `docs/adr/` at repo root). See `docs/agents/domain.md`.
+Single-context layout (`GLOSSARY.md` + `docs/adr/` at repo root). See `docs/agents/domain.md`.

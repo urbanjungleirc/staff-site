@@ -4,7 +4,7 @@
 // three places that render it cannot drift apart.
 //
 // The canonical definition of "unsent voucher" lives in the vouchers repo,
-// docs/CONTEXT.md. Kept in step with the Worker, which decides the underlying
+// docs/GLOSSARY.md. Kept in step with the Worker, which decides the underlying
 // columns: email_sent is set by any successful send, original or resend, and
 // send_last_error carries the reason a send failed.
 

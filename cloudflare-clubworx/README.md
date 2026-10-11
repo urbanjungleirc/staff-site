@@ -346,7 +346,7 @@ code change, and that is the property to keep.
 
 The distinct **School marker** tags across all three status views — the marker is
 the whole `noreply+<school>@` address, the tag is the `<school>` inside it
-(`CONTEXT.md` §School marker). Clubworx's email filter partial-matches, so a bare
+(`GLOSSARY.md` §School marker). Clubworx's email filter partial-matches, so a bare
 `noreply+` finds every contact this tool has ever created ([#49]).
 
 **It returns tags, not contacts** — the rows behind the answer are hundreds of

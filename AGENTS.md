@@ -133,7 +133,7 @@ the other.
 A **UJ term week** is a whole Mon–Sun week, snapped outward from the official WA
 term dates. This deliberately deviates from education.wa.edu.au — read
 `docs/adr/0002-uj-term-weeks-are-snapped.md` before touching the term table or
-the snapping logic. Definitions are in `CONTEXT.md`.
+the snapping logic. Definitions are in `GLOSSARY.md`.
 
 The term table in `cloudflare-worker/src/calendar.js` is hardcoded through 2031
 and must be extended before then; the UI warns as it approaches expiry. Public
@@ -248,4 +248,4 @@ Shared configuration for the engineering skills — mirrored from `CLAUDE.md`, w
 
 - **Issue tracker** — GitHub Issues via the `gh` CLI. See `docs/agents/issue-tracker.md`.
 - **Triage labels** — default canonical vocabulary: `needs-triage`, `needs-info`, `ready-for-agent`, `ready-for-human`, `wontfix`. See `docs/agents/triage-labels.md`.
-- **Domain docs** — single-context layout (`CONTEXT.md` + `docs/adr/` at repo root). See `docs/agents/domain.md`.
+- **Domain docs** — single-context layout (`GLOSSARY.md` + `docs/adr/` at repo root). See `docs/agents/domain.md`.

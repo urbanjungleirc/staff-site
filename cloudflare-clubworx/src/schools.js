@@ -2,7 +2,7 @@
  * The school picker's read: which **School markers** Clubworx already holds.
  *
  * staff-site#67. Design: `docs/superpowers/specs/2026-08-19-school-group-booking-design.md`
- * §4 (school marking) and §6 (the route table). Glossary: `CONTEXT.md` §School
+ * §4 (school marking) and §6 (the route table). Glossary: `GLOSSARY.md` §School
  * marker — the whole address is the *marker*, and `<school>` inside it is the
  * *tag*. Both terms are used here in exactly those senses; "slug" is a synonym
  * this module deliberately does not use.

@@ -8,7 +8,7 @@
 //
 // Rules are §7 of docs/superpowers/specs/2026-08-19-school-group-booking-design.md,
 // settled on #52 against the three real lists catalogued in #48. Vocabulary is
-// CONTEXT.md § "Clubworx school list parsing".
+// GLOSSARY.md § "Clubworx school list parsing".
 //
 // Why none of this is cosmetic: under the member + School Pass route a student
 // is three writes and only the last is reversible, so a parsing misread creates

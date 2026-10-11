@@ -1490,7 +1490,7 @@ Every example in this document is invented.
 | Events, rate limits, truncation | `cloudflare-clubworx/probes/51-events-and-burst.md` |
 | Member + School Pass route | `cloudflare-clubworx/probes/60-member-school-pass-booking.md` |
 | Real list shapes | `docs/school-lists/README.md` |
-| Domain glossary | `CONTEXT.md` |
+| Domain glossary | `GLOSSARY.md` |
 | Term weeks | `docs/adr/0002-uj-term-weeks-are-snapped.md` |
 | Page prototypes | branch `prototype/54-school-booking-ui`, `school-booking-prototype.html` |
 | Clubworx API reference | `uj/automations/ClubworxAPI_docs.md` (not in this repo) |
