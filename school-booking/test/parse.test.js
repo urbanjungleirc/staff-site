@@ -262,7 +262,7 @@ describe('P6 — columns are mapped content-first, never by position', () => {
 });
 
 describe('a preferred name stays tellable apart from a legal first name', () => {
-  // CONTEXT.md § "Preferred name": *Avoid: treating it as the first name. The
+  // GLOSSARY.md § "Preferred name": *Avoid: treating it as the first name. The
   // tie-breaker depends on telling them apart.* A first-name mismatch against
   // Clubworx is an expected outcome of a *correct* match when the school ships
   // a nickname column, which weakens the tie-breaker exactly where identity.js

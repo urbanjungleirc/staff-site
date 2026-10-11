@@ -137,7 +137,7 @@ detail page beside Resend. The dashboard's Outstanding card counts live unsent
 vouchers, and the search offers **Not sent** as a status — the same count as a
 list. (vouchers repo, ADR 0010.)
 
-Defined canonically in the **vouchers** repo, `docs/CONTEXT.md`, because it is a
+Defined canonically in the **vouchers** repo, `docs/GLOSSARY.md`, because it is a
 state of the voucher record rather than of this page. The hub renders it in
 three places (the create result, the detail view, the search list) and asks
 `unsent-voucher.js` in all three rather than restating the rule.
@@ -862,7 +862,7 @@ be taken back.
 ## Group booking deposits
 
 Terms used by `deposits.html` and `deposits/logic.js` (#154). The record itself
-is the payments Worker's `deposits` table; the hub repo's `CONTEXT.md` and
+is the payments Worker's `deposits` table; the hub repo's `GLOSSARY.md` and
 ADR 0011 there define *deposit*, *webhook row* and *imported row*. These are the
 words the page adds on top.
 

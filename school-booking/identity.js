@@ -7,7 +7,7 @@
 // seam parse.js, delete-logic.js and unsubscribes-logic.js use.
 //
 // Rules are §5 of docs/superpowers/specs/2026-08-19-school-group-booking-design.md.
-// Vocabulary is CONTEXT.md § "Clubworx school list parsing".
+// Vocabulary is GLOSSARY.md § "Clubworx school list parsing".
 //
 // **It does not fetch the candidates.** That is the Worker's job — it searches
 // all three disjoint status views (#49) and merges. Keeping this module
@@ -35,7 +35,7 @@ import { compareForm } from './parse.js?v=8';
 // `ignored`, which exist before any API call. §9's preview table gives each axis
 // its own column for exactly that reason.
 //
-// `unmatchable` is a sixth, added on #65 and recorded in CONTEXT.md § "Parse-time
+// `unmatchable` is a sixth, added on #65 and recorded in GLOSSARY.md § "Parse-time
 // row state": a row missing either half of the identity key can conclude nothing,
 // and the five states above have no way to say so. See the guard in
 // `matchStudent` for why silence is not an option.
@@ -110,7 +110,7 @@ export function matchStudent(record, candidates = [], columns = null) {
   //
   // Reporting `new` for a DOB-less row creates a permanent contact with no DOB,
   // which then poisons the surname + DOB key for every later term — the same
-  // damage a wrong date orientation does (CONTEXT.md § Date orientation).
+  // damage a wrong date orientation does (GLOSSARY.md § Date orientation).
   // Matching a surname-less row picks whichever contact shares the birthday.
   if (!dob) {
     return outcome({ state: 'unmatchable', reason: 'no-dob' });
