@@ -1,8 +1,8 @@
 {
-  "version": "1.3.0",
-  "buildDate": "2026-11-13",
-  "buildTime": "12:26:51 UTC",
+  "version": "1.3.1",
+  "buildDate": "2026-11-23",
+  "buildTime": "03:31:06 UTC",
   "branch": "main",
-  "commit": "4cb9142bd60dc692ac142c6329051a5c86d84d05",
+  "commit": "dfdf582555733b2b254198de88d5ae0fa5beefd4",
   "deployedBy": "happykcz"
 }
